@@ -1,0 +1,7 @@
+[package]
+name = "Rippler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+input-stream = "0.4.0"
