@@ -1,11 +1,12 @@
 #[warn(unused_imports)]
-use crate::common::errors::error_data::{Label, Source, Span};
+use crate::common::errors::error_data::{Label, Span};
 
 pub struct Report {
     pub message: String,
     pub span: Option<Span>,
     pub labels: Vec<Label>,
     pub help: Option<String>,
+    pub system: Option<String>,
 }
 
 impl Report {
@@ -15,6 +16,7 @@ impl Report {
             span: None,
             labels: vec![],
             help: None,
+            system: None,
         }
     }
 
@@ -30,6 +32,11 @@ impl Report {
 
     pub fn with_help(mut self, msg: &str) -> Self {
         self.help = Some(msg.to_string());
+        self
+    }
+
+    pub fn with_system_error(mut self, msg: &str) -> Self {
+        self.system = Some(format!("[SYSTEM ERROR] {}", msg));
         self
     }
 }
