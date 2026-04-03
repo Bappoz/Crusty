@@ -39,7 +39,7 @@ pub fn render(report: &Report, source: &Source) {
     }
 
     for label in &report.labels {
-        println!("  = {}, ", label.message);
+        println!("  = {}", label.message);
     }
     if let Some(help) = &report.help {
         println!("  = help: {}", green(help));
