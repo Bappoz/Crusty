@@ -19,6 +19,9 @@ impl Source {
     }
 
     pub fn get_lines(&self, line: usize) -> Option<&str> {
+        if line == 0 {
+            return None;
+        }
         self.lines.get(line - 1).map(|s| s.as_str())
     }
 }

@@ -1,35 +1,26 @@
-use std::io::{BufRead, BufReader};
 use std::process::exit;
 use std::{env, fs};
 use Rippler::common::errors::report::ToReport;
 use Rippler::common::errors::system_error::SystemError;
 
 fn main() -> std::io::Result<()> {
-    let path = "src/examples/teste1.txt";
-    if let Err(e) = run_file(path) {
-        report_and_exit(e);
-    }
-
-    /*
-     *
-     * A logica vai ficar assim, porem usei o jeito acima para testar com um arquivo
-        match args.len() {
-            1 => {
-                if let Err(e) = run_prompt() {
-                    report_and_exit(e);
-                }
-            }
-            2 => {
-                if let Err(e) = run_file(&args[1]) {
-                    report_and_exit(e);
-                }
-            }
-            _ => {
-                eprintln!("Usage: jlox [script]");
-                exit(64);
+    let args: Vec<_> = env::args().collect();
+    match args.len() {
+        1 => {
+            if let Err(e) = run_prompt() {
+                report_and_exit(e);
             }
         }
-    */
+        2 => {
+            if let Err(e) = run_file(&args[1]) {
+                report_and_exit(e);
+            }
+        }
+        _ => {
+            eprintln!("Usage: jlox [script]");
+            exit(64);
+        }
+    }
     Ok(())
 }
 
