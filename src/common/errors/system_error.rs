@@ -1,5 +1,6 @@
 use crate::common::errors::report::{Report, ToReport};
 
+#[derive(Debug)]
 pub struct SystemError {
     pub msg: String,
 }

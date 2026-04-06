@@ -27,7 +27,7 @@ impl Source {
 }
 
 // Setinhas no error
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Label {
     pub span: Span,
     pub message: String,

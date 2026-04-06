@@ -1,6 +1,7 @@
 #[warn(unused_imports)]
 use crate::common::errors::error_data::{Label, Span};
 
+#[derive(Debug)]
 pub struct Report {
     pub message: String,
     pub span: Option<Span>,
@@ -41,6 +42,6 @@ impl Report {
     }
 }
 
-pub trait ToReport {
+pub trait ToReport: std::fmt::Debug {
     fn to_report(&self) -> Report;
 }

@@ -1,7 +1,8 @@
+use crusty::common::errors::report::ToReport;
+use crusty::common::input::source::SourceFile;
+use std::env;
+use std::path::PathBuf;
 use std::process::exit;
-use std::{env, fs};
-use Rippler::common::errors::report::ToReport;
-use Rippler::common::errors::system_error::SystemError;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = env::args().collect();
@@ -30,23 +31,16 @@ fn run_prompt() -> Result<(), Box<dyn ToReport>> {
 }
 
 // Function to run the source code, returning an error if it fails
-fn run(source: String) -> Result<(), Box<dyn ToReport>> {
-    for _ in source.lines() {
-        for c in source.chars() {
-            println!("Read Char: {}", c);
-        }
+fn run(mut source: SourceFile) -> Result<(), Box<dyn ToReport>> {
+    while let Some(ch) = source.advance() {
+        println!("[{}:{}] Read Char: {}", source.line(), source.col(), ch);
     }
     Ok(())
 }
 
 //  Function to read a file and run its contents, returning an error if the file cannot be read
 fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
-    let source = fs::read_to_string(path).map_err(|e| {
-        Box::new(SystemError {
-            msg: format!("Could not read file '{}': {}", path, e),
-        }) as Box<dyn ToReport>
-    })?;
-
+    let source = SourceFile::from_path(PathBuf::from(path))?;
     run(source)?;
     Ok(())
 }
