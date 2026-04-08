@@ -2,25 +2,42 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // Palavras reservadas
+    // Palavras reservadas de controle de fluxo
     If,
     While,
     For,
-    Loop,
     Else,
-    Match,
-    Let,
-    Fn,
+    Do,
+    Switch,
+    Case,
+    Default,
+    Break,
+    Continue,
+
+    // Palavras reservadas de tipos
+    Int,
+    Char,
+    Float,
+    Double,
+    Void,
     Struct,
     Enum,
-    Impl,
-    Trait,
-    Pub,
-    Mod,
-    Use,
+    Union,
+
+    // Outras palavras reservadas de C
+    Typedef,
     Const,
     Static,
-    Int,
+    Extern,
+    Auto,
+    Register,
+    Signed,
+    Unsigned,
+    Short,
+    Long,
+    Volatile,
+    Inline,
+    Sizeof,
     Return,
 
     // Operadores aritméticos
@@ -39,6 +56,13 @@ pub enum TokenKind {
 
     // Atribuição
     Equal,         // =
+
+    // Operadores lógicos / bitwise básicos
+    Bang,          // !
+    AndAnd,        // &&
+    OrOr,          // ||
+    Ampersand,     // &
+    Pipe,          // |
 
     // Delimitadores
     LeftParen,   // (

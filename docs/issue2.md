@@ -53,6 +53,4 @@
 	- Qualquer caractere não reconhecido cai em `TokenKind::Unknown`.
 - Funções auxiliares:
 	- `is_identifier_start` e `is_identifier_continue` definem o que é um caractere válido de identificador.
-- Bug corrigido:
-	- Havia uma definição vazia de `pub struct Scanner {}` no topo de `scanner.rs`, removida para evitar conflito com a estrutura real.
 
