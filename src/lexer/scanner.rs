@@ -1,4 +1,4 @@
-use crate::common::token::{Token, TokenKind};
+use crate::common::{Token, TokenKind};
 
 pub struct Scanner {
     source: Vec<char>,
