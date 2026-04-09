@@ -1,5 +1,4 @@
-pub mod token;
+pub mod scanner;
 
 // Tornar Token e TokenKind facilmente acessíveis via crate::lexer
-pub use crate::common::{Token, TokenKind};
-
+pub use crate::common::tokens::{Token, TokenKind};
