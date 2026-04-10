@@ -1,6 +1,7 @@
 use crate::common::errors::error_data::Span;
 use crate::common::errors::report::{Report, ToReport};
 
+#[derive(Debug)]
 pub enum CompilerError {
     Lexical(LexicalError),
     Syntax(SyntaxError),
@@ -23,6 +24,7 @@ impl ToReport for CompilerError {
     }
 }
 
+#[derive(Debug)]
 pub struct LexicalError {
     pub span: Span,
     pub invalid_char: char,
@@ -40,6 +42,7 @@ impl ToReport for LexicalError {
     }
 }
 
+#[derive(Debug)]
 pub struct SyntaxError {
     pub span: Span,
     pub expected: String,
@@ -66,10 +69,13 @@ impl ToReport for SyntaxError {
  *      - uso incorreto de simbolos
 */
 
+#[derive(Debug)]
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
     TypeMismatch { expected: String, found: String },
 }
+
+#[derive(Debug)]
 pub struct SemanticError {
     pub span: Span,
     pub kind: SemanticErrorKind,
@@ -98,6 +104,8 @@ impl ToReport for SemanticError {
        - Inconsistência de nós
        - Variáveis temporárias inválidas
 */
+
+#[derive(Debug)]
 pub struct IntermediateError {
     pub message: String,
     pub instruction: Option<String>,
@@ -129,6 +137,8 @@ impl ToReport for IntermediateError {
 
     EXEMPLO: [Optimization Error] Erro na otimização (Constant Folding): divisão por zero detectada
 */
+
+#[derive(Debug)]
 pub struct OptimizationError {
     pub message: String,
     pub pass: String,
@@ -148,6 +158,8 @@ impl ToReport for OptimizationError {
 
     EXEMPLO: [CodeGen Error] instrução 'MOV' falhou no registrador 'R1'
 */
+
+#[derive(Debug)]
 pub struct CodegenError {
     pub message: String,
     pub instruction: Option<String>,

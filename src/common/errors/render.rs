@@ -1,9 +1,6 @@
 // Rendering simple colors for display in error handlings
 
-use crate::common::errors::{
-    error_data::Source,
-    report::{self, Report, ToReport},
-};
+use crate::common::errors::{error_data::Source, report::Report};
 
 fn red(s: &str) -> String {
     format!("\x1b[31m{}\x1b[0m", s)
