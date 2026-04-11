@@ -1,5 +1,6 @@
 use crusty::common::errors::report::ToReport;
 use crusty::common::input::source::SourceFile;
+use crusty::lexer::scanner::Scanner;
 use std::env;
 use std::path::PathBuf;
 use std::process::exit;
@@ -31,9 +32,26 @@ fn run_prompt() -> Result<(), Box<dyn ToReport>> {
 }
 
 // Function to run the source code, returning an error if it fails
-fn run(mut source: SourceFile) -> Result<(), Box<dyn ToReport>> {
-    while let Some(ch) = source.advance() {
-        println!("[{}:{}] Read Char: {}", source.line(), source.col(), ch);
+fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
+    let mut scanner = Scanner::new(source);
+    let tokens = scanner.scan();
+
+    for token in tokens {
+        println!(
+            " [{}:{}] {:?} => \"{}\"",
+            token.line, token.col, token.kind, token.lexeme,
+        );
+    }
+
+    if !scanner.diagnostics.is_empty() {
+        eprintln!(
+            "\n--- {} erro(s) encontrado(s) ---",
+            scanner.diagnostics.len()
+        );
+        for diaginostic in &scanner.diagnostics {
+            let report = diaginostic.to_report();
+            eprintln!("  {}", report.message);
+        }
     }
     Ok(())
 }
