@@ -44,6 +44,13 @@ impl SourceFile {
         self.source[self.pos..].chars().next()
     }
 
+    // Olha o char APÓS o próximo sem avançar.
+    pub fn peek_ahead(&self) -> Option<char> {
+        let mut chars = self.source[self.pos..].chars();
+        chars.next();
+        chars.next()
+    }
+
     pub fn advance(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.pos += ch.len_utf8();
@@ -54,6 +61,23 @@ impl SourceFile {
             self.col += 1;
         }
         Some(ch)
+    }
+
+    // Avança somente se o próximo char satisfizer o predicado.
+    // Retorna true se avançou.
+    pub fn advance_if(&mut self, f: impl Fn(char) -> bool) -> bool {
+        match self.peek() {
+            Some(c) if f(c) => {
+                self.advance();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    // Checa se acabou o contexto
+    pub fn is_at_end(&self) -> bool {
+        self.pos >= self.source.len()
     }
 
     // Getters
