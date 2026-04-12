@@ -33,26 +33,37 @@ assignees: ""
 
 ---
 
-# Passos para Reproduzir *(se aplicável)*
+# Critérios de Início (DoR — Definition of Ready)
 
-1. 
-2. 
-3. 
+> A issue só pode entrar na sprint quando **todos** os itens abaixo estiverem marcados.
 
-**Código de entrada:**
-```
-<!-- cole aqui o trecho de código que causa o problema -->
-```
+- [ ] Descrição clara e compreensível por qualquer membro do time
+- [ ] Fase do compilador afetada identificada
+- [ ] Tarefas definidas e atribuídas
+- [ ] Sem dependências bloqueantes em aberto
+- [ ] Estimativa de esforço definida
 
-**Saída atual:**
-```
-<!-- o que o compilador está produzindo -->
-```
+---
 
-**Saída esperada:**
-```
-<!-- o que deveria ser produzido -->
-```
+# Tarefas
+
+> Liste as tarefas técnicas necessárias para resolver esta issue.
+
+- [ ] 
+- [ ] 
+- [ ] 
+
+---
+
+# Critérios de Aceite (DoD — Definition of Done)
+
+> A issue só pode ser fechada quando **todos** os itens abaixo estiverem marcados.
+
+- [ ] Funcionalidade implementada conforme a descrição
+- [ ] Testes unitários escritos e passando
+- [ ] Sem regressões nas demais fases do compilador
+- [ ] Código revisado por ao menos um membro do time (PR aprovado)
+- [ ] Documentação atualizada (se aplicável)
 
 ---
 
