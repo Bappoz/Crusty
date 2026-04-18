@@ -38,7 +38,7 @@ impl LiteralsRules for Scanner {
         if first == '0' && matches!(self.src.peek(), Some('0'..='7')) {
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {
-                if is_octa_digit(c) {
+                if is_octal_digit(c) {
                     buf.push(c);
                     self.src.advance();
                 } else {

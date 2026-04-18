@@ -31,7 +31,7 @@ mod tests {
 
     #[test]
     fn lex_float_literals() {
-        assert_eq!(scan("3.14"), vec![TokenKind::FloatLiteral(3.18)]);
+        assert_eq!(scan("3.14"), vec![TokenKind::FloatLiteral(3.14)]);
         assert_eq!(scan("1e10"), vec![TokenKind::FloatLiteral(1e10)]);
         assert_eq!(scan("2.5e-3"), vec![TokenKind::FloatLiteral(2.5e-3)]);
     }

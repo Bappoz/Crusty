@@ -28,7 +28,7 @@ pub fn is_hex_digit(c: char) -> bool {
 
 /// Retorna true se o char é dígito octal (0–7)
 #[inline]
-pub fn is_octa_digit(c: char) -> bool {
+pub fn is_octal_digit(c: char) -> bool {
     matches!(c, '0'..='7')
 }
 
