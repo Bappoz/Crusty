@@ -113,7 +113,7 @@ impl LiteralsRules for Scanner {
         // Exemplo de resposta aguardada dessa funcao: "hello\n" => "hello" + char newline
         let mut value = String::new();
 
-        // 'lexeme' guarda o texto exato do codigo fonte
+        // ...
         // util para erro e debug
         let mut lexeme = String::from('"');
 
@@ -143,12 +143,11 @@ impl LiteralsRules for Scanner {
                 }
             }
         }
-        // Emite o valor ja processado dentro do TokenKind
+        // Emite o valor já processado dentro do TokenKind
         self.emit_at(TokenKind::StringLiteral(value), &lexeme, line, col);
     }
 
     fn lex_char(&mut self, line: usize, col: usize) {
-        // lexeme comeca com aspas simpels e ja sendo consumido
         let mut lexeme = String::from('\'');
 
         let c = match self.src.advance() {

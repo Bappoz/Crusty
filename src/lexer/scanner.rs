@@ -84,9 +84,12 @@ impl Scanner {
 
     // Emite um token com posição explícita.
     pub fn emit_at(&mut self, kind: TokenKind, lexeme: &str, line: usize, col: usize) {
+        use crate::common::input::span::ByteSpan;
+        let start = self.src.pos.saturating_sub(lexeme.len());
+        let end = self.src.pos;
         self.tokens.push(Token {
             kind,
-            lexeme: lexeme.to_string(),
+            span: ByteSpan { start, end },
             line,
             col,
         });

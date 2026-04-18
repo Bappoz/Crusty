@@ -26,22 +26,18 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-// Function to run the interactive prompt, returning an error if it fails (Not implemented yet)
 fn run_prompt() -> Result<(), Box<dyn ToReport>> {
     todo!()
 }
 
-// Function to run the source code, returning an error if it fails
 fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
-    let tokens = scanner.scan();
+    scanner.scan();
+    let tokens = scanner.tokens.clone();
 
-    for token in tokens {
-        println!(
-            " [{}:{}] {:?} => \"{}\"",
-            token.line, token.col, token.kind, token.lexeme,
-        );
-    }
+        for token in tokens {
+            let _ = &scanner.src.source[token.span.start..token.span.end];
+        }
 
     if !scanner.diagnostics.is_empty() {
         eprintln!(
@@ -56,14 +52,12 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     Ok(())
 }
 
-//  Function to read a file and run its contents, returning an error if the file cannot be read
 fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
     let source = SourceFile::from_path(PathBuf::from(path))?;
     run(source)?;
     Ok(())
 }
 
-// Function to report errors and exit the program with a non-zero status code
 fn report_and_exit(e: Box<dyn ToReport>) {
     let report = e.to_report();
 
@@ -78,6 +72,5 @@ fn report_and_exit(e: Box<dyn ToReport>) {
         eprintln!("Help: {}", help);
     }
 
-    // No jlox, erros de entrada/arquivo costumam usar o código 66 ou 74
     std::process::exit(74);
 }

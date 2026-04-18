@@ -9,11 +9,11 @@
 	- Literais: `IntLiteral`, `FloatLiteral`, `StringLiteral`, `CharLiteral`.
 	- Outros: `Identifier`, `Eof`, `Unknown`.
 - Foi criada a struct `Token` em `src/common/token.rs`:
-	- `pub struct Token { kind: TokenKind, lexeme: String, line: usize, col: usize }`.
+    - `pub struct Token { kind: TokenKind, span: ByteSpan, line: usize, col: usize }`.
 	- Derivações: `#[derive(Debug, Clone, PartialEq)]`.
-- Implementado `Display` para `Token`, exibindo apenas o `lexeme`.
+// Implementado `Display` para `Token`, exibindo o span.
 - Adicionados testes unitários em `src/common/token.rs`:
-	- `token_display_shows_lexeme` garante que `to_string()` devolve o lexema.
+    - `token_display_shows_span` garante que `to_string()` devolve o span.
 	- `token_kind_eq_works` verifica igualdade entre variantes de `TokenKind`.
 - O módulo foi exposto em `src/common/mod.rs` via `pub mod token;`.
 
@@ -36,7 +36,7 @@
 		- Ao final, adiciona um token `TokenKind::Eof`.
 - Principais operações internas:
 	- Navegação: `is_at_end`, `advance`, `peek`, `peek_next`.
-	- Emissão de token: `add_token(kind: TokenKind)` monta o `lexeme` a partir do intervalo `[start, current)`.
+    - Emissão de token: `add_token(kind: TokenKind)` monta o span a partir do intervalo `[start, end)`.
 - Regras de lexing implementadas em `scan_token`:
 	- Ignora espaços em branco (`' '`, `'\r'`, `'\t'`) e conta linhas em `'\n'`.
 	- Reconhece delimitadores: `(`, `)`, `{`, `}`, `;`, `,`.
