@@ -1,2 +1,4 @@
-mod compiler_error;
-mod source_error;
+mod compiler_test;
+mod lexical_test;
+mod source_test;
+mod token_test;
