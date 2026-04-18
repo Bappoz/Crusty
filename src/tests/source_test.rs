@@ -117,7 +117,7 @@ fn from_path_reads_file_correctly() {
 
     let sf = SourceFile::from_path(file.path().to_path_buf()).unwrap();
 
-    assert_eq!(sf.source, "int main() {}");
+    assert_eq!(sf.source.as_str(), "int main() {}");
     assert_eq!(sf.current_pos(), (1, 1));
 }
 

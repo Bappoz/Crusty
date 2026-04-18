@@ -1,9 +1,27 @@
 use crate::common::errors::{report::ToReport, system_error::SystemError};
+use memmap2::Mmap;
+use std::fs::File;
 use std::path::PathBuf;
+
+#[derive(Debug)]
+pub enum SourceData {
+    Mapped(Mmap),
+    Memory(String),
+}
+
+impl SourceData {
+    pub fn as_str(&self) -> &str {
+        match self {
+            // Assumindo que o codigo do usaurio é UTF8 valido
+            SourceData::Mapped(mmap) => std::str::from_utf8(mmap).unwrap_or(""),
+            SourceData::Memory(s) => s.as_str(),
+        }
+    }
+}
 
 pub struct SourceFile {
     pub path: PathBuf,
-    pub source: String,
+    pub source: SourceData,
     pub(crate) pos: usize,
     line: usize,
     col: usize,
@@ -13,15 +31,26 @@ impl SourceFile {
     // Lê um arquivo do disco e retorna um SourceFile
     #[warn(clippy::should_implement_trait)]
     pub fn from_path(path: PathBuf) -> Result<Self, Box<dyn ToReport>> {
-        let source = std::fs::read_to_string(&path).map_err(|e| {
+        let file = File::open(&path).map_err(|e| {
             Box::new(SystemError {
                 msg: format!("Could not read file '{}': {}", path.to_string_lossy(), e),
             }) as Box<dyn ToReport>
         })?;
 
+        // Mapeia o arquivo na RAM
+        let mmap = unsafe { Mmap::map(&file) }.map_err(|e| {
+            Box::new(SystemError {
+                msg: format!(
+                    "Could not memory map file '{}': {}",
+                    path.to_string_lossy(),
+                    e
+                ),
+            }) as Box<dyn ToReport>
+        })?;
+
         Ok(Self {
             path: path.to_owned(),
-            source,
+            source: SourceData::Mapped(mmap),
             pos: 0,
             line: 1,
             col: 1,
@@ -33,7 +62,7 @@ impl SourceFile {
     pub fn from_string(input: impl Into<String>) -> Self {
         Self {
             path: PathBuf::from("<string>"),
-            source: input.into(),
+            source: SourceData::Memory(input.into()),
             pos: 0,
             line: 1,
             col: 1,
@@ -41,12 +70,12 @@ impl SourceFile {
     }
 
     pub fn peek(&self) -> Option<char> {
-        self.source[self.pos..].chars().next()
+        self.source.as_str()[self.pos..].chars().next()
     }
 
     // Olha o char APÓS o próximo sem avançar.
     pub fn peek_ahead(&self) -> Option<char> {
-        let mut chars = self.source[self.pos..].chars();
+        let mut chars = self.source.as_str()[self.pos..].chars();
         chars.next();
         chars.next()
     }
@@ -77,7 +106,7 @@ impl SourceFile {
 
     // Checa se acabou o contexto
     pub fn is_at_end(&self) -> bool {
-        self.pos >= self.source.len()
+        self.pos >= self.source.as_str().len()
     }
 
     // Getters
