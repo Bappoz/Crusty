@@ -99,13 +99,13 @@ mod tests {
     #[test]
     fn multiple_unknowns_keep_scanning() {
         // O scanner não para no primeiro erro
-        let src = SourceFile::from_string("@ # $");
+        let src = SourceFile::from_string("@ ? $");
         let mut scanner = Scanner::new(src);
         scanner.scan();
         assert_eq!(scanner.diagnostics.len(), 3);
     }
 
-    // --- Comentários são ignorados ---
+    // --- Comentários e Diretivas são ignorados ---
 
     #[test]
     fn line_comments_are_skipped() {
@@ -113,6 +113,15 @@ mod tests {
         assert_eq!(
             kinds,
             vec![TokenKind::IntLiteral(42), TokenKind::IntLiteral(99),]
+        );
+    }
+
+    #[test]
+    fn preprocessor_directives_are_skipped() {
+        let kinds = scan("#include <stdio.h>\n#define MAX 10\n42");
+        assert_eq!(
+            kinds,
+            vec![TokenKind::IntLiteral(42)]
         );
     }
 }
