@@ -19,7 +19,7 @@ fn main() -> std::io::Result<()> {
             }
         }
         _ => {
-            eprintln!("Usage: jlox [script]");
+            eprintln!("Usage: crusty [script]");
             exit(64);
         }
     }
@@ -33,11 +33,11 @@ fn run_prompt() -> Result<(), Box<dyn ToReport>> {
 fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
     scanner.scan();
-    let tokens = scanner.tokens.clone();
 
-        for token in tokens {
-            let _ = &scanner.src.source[token.span.start..token.span.end];
-        }
+    for token in &scanner.tokens {
+        let lexeme = &scanner.src.source[token.span.start..token.span.end];
+        println!("{:?} {:?}", token.kind, lexeme);
+    }
 
     if !scanner.diagnostics.is_empty() {
         eprintln!(

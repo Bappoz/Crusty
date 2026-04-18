@@ -81,8 +81,8 @@ impl LiteralsRules for Scanner {
 
             // Checando a parte de expoente
             if matches!(self.src.peek(), Some('e') | Some('E')) {
-                buf.push('e');
-                self.src.advance();
+                buf.push(self.src.advance().unwrap());
+
 
                 if matches!(self.src.peek(), Some('-') | Some('+')) {
                     buf.push(self.src.advance().unwrap());
