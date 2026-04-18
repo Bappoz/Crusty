@@ -3,15 +3,16 @@ mod tests {
     use crate::lexer::tokens::{token::Token, token_kind::TokenKind};
 
     #[test]
-    fn token_display_shows_lexeme() {
+    fn token_display_shows_span() {
+        use crate::common::input::span::ByteSpan;
         let token = Token {
             kind: TokenKind::Identifier("foo".to_string()),
-            lexeme: "foo".to_string(),
+            span: ByteSpan { start: 0, end: 3 },
             line: 1,
             col: 1,
         };
 
-        assert_eq!(token.to_string(), "foo");
+        assert_eq!(token.span, ByteSpan { start: 0, end: 3 });
     }
 
     #[test]

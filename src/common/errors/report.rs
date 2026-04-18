@@ -1,4 +1,3 @@
-#[warn(unused_imports)]
 use crate::common::errors::error_data::{Label, Span};
 
 #[derive(Debug)]

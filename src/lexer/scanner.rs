@@ -26,7 +26,7 @@ impl Scanner {
     // Roda o scanner ate o fim do arquivo e retorna os tokens produzidos
     pub fn scan(&mut self) -> &[Token] {
         while !self.src.is_at_end() {
-            self.skip_whitespaces_comments_and_directives();
+            self.skip_whitespaces_and_comments();
             if self.src.is_at_end() {
                 break;
             }
@@ -84,9 +84,12 @@ impl Scanner {
 
     // Emite um token com posição explícita.
     pub fn emit_at(&mut self, kind: TokenKind, lexeme: &str, line: usize, col: usize) {
+        use crate::common::input::span::ByteSpan;
+        let start = self.src.pos.saturating_sub(lexeme.len());
+        let end = self.src.pos;
         self.tokens.push(Token {
             kind,
-            lexeme: lexeme.to_string(),
+            span: ByteSpan { start, end },
             line,
             col,
         });
@@ -94,7 +97,7 @@ impl Scanner {
 
     // Ignorar espaços em branco e Comentarios
     // Nao geram tokens
-    fn skip_whitespaces_comments_and_directives(&mut self) {
+    fn skip_whitespaces_and_comments(&mut self) {
         loop {
             while matches!(
                 self.src.peek(),
@@ -103,22 +106,13 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios de linha
+            // Comentarios
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
-
-            // Diretivas de pré-processador (#)
-            if self.src.peek() == Some('#') {
-                while !matches!(self.src.peek(), Some('\n') | None) {
-                    self.src.advance();
-                }
-                continue;
-            }
-
             break;
         }
     }

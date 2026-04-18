@@ -11,7 +11,7 @@ pub struct SourceFile {
 
 impl SourceFile {
     // Lê um arquivo do disco e retorna um SourceFile
-    #[warn(clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_path(path: PathBuf) -> Result<Self, Box<dyn ToReport>> {
         let source = std::fs::read_to_string(&path).map_err(|e| {
             Box::new(SystemError {
