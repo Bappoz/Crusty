@@ -26,7 +26,7 @@ impl Scanner {
     // Roda o scanner ate o fim do arquivo e retorna os tokens produzidos
     pub fn scan(&mut self) -> &[Token] {
         while !self.src.is_at_end() {
-            self.skip_whitespaces_and_comments();
+            self.skip_whitespaces_comments_and_directives();
             if self.src.is_at_end() {
                 break;
             }
@@ -94,7 +94,7 @@ impl Scanner {
 
     // Ignorar espaços em branco e Comentarios
     // Nao geram tokens
-    fn skip_whitespaces_and_comments(&mut self) {
+    fn skip_whitespaces_comments_and_directives(&mut self) {
         loop {
             while matches!(
                 self.src.peek(),
@@ -103,13 +103,22 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios
+            // Comentarios de linha
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
+
+            // Diretivas de pré-processador (#)
+            if self.src.peek() == Some('#') {
+                while !matches!(self.src.peek(), Some('\n') | None) {
+                    self.src.advance();
+                }
+                continue;
+            }
+
             break;
         }
     }
