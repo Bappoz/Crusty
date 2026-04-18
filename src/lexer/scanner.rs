@@ -103,13 +103,22 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios
+            // Comentarios de linha
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
+
+            // Diretivas de pré-processador
+            if self.src.peek() == Some('#') {
+                while !matches!(self.src.peek(), Some('\n') | None) {
+                    self.src.advance();
+                }
+                continue;
+            }
+
             break;
         }
     }
