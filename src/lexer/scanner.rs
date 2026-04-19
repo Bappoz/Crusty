@@ -106,13 +106,24 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios
+            // Comentários
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
+
+            // Diretivas de pré-processador: ignora linha inteira se começa com '#'
+            if self.src.peek() == Some('#') {
+                // Consome até o fim da linha ou EOF
+                while let Some(c) = self.src.peek() {
+                    self.src.advance();
+                    if c == '\n' { break; }
+                }
+                continue;
+            }
+
             break;
         }
     }
@@ -126,7 +137,20 @@ impl Scanner {
                 column_end: col + 1,
             },
             invalid_char: c,
+            unterminated_literal: None,
         }));
         self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
+    }
+
+    pub fn emit_unterminated_literal(&mut self, lit: &str, line: usize, col_start: usize, col_end: usize) {
+        self.diagnostics.push(CompilerError::Lexical(LexicalError {
+            span: Span {
+                line,
+                column_start: col_start,
+                column_end: col_end,
+            },
+            invalid_char: '\0',
+            unterminated_literal: Some(lit.to_string()),
+        }));
     }
 }

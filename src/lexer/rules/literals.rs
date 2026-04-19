@@ -109,69 +109,68 @@ impl LiteralsRules for Scanner {
     }
 
     fn lex_string(&mut self, line: usize, col: usize) {
-        // 'value' guarda o conteudo real da string com os escapes ja resolvidos
-        // Exemplo de resposta aguardada dessa funcao: "hello\n" => "hello" + char newline
         let mut value = String::new();
-
-        // ...
-        // util para erro e debug
         let mut lexeme = String::from('"');
+        let mut col_end = col + 1;
 
         loop {
             match self.src.advance() {
-                // Fecha a string
                 Some('"') => {
                     lexeme.push('"');
+                    col_end += 1;
                     break;
                 }
                 Some('\\') => {
                     lexeme.push('\\');
+                    col_end += 1;
                     if let Some(e) = self.src.advance() {
                         lexeme.push(e);
                         value.push(resolve_escape(e).unwrap_or(e));
+                        col_end += 1;
                     }
                 }
-                //Fim de arquivo sem fechar a string (erro de sintaxe)
                 None => {
-                    self.emit_unknown('"', line, col);
-                    return;
+                    self.emit_unterminated_literal("string", line, col, col_end);
+                    break;
                 }
-                // char normal vai para dois bufs
                 Some(c) => {
                     lexeme.push(c);
                     value.push(c);
+                    col_end += 1;
                 }
             }
         }
-        // Emite o valor já processado dentro do TokenKind
         self.emit_at(TokenKind::StringLiteral(value), &lexeme, line, col);
     }
 
     fn lex_char(&mut self, line: usize, col: usize) {
         let mut lexeme = String::from('\'');
+        let mut col_end = col + 1;
 
         let c = match self.src.advance() {
             Some('\\') => {
                 lexeme.push('\\');
+                col_end += 1;
                 match self.src.advance() {
                     Some(e) => {
                         lexeme.push(e);
+                        col_end += 1;
                         resolve_escape(e).unwrap_or(e)
                     }
                     None => {
-                        self.emit_unknown('\'', line, col);
-                        return;
+                        self.emit_unterminated_literal("char", line, col, col_end);
+                        '\0'
                     }
                 }
             }
-            // Se for um char normal
             Some(c) => {
                 lexeme.push(c);
+                col_end += 1;
                 c
             }
             None => {
-                self.emit_unknown('\'', line, col);
-                return;
+                self.emit_unterminated_literal("char", line, col, col_end);
+                '\0'
             }
         };
 
@@ -179,10 +178,11 @@ impl LiteralsRules for Scanner {
         match self.src.advance() {
             Some('\'') => {
                 lexeme.push('\'');
+                col_end += 1;
                 self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),
-            None => self.emit_unknown('\'', line, col),
+            None => self.emit_unterminated_literal("char", line, col, col_end),
         }
     }
 }
