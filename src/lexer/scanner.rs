@@ -106,13 +106,24 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios
+            // Comentários
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
+
+            // Diretivas de pré-processador: ignora linha inteira se começa com '#'
+            if self.src.peek() == Some('#') {
+                // Consome até o fim da linha ou EOF
+                while let Some(c) = self.src.peek() {
+                    self.src.advance();
+                    if c == '\n' { break; }
+                }
+                continue;
+            }
+
             break;
         }
     }
