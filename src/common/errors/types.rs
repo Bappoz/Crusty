@@ -28,17 +28,28 @@ impl ToReport for CompilerError {
 pub struct LexicalError {
     pub span: Span,
     pub invalid_char: char,
+    pub unterminated_literal: Option<String>,
 }
 
 impl ToReport for LexicalError {
     fn to_report(&self) -> Report {
-        Report::new("invalid character")
-            .with_span(self.span.clone())
-            .with_label(
-                self.span.clone(),
-                format!("'{}' nao e valido", self.invalid_char),
-            )
-            .with_help("Remova ou substitua o caractere.")
+        if let Some(lit) = &self.unterminated_literal {
+            Report::new("unterminated literal")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("literal '{}' não foi terminada", lit),
+                )
+                .with_help("Feche a string ou char corretamente.")
+        } else {
+            Report::new("invalid character")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("'{}' nao e valido", self.invalid_char),
+                )
+                .with_help("Remova ou substitua o caractere.")
+        }
     }
 }
 

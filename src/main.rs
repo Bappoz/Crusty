@@ -1,5 +1,6 @@
 use crusty::common::errors::report::ToReport;
 use crusty::common::input::source::SourceFile;
+use crusty::lexer::scanner::Scanner;
 use std::env;
 use std::path::PathBuf;
 use std::process::exit;
@@ -18,34 +19,45 @@ fn main() -> std::io::Result<()> {
             }
         }
         _ => {
-            eprintln!("Usage: jlox [script]");
+            eprintln!("Usage: crusty [script]");
             exit(64);
         }
     }
     Ok(())
 }
 
-// Function to run the interactive prompt, returning an error if it fails (Not implemented yet)
 fn run_prompt() -> Result<(), Box<dyn ToReport>> {
     todo!()
 }
 
-// Function to run the source code, returning an error if it fails
-fn run(mut source: SourceFile) -> Result<(), Box<dyn ToReport>> {
-    while let Some(ch) = source.advance() {
-        println!("[{}:{}] Read Char: {}", source.line(), source.col(), ch);
+fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
+    let mut scanner = Scanner::new(source);
+    scanner.scan();
+
+    for token in &scanner.tokens {
+        let lexeme = &scanner.src.source[token.span.start..token.span.end];
+        println!("{:?} {:?}", token.kind, lexeme);
+    }
+
+    if !scanner.diagnostics.is_empty() {
+        eprintln!(
+            "\n--- {} erro(s) encontrado(s) ---",
+            scanner.diagnostics.len()
+        );
+        for diaginostic in &scanner.diagnostics {
+            let report = diaginostic.to_report();
+            eprintln!("  {}", report.message);
+        }
     }
     Ok(())
 }
 
-//  Function to read a file and run its contents, returning an error if the file cannot be read
 fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
     let source = SourceFile::from_path(PathBuf::from(path))?;
     run(source)?;
     Ok(())
 }
 
-// Function to report errors and exit the program with a non-zero status code
 fn report_and_exit(e: Box<dyn ToReport>) {
     let report = e.to_report();
 
@@ -60,6 +72,5 @@ fn report_and_exit(e: Box<dyn ToReport>) {
         eprintln!("Help: {}", help);
     }
 
-    // No jlox, erros de entrada/arquivo costumam usar o código 66 ou 74
     std::process::exit(74);
 }
