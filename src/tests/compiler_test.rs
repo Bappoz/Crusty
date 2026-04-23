@@ -113,7 +113,7 @@ fn from_path_reads_file_correctly() {
     // usa o helper em vez de .unwrap() — evita exigir Debug no erro
     let sf = unwrap_sf(SourceFile::from_path(file.path().to_path_buf()));
 
-    assert_eq!(sf.source, "int main() {}");
+    assert_eq!(sf.source.as_str(), "int main() {}");
     assert_eq!(sf.current_pos(), (1, 1));
 }
 
