@@ -160,6 +160,26 @@ mod tests {
     }
 
     #[test]
+    fn mismatched_delimiter_emits_diagnostic() {
+        // '{' abre mas ')' fecha — mismatch deve gerar diagnóstico
+        let src = SourceFile::from_string("{)");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        // Um UnexpectedClosingDelimiter(')') + Um UnclosedDelimiter('{')
+        assert_eq!(scanner.diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn unexpected_closing_with_empty_stack_emits_diagnostic() {
+        let src = SourceFile::from_string(")");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        assert_eq!(scanner.diagnostics.len(), 1);
+    }
+
+    #[test]
     fn unclosed_block_comment_errors() {
         let src = SourceFile::from_string("42 /* comentário não fechado");
         let mut scanner = Scanner::new(src);

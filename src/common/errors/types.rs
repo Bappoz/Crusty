@@ -32,6 +32,8 @@ pub enum LexicalErrorKind {
     UnclosedBlockComment,
     /// `(`, `[` ou `{` aberto mas nunca fechado
     UnclosedDelimiter(char),
+    /// `)`, `]` ou `}` encontrado sem par de abertura correspondente
+    UnexpectedClosingDelimiter(char),
     /// String ou char literal não fechada (ex: `"hello` sem `"`)
     UnterminatedLiteral(String),
 }
@@ -59,6 +61,11 @@ impl ToReport for LexicalError {
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("'{}' nao foi fechado", c))
                 .with_help("Adicione o delimitador de fechamento correspondente."),
+
+            LexicalErrorKind::UnexpectedClosingDelimiter(c) => Report::new("unexpected closing delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao tem par de abertura", c))
+                .with_help("Remova o delimitador ou adicione o par de abertura correspondente."),
 
             LexicalErrorKind::UnterminatedLiteral(lit) => Report::new("unterminated literal")
                 .with_span(self.span.clone())

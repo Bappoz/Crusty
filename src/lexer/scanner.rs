@@ -75,10 +75,31 @@ impl Scanner {
             '[' => { self.delimiter_stack.push(('[', line, col)); self.emit_at(TokenKind::LeftBracket,  "[", line, col); }
             '{' => { self.delimiter_stack.push(('{', line, col)); self.emit_at(TokenKind::LeftBrace,    "{", line, col); }
 
-            // Delimitadores de fechamento — desempilha o par correspondente
-            ')' => { if matches!(self.delimiter_stack.last(), Some(('(', _, _))) { self.delimiter_stack.pop(); } self.emit_at(TokenKind::RightParen,    ")", line, col); }
-            ']' => { if matches!(self.delimiter_stack.last(), Some(('[', _, _))) { self.delimiter_stack.pop(); } self.emit_at(TokenKind::RightBracket,  "]", line, col); }
-            '}' => { if matches!(self.delimiter_stack.last(), Some(('{', _, _))) { self.delimiter_stack.pop(); } self.emit_at(TokenKind::RightBrace,    "}", line, col); }
+            // Delimitadores de fechamento — desempilha o par ou reporta mismatch/inesperado
+            ')' => {
+                if matches!(self.delimiter_stack.last(), Some(('(', _, _))) {
+                    self.delimiter_stack.pop();
+                } else {
+                    self.emit_unexpected_delimiter(')', line, col);
+                }
+                self.emit_at(TokenKind::RightParen, ")", line, col);
+            }
+            ']' => {
+                if matches!(self.delimiter_stack.last(), Some(('[', _, _))) {
+                    self.delimiter_stack.pop();
+                } else {
+                    self.emit_unexpected_delimiter(']', line, col);
+                }
+                self.emit_at(TokenKind::RightBracket, "]", line, col);
+            }
+            '}' => {
+                if matches!(self.delimiter_stack.last(), Some(('{', _, _))) {
+                    self.delimiter_stack.pop();
+                } else {
+                    self.emit_unexpected_delimiter('}', line, col);
+                }
+                self.emit_at(TokenKind::RightBrace, "}", line, col);
+            }
 
             // Pontuação simples sem lookahead
             '%' => self.emit_at(TokenKind::Percent,   "%", line, col),
@@ -136,6 +157,7 @@ impl Scanner {
                 self.src.advance(); // '/'
                 self.src.advance(); // '*'
 
+                let mut closed = false;
                 loop {
                     match self.src.advance() {
                         None => {
@@ -147,16 +169,17 @@ impl Scanner {
                                 },
                                 kind: LexicalErrorKind::UnclosedBlockComment,
                             }));
-                            return;
+                            break;
                         }
                         Some('*') if self.src.peek() == Some('/') => {
                             self.src.advance(); // '/'
+                            closed = true;
                             break;
                         }
                         _ => {}
                     }
                 }
-                continue;
+                if closed { continue; } else { break; }
             }
 
             // Diretivas de pré-processador: #include, #define, etc.
@@ -182,6 +205,13 @@ impl Scanner {
             kind: LexicalErrorKind::InvalidChar(c),
         }));
         self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
+    }
+
+    fn emit_unexpected_delimiter(&mut self, c: char, line: usize, col: usize) {
+        self.diagnostics.push(CompilerError::Lexical(LexicalError {
+            span: Span { line, column_start: col, column_end: col + 1 },
+            kind: LexicalErrorKind::UnexpectedClosingDelimiter(c),
+        }));
     }
 
     // Emite um diagnóstico de literal não terminada (string ou char sem fechamento)
