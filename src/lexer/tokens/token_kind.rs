@@ -11,6 +11,7 @@ pub enum TokenKind {
     Default,
     Break,
     Continue,
+    Question,
 
     // Palavras reservadas de tipos
     Int,
@@ -74,10 +75,10 @@ pub enum TokenKind {
     Pipe,      // |
 
     // Operadores de shift
-    LessLess,              // <<
-    GreaterGreater,        // >>
-    LessLessEqual,         // <<=
-    GreaterGreaterEqual,   // >>= 
+    LessLess,            // <<
+    GreaterGreater,      // >>
+    LessLessEqual,       // <<=
+    GreaterGreaterEqual, // >>=
 
     // Delimitadores
     LeftParen,    // (
