@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "developer" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "developer" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +16,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --all
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --all
+    - name: Clippy
+      run: cargo clippy -- -D warnings
+    - name: fmtCheck
+      run: cargo fmt --check
