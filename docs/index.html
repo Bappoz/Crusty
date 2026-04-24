@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rippler — Documentação do Compilador</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+</head>
+<body>
+
+<!-- Sidebar overlay (mobile) -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<!-- ═══════════════════════════════ SIDEBAR ═══════════════════════════════ -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <a href="index.html" class="project-name">Rippler</a>
+    <span class="project-subtitle">Compilador de C &mdash; Docs</span>
+  </div>
+
+  <div class="sidebar-nav">
+    <span class="sidebar-section-label">Introdução</span>
+    <a href="index.html" class="active">
+      <span class="chapter-num">00</span>
+      Visão Geral
+    </a>
+
+    <span class="sidebar-section-label">Fases do Compilador</span>
+    <a href="lexical-analysis.html">
+      <span class="chapter-num">01</span>
+      Análise Léxica
+      <span class="nav-badge done">Completo</span>
+    </a>
+    <a href="syntax-analysis.html">
+      <span class="chapter-num">02</span>
+      Análise Sintática
+      <span class="nav-badge wip">Em breve</span>
+    </a>
+    <a href="semantic-analysis.html">
+      <span class="chapter-num">03</span>
+      Análise Semântica
+      <span class="nav-badge wip">Em breve</span>
+    </a>
+    <a href="intermediate-representation.html">
+      <span class="chapter-num">04</span>
+      Representação Intermediária
+      <span class="nav-badge wip">Em breve</span>
+    </a>
+    <a href="code-generation.html">
+      <span class="chapter-num">05</span>
+      Geração de Código
+      <span class="nav-badge wip">Em breve</span>
+    </a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════ MAIN ═══════════════════════════════ -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-breadcrumb">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <a href="index.html">Rippler Docs</a>
+      <span>/</span>
+      <span>Visão Geral</span>
+    </div>
+    <div class="topbar-links">
+      <a href="https://github.com/Bappoz/crusty" target="_blank">GitHub</a>
+    </div>
+  </div>
+
+  <div class="content-wrap">
+    <!-- ── Chapter header ── -->
+    <div class="chapter-header">
+      <div class="chapter-number">Capítulo 00</div>
+      <h1 class="chapter-title">Visão Geral do Rippler</h1>
+      <p class="chapter-subtitle">
+        Uma jornada pelo processo de compilação de C, desde o código-fonte
+        até o código de máquina.
+      </p>
+    </div>
+
+    <!-- ── Intro ── -->
+    <p>
+      O <strong>Rippler</strong> é um compilador de C desenvolvido como projeto acadêmico
+      na disciplina de Compiladores. Seu objetivo é transformar código-fonte C em código
+      executável passando por todas as fases clássicas de um compilador moderno.
+    </p>
+
+    <p>
+      Este site documenta a arquitetura, as decisões de projeto e o funcionamento interno
+      de cada fase. Cada capítulo corresponde a uma etapa do pipeline de compilação.
+      A única fase concluída até o momento é a <strong>Análise Léxica</strong>.
+    </p>
+
+    <!-- ── Pipeline ── -->
+    <h2>O Pipeline de Compilação</h2>
+
+    <p>
+      O processo de compilação no Rippler é dividido em cinco fases sequenciais.
+      A saída de cada fase alimenta diretamente a próxima:
+    </p>
+
+    <div class="pipeline">
+      <a href="lexical-analysis.html" class="pipeline-step done">
+        <span class="step-num">01</span>
+        <span class="step-name">Análise Léxica</span>
+        <span class="step-status">Concluída</span>
+      </a>
+      <a href="syntax-analysis.html" class="pipeline-step">
+        <span class="step-num">02</span>
+        <span class="step-name">Análise Sintática</span>
+        <span class="step-status">Em desenvolvimento</span>
+      </a>
+      <a href="semantic-analysis.html" class="pipeline-step">
+        <span class="step-num">03</span>
+        <span class="step-name">Análise Semântica</span>
+        <span class="step-status">Planejada</span>
+      </a>
+      <a href="intermediate-representation.html" class="pipeline-step">
+        <span class="step-num">04</span>
+        <span class="step-name">Repr. Intermediária</span>
+        <span class="step-status">Planejada</span>
+      </a>
+      <a href="code-generation.html" class="pipeline-step">
+        <span class="step-num">05</span>
+        <span class="step-name">Geração de Código</span>
+        <span class="step-status">Planejada</span>
+      </a>
+    </div>
+
+    <div class="flowchart-placeholder">
+      <span class="ph-icon">&#9740;</span>
+      <div class="ph-title">Fluxograma do Pipeline</div>
+      <div class="ph-desc">
+        Diagrama mostrando o fluxo de dados entre as fases do compilador<br>
+        (substituir esta caixa pela imagem do fluxograma)
+      </div>
+    </div>
+
+    <!-- ── Estrutura do Projeto ── -->
+    <h2>Estrutura do Projeto</h2>
+
+    <p>
+      O código-fonte está organizado em módulos que espelham as fases do compilador.
+      Todos os módulos compartilham utilitários comuns via <code>src/common/</code>.
+    </p>
+
+    <div class="code-block-wrapper">
+      <span class="code-label">Estrutura de diretórios</span>
+<pre><code>src/
+├── lexer/          # Análise Léxica (scanner, tokens, regras)
+│   ├── scanner.rs  # Loop principal de varredura
+│   ├── tokens/     # TokenKind, Token, ByteSpan
+│   └── rules/      # Regras de literais, operadores, identificadores
+│
+├── parser/         # Análise Sintática (gramática, AST)
+├── analyser/       # Análise Semântica (tipos, escopo)
+├── codegen/        # Geração de Código
+│
+└── common/         # Utilitários compartilhados
+    ├── errors/     # Sistema de diagnósticos e relatórios
+    ├── input/      # SourceFile, ByteSpan
+    └── utils/      # char_utils e helpers</code></pre>
+    </div>
+
+    <!-- ── Tecnologias ── -->
+    <h2>Tecnologias</h2>
+
+    <table class="token-table">
+      <thead>
+        <tr>
+          <th>Componente</th>
+          <th>Tecnologia</th>
+          <th>Justificativa</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>linguagem</code></td>
+          <td>Rust</td>
+          <td class="desc">Segurança de memória, performance e sistema de tipos expressivo</td>
+        </tr>
+        <tr>
+          <td><code>leitura de arquivo</code></td>
+          <td>memmap2</td>
+          <td class="desc">Memory-mapped I/O para leitura eficiente de arquivos grandes</td>
+        </tr>
+        <tr>
+          <td><code>testes</code></td>
+          <td>Rust built-in</td>
+          <td class="desc">Testes unitários e de integração com <code>#[test]</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ── Fluxo de dados ── -->
+    <h2>Fluxo de Dados</h2>
+
+    <p>
+      Um arquivo <code>.c</code> é lido pelo <code>SourceFile</code> via memory mapping.
+      O <code>Scanner</code> consome o source char a char produzindo uma lista de
+      <code>Token</code>s. Erros léxicos são coletados em <code>diagnostics</code>
+      sem interromper a varredura.
+    </p>
+
+    <div class="callout note">
+      <div class="callout-title">Recuperação de erros</div>
+      <p>
+        O Rippler adota a estratégia de <em>error recovery</em> em cada fase:
+        ao encontrar um erro, o compilador registra o diagnóstico e continua processando
+        o restante do código. Isso permite que múltiplos erros sejam reportados em uma
+        única execução, melhorando a experiência do desenvolvedor.
+      </p>
+    </div>
+
+    <!-- ── Bottom nav ── -->
+    <nav class="chapter-nav">
+      <div></div>
+      <a href="lexical-analysis.html" class="next">
+        <span class="nav-dir">Próximo &rarr;</span>
+        <span class="nav-title">Análise Léxica</span>
+      </a>
+    </nav>
+  </div>
+</div>
+
+<script src="assets/js/nav.js"></script>
+</body>
+</html>
