@@ -3,6 +3,7 @@ mod tests {
     use crate::common::input::source::SourceFile;
     use crate::lexer::scanner::Scanner;
     use crate::lexer::tokens::token_kind::TokenKind;
+    // use crate::common::errors::types::{CompilerError, LexicalError, LexicalErrorKind};
 
     // Helper que tokeniza uma string e devolve só os kinds, sem o Eof.
     // Evita repetição nos testes — cada teste foca só no que importa.
@@ -190,5 +191,25 @@ mod tests {
 
         // O token 42 ainda foi emitido antes do comentário
         assert_eq!(scanner.tokens[0].kind, TokenKind::IntLiteral(42));
+    }
+
+    #[test]
+    fn invalid_octal_digit(){
+        let src = SourceFile::from_string("08");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        assert_eq!(scanner.diagnostics.len(), 1); // verificação se ele capturou o erro
+        
+        if let crate::common::errors::types::CompilerError::Lexical(ref err) = scanner.diagnostics[0]{ // resgatamos o erro
+            if let crate::common::errors::types::LexicalErrorKind::InvalidOctalDigit(c) = err.kind{// verificação se condiz a classificação certa
+                assert_eq!(c, '8');
+            } 
+            else{
+                panic!("Esperava InvalidOctalDigit, mas achou {:?}", err.kind);
+            }
+        }
+
+        assert_eq!(scanner.tokens[0].kind, TokenKind::Unknown('8')); // verificação se o 8 foi convertido para um token Unknow
     }
 }
