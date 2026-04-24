@@ -24,9 +24,6 @@ impl Parser {
         Self { tokens, pos: 0 }
     }
 
-    // Cabeçalho pedido, mantido comentado para implementação futura da assinatura exata:
-    // fn parse_expr(min_bp: u8) -> Result<Expr, Diagnostic>
-
     // Implementação atual com tipo de erro já existente no projeto.
     pub fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         let mut lhs = self.parse_prefix_expr()?;
@@ -51,7 +48,7 @@ impl Parser {
             if ternary {
                 // Operador ternário C-style: cond ? then_expr : else_expr
                 let then_expr = self.parse_expr(rbp)?;
-                self.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:" )?;
+                self.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:")?;
                 let else_expr = self.parse_expr(rbp)?;
 
                 // TODO(ast): quando houver nó dedicado de ternário, substituir este encode provisório.
@@ -154,7 +151,9 @@ impl Parser {
                     }
                 }
 
-                let end = self.expect(&TokenKind::RightParen, "')' ao fechar chamada")?.clone();
+                let end = self
+                    .expect(&TokenKind::RightParen, "')' ao fechar chamada")?
+                    .clone();
                 let span = self.join_span(start, self.span_of(&end));
                 *lhs = Expr::Call(Box::new(lhs.clone()), args, span);
                 Ok(true)
@@ -262,7 +261,9 @@ impl Parser {
 
     // TODO(cast): por enquanto usa parser de tipo mínimo para cast; expandir com todos os qualificadores de C.
     fn parse_cast_expr(&mut self) -> Result<Expr, CompilerError> {
-        let lpar = self.expect(&TokenKind::LeftParen, "'(' para iniciar cast")?.clone();
+        let lpar = self
+            .expect(&TokenKind::LeftParen, "'(' para iniciar cast")?
+            .clone();
         let ty = self.parse_cast_type()?;
         self.expect(&TokenKind::RightParen, "')' após tipo no cast")?;
         let expr = self.parse_expr(30)?;
@@ -334,7 +335,11 @@ impl Parser {
             }
             _ => {
                 let found = self.peek().clone();
-                return Err(self.syntax_error(&found, "tipo para cast", &format!("{:?}", found.kind)));
+                return Err(self.syntax_error(
+                    &found,
+                    "tipo para cast",
+                    &format!("{:?}", found.kind),
+                ));
             }
         };
 
