@@ -36,6 +36,8 @@ pub enum LexicalErrorKind {
     UnexpectedClosingDelimiter(char),
     /// String ou char literal não fechada (ex: `"hello` sem `"`)
     UnterminatedLiteral(String),
+    /// Dígito inválido 8 e 9 para Octal
+    InvalidOctalDigit(char),
 }
 
 #[derive(Debug)]
@@ -71,6 +73,11 @@ impl ToReport for LexicalError {
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("literal '{}' nao foi terminada", lit))
                 .with_help("Feche a string ou char corretamente."),
+            
+            LexicalErrorKind::InvalidOctalDigit(c) => Report::new("invalid octal digit")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao e um digito octal valido", c))
+                .with_help("Numeros que comecam com '0' sao tratados como octais. Use apenas digitos de 0 a 7."),
         }
     }
 }
