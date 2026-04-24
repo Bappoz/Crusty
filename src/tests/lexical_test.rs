@@ -124,4 +124,51 @@ mod tests {
             vec![TokenKind::IntLiteral(42)]
         );
     }
+
+    // --- Operadores compostos ---
+
+    #[test]
+    fn lex_compound_operators() {
+        assert_eq!(scan("=="),  vec![TokenKind::EqualEqual]);
+        assert_eq!(scan("!="),  vec![TokenKind::BangEqual]);
+        assert_eq!(scan("<="),  vec![TokenKind::LessEqual]);
+        assert_eq!(scan(">="),  vec![TokenKind::GreaterEqual]);
+        assert_eq!(scan("&&"),  vec![TokenKind::AndAnd]);
+        assert_eq!(scan("||"),  vec![TokenKind::OrOr]);
+        assert_eq!(scan("++"),  vec![TokenKind::PlusPlus]);
+        assert_eq!(scan("--"),  vec![TokenKind::MinusMinus]);
+        assert_eq!(scan("+="),  vec![TokenKind::PlusEqual]);
+        assert_eq!(scan("-="),  vec![TokenKind::MinusEqual]);
+        assert_eq!(scan("*="),  vec![TokenKind::StarEqual]);
+        assert_eq!(scan("/="),  vec![TokenKind::SlashEqual]);
+        assert_eq!(scan("->"),  vec![TokenKind::Arrow]);
+        assert_eq!(scan("<<"),  vec![TokenKind::LessLess]);
+        assert_eq!(scan(">>"),  vec![TokenKind::GreaterGreater]);
+        assert_eq!(scan(">>="), vec![TokenKind::GreaterGreaterEqual]);
+        assert_eq!(scan("<<="), vec![TokenKind::LessLessEqual]);
+    }
+
+    // --- Comentários de bloco ---
+
+    #[test]
+    fn multi_line_comment_skipped() {
+        let kinds = scan("42 /* este é um comentário\n de bloco */ 99");
+        assert_eq!(
+            kinds,
+            vec![TokenKind::IntLiteral(42), TokenKind::IntLiteral(99)]
+        );
+    }
+
+    #[test]
+    fn unclosed_block_comment_errors() {
+        let src = SourceFile::from_string("42 /* comentário não fechado");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        // Deve ter exatamente um diagnóstico de comentário não fechado
+        assert_eq!(scanner.diagnostics.len(), 1);
+
+        // O token 42 ainda foi emitido antes do comentário
+        assert_eq!(scanner.tokens[0].kind, TokenKind::IntLiteral(42));
+    }
 }

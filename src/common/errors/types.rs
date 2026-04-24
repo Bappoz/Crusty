@@ -25,20 +25,39 @@ impl ToReport for CompilerError {
 }
 
 #[derive(Debug)]
+pub enum LexicalErrorKind {
+    /// Caractere que o lexer não reconhece (ex: `@`, `$`)
+    InvalidChar(char),
+    /// `/*` aberto mas nunca fechado com `*/`
+    UnclosedBlockComment,
+    /// `(`, `[` ou `{` aberto mas nunca fechado
+    UnclosedDelimiter(char),
+}
+
+#[derive(Debug)]
 pub struct LexicalError {
     pub span: Span,
-    pub invalid_char: char,
+    pub kind: LexicalErrorKind,
 }
 
 impl ToReport for LexicalError {
     fn to_report(&self) -> Report {
-        Report::new("invalid character")
-            .with_span(self.span.clone())
-            .with_label(
-                self.span.clone(),
-                format!("'{}' nao e valido", self.invalid_char),
-            )
-            .with_help("Remova ou substitua o caractere.")
+        match &self.kind {
+            LexicalErrorKind::InvalidChar(c) => Report::new("invalid character")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao e valido", c))
+                .with_help("Remova ou substitua o caractere."),
+
+            LexicalErrorKind::UnclosedBlockComment => Report::new("unclosed block comment")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), "comentario de bloco nao fechado".to_string())
+                .with_help("Adicione '*/' para fechar o comentario."),
+
+            LexicalErrorKind::UnclosedDelimiter(c) => Report::new("unclosed delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao foi fechado", c))
+                .with_help("Adicione o delimitador de fechamento correspondente."),
+        }
     }
 }
 

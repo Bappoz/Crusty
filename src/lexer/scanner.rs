@@ -1,16 +1,22 @@
 use crate::common::errors::{
     error_data::Span,
-    types::{CompilerError, LexicalError},
+    types::{CompilerError, LexicalError, LexicalErrorKind},
 };
 use crate::common::input::source::SourceFile;
 use crate::common::utils::char_utils::is_ident_start;
-use crate::lexer::rules::{identifiers::IdentifierRules, literals::LiteralsRules};
+use crate::lexer::rules::{
+    identifiers::IdentifierRules,
+    literals::LiteralsRules,
+    operators::OperatorRules,
+};
 use crate::lexer::tokens::{token::Token, token_kind::TokenKind};
 
 pub struct Scanner {
     pub src: SourceFile,
     pub tokens: Vec<Token>,
     pub diagnostics: Vec<CompilerError>,
+    /// Pilha de delimitadores abertos ainda não fechados: (char, linha, coluna)
+    delimiter_stack: Vec<(char, usize, usize)>,
 }
 
 impl Scanner {
@@ -20,6 +26,7 @@ impl Scanner {
             src,
             tokens: Vec::new(),
             diagnostics: Vec::new(),
+            delimiter_stack: Vec::new(),
         }
     }
 
@@ -31,6 +38,15 @@ impl Scanner {
                 break;
             }
             self.next_token();
+        }
+
+        // Delimitadores abertos sem fechamento → um diagnóstico por abertura
+        let unclosed: Vec<(char, usize, usize)> = self.delimiter_stack.drain(..).collect();
+        for (c, line, col) in unclosed {
+            self.diagnostics.push(CompilerError::Lexical(LexicalError {
+                span: Span { line, column_start: col, column_end: col + 1 },
+                kind: LexicalErrorKind::UnclosedDelimiter(c),
+            }));
         }
 
         // Sempre termina com EOF para o parser saber que acabou
@@ -57,27 +73,60 @@ impl Scanner {
             '"' => self.lex_string(line, col),
             '\'' => self.lex_char(line, col),
 
-            // Identificadores e keyworkds
+            // Identificadores e keywords
             c if is_ident_start(c) => self.lex_identifier(c, line, col),
 
-            // Operadores e delimitadores de um char só (sem lookahead)
-            '%' => self.emit_at(TokenKind::Percent, "%", line, col),
-            '^' => self.emit_at(TokenKind::Caret, "^", line, col),
-            '~' => self.emit_at(TokenKind::Tilde, "~", line, col),
-            '.' => self.emit_at(TokenKind::Dot, ".", line, col),
-            '(' => self.emit_at(TokenKind::LeftParen, "(", line, col),
-            ')' => self.emit_at(TokenKind::RightParen, ")", line, col),
-            '{' => self.emit_at(TokenKind::LeftBrace, "{", line, col),
-            '}' => self.emit_at(TokenKind::RightBrace, "}", line, col),
-            '[' => self.emit_at(TokenKind::LeftBracket, "[", line, col),
-            ']' => self.emit_at(TokenKind::RightBracket, "]", line, col),
-            ';' => self.emit_at(TokenKind::Semicolon, ";", line, col),
-            ',' => self.emit_at(TokenKind::Comma, ",", line, col),
-            ':' => self.emit_at(TokenKind::Colon, ":", line, col),
+            // ----------------------------------------------------------
+            // Delimitadores de abertura — empilha para rastrear fechamento
+            '(' => {
+                self.delimiter_stack.push(('(', line, col));
+                self.emit_at(TokenKind::LeftParen, "(", line, col);
+            }
+            '[' => {
+                self.delimiter_stack.push(('[', line, col));
+                self.emit_at(TokenKind::LeftBracket, "[", line, col);
+            }
+            '{' => {
+                self.delimiter_stack.push(('{', line, col));
+                self.emit_at(TokenKind::LeftBrace, "{", line, col);
+            }
 
-            // Operadores que precisam de lookahead (+, -, *, /, etc.)
-            // ficam aqui por enquanto como Unknown até operators.rs existir
-            // MODIFICAR ESSA PARTE QUANDO IMPLEMENTAR AS OUTRAS REGRAS
+            // Delimitadores de fechamento — desempilha o par correspondente
+            ')' => {
+                if matches!(self.delimiter_stack.last(), Some(('(', _, _))) {
+                    self.delimiter_stack.pop();
+                }
+                self.emit_at(TokenKind::RightParen, ")", line, col);
+            }
+            ']' => {
+                if matches!(self.delimiter_stack.last(), Some(('[', _, _))) {
+                    self.delimiter_stack.pop();
+                }
+                self.emit_at(TokenKind::RightBracket, "]", line, col);
+            }
+            '}' => {
+                if matches!(self.delimiter_stack.last(), Some(('{', _, _))) {
+                    self.delimiter_stack.pop();
+                }
+                self.emit_at(TokenKind::RightBrace, "}", line, col);
+            }
+
+            // ----------------------------------------------------------
+            // Pontuação simples sem lookahead
+            '%' => self.emit_at(TokenKind::Percent,   "%", line, col),
+            '^' => self.emit_at(TokenKind::Caret,     "^", line, col),
+            '~' => self.emit_at(TokenKind::Tilde,     "~", line, col),
+            '.' => self.emit_at(TokenKind::Dot,       ".", line, col),
+            ';' => self.emit_at(TokenKind::Semicolon, ";", line, col),
+            ',' => self.emit_at(TokenKind::Comma,     ",", line, col),
+            ':' => self.emit_at(TokenKind::Colon,     ":", line, col),
+
+            // ----------------------------------------------------------
+            // Operadores (simples e compostos) — delega para operators.rs
+            '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|'
+                => self.lex_operator(c, line, col),
+
+            // Qualquer outro char é inválido
             c => self.emit_unknown(c, line, col),
         }
     }
@@ -95,10 +144,11 @@ impl Scanner {
         });
     }
 
-    // Ignorar espaços em branco e Comentarios
+    // Ignora espaços em branco, comentários de linha (//) e de bloco (/* */)
     // Nao geram tokens
     fn skip_whitespaces_and_comments(&mut self) {
         loop {
+            // Pula whitespace
             while matches!(
                 self.src.peek(),
                 Some(' ') | Some('\t') | Some('\r') | Some('\n')
@@ -106,13 +156,55 @@ impl Scanner {
                 self.src.advance();
             }
 
-            // Comentarios
+            // Comentário de linha: //
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('/') {
                 while !matches!(self.src.peek(), Some('\n') | None) {
                     self.src.advance();
                 }
                 continue;
             }
+
+            // Comentário de bloco: /* ... */
+            if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('*') {
+                let comment_line = self.src.line();
+                let comment_col  = self.src.col();
+                self.src.advance(); // '/'
+                self.src.advance(); // '*'
+
+                loop {
+                    match self.src.advance() {
+                        // Fim de arquivo sem fechar → diagnóstico
+                        None => {
+                            self.diagnostics.push(CompilerError::Lexical(LexicalError {
+                                span: Span {
+                                    line: comment_line,
+                                    column_start: comment_col,
+                                    column_end: comment_col + 2,
+                                },
+                                kind: LexicalErrorKind::UnclosedBlockComment,
+                            }));
+                            return; // encerra o skip (e o scan logo a seguir)
+                        }
+                        // '*' seguido de '/' → fecha o bloco
+                        Some('*') if self.src.peek() == Some('/') => {
+                            self.src.advance(); // '/'
+                            break;
+                        }
+                        _ => {} // continua consumindo
+                    }
+                }
+                continue;
+            }
+
+            // Diretivas de pré-processador: #include, #define, etc.
+            // O lexer as ignora — consumidas até o fim da linha
+            if self.src.peek() == Some('#') {
+                while !matches!(self.src.peek(), Some('\n') | None) {
+                    self.src.advance();
+                }
+                continue;
+            }
+
             break;
         }
     }
@@ -125,7 +217,7 @@ impl Scanner {
                 column_start: col,
                 column_end: col + 1,
             },
-            invalid_char: c,
+            kind: LexicalErrorKind::InvalidChar(c),
         }));
         self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
     }
