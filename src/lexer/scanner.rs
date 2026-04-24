@@ -221,4 +221,17 @@ impl Scanner {
         }));
         self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
     }
+
+    // Emite um diagnóstico de literal não terminada (string ou char sem fechamento)
+    // Adicionado pela branch developer; atualizado para usar LexicalErrorKind
+    pub fn emit_unterminated_literal(&mut self, lit: &str, line: usize, col_start: usize, col_end: usize) {
+        self.diagnostics.push(CompilerError::Lexical(LexicalError {
+            span: Span {
+                line,
+                column_start: col_start,
+                column_end: col_end,
+            },
+            kind: LexicalErrorKind::UnterminatedLiteral(lit.to_string()),
+        }));
+    }
 }
