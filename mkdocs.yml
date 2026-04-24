@@ -1,5 +1,5 @@
-site_name: Rippler — Compilador de C
-site_description: Documentação técnica do compilador Rippler, desenvolvido na disciplina de Compiladores 1.
+site_name: Crusty — Compilador de C
+site_description: Documentação técnica do compilador Crusty, desenvolvido na disciplina de Compiladores 1.
 site_url: https://bappoz.github.io/Crusty/
 
 theme: cinder
