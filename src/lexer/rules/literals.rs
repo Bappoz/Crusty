@@ -169,6 +169,13 @@ impl LiteralsRules for Scanner {
         let mut lexeme = String::from('\'');
         let mut col_end = col + 1;
 
+        // '' é inválido em C — char literal vazio
+        if self.src.peek() == Some('\'') {
+            self.src.advance(); // consome o fechamento imediato
+            self.emit_unterminated_literal("char", line, col, col_end);
+            return;
+        }
+
         let c = match self.src.advance() {
             Some('\\') => {
                 lexeme.push('\\');
