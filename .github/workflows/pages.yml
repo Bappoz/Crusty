@@ -23,13 +23,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install MkDocs + Cinder theme
+        run: pip install mkdocs mkdocs-cinder
+
+      - name: Build site
+        run: mkdocs build --strict
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "./docs"
+          path: "./site"
 
       - name: Deploy to GitHub Pages
         id: deployment

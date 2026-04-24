@@ -1,0 +1,21 @@
+site_name: Rippler — Compilador de C
+site_description: Documentação técnica do compilador Rippler, desenvolvido na disciplina de Compiladores 1.
+site_url: https://bappoz.github.io/Crusty/
+
+theme: cinder
+
+nav:
+  - Visão Geral: index.md
+  - Fases do Compilador:
+    - Análise Léxica: lexical-analysis.md
+    - Análise Sintática: syntax-analysis.md
+    - Análise Semântica: semantic-analysis.md
+    - Representação Intermediária: intermediate-representation.md
+    - Geração de Código: code-generation.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - admonition
+  - toc:
+      permalink: true
