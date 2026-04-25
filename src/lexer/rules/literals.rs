@@ -106,7 +106,7 @@ impl LiteralsRules for Scanner {
             // Parse da string completa para f64
             let value: f64 = buf.parse().unwrap_or(0.0);
             while matches!(self.src.peek(), Some('f' | 'F' | 'l' | 'L')) {
-                self.src.advance();
+                buf.push(self.src.advance().unwrap());
             }
             self.emit_at(TokenKind::FloatLiteral(value), &buf, line, col);
         } else {
