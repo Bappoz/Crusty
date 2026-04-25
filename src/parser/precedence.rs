@@ -1,34 +1,38 @@
 use crate::lexer::tokens::token_kind::TokenKind;
 
-// Define a ordem de binding power usada pelo parser Pratt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Precedence {
-    None,
-    Assignment,
-    LogicalOr,
-    LogicalAnd,
-    Equality,
-    Comparison,
-    Term,
-    Factor,
-    Unary,
-    Call,
-    Primary,
+// Mantemos apenas as binding powers efetivamente usadas pelo parser.
+// Se um Pratt table-driven completo voltar a ser necessário, um enum de precedência
+// pode ser reintroduzido aqui com uso real no fluxo de parse.
+
+pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
+    let bp = match op {
+        TokenKind::Equal => (1, 1, false),
+        TokenKind::OrOr => (2, 3, false),
+        TokenKind::AndAnd => (4, 5, false),
+        TokenKind::Pipe => (6, 7, false),
+        TokenKind::Caret => (8, 9, false),
+        TokenKind::Ampersand => (10, 11, false),
+        TokenKind::EqualEqual | TokenKind::BangEqual => (12, 13, false),
+        TokenKind::Less | TokenKind::Greater | TokenKind::LessEqual | TokenKind::GreaterEqual => {
+            (14, 15, false)
+        }
+        TokenKind::Plus | TokenKind::Minus => (18, 19, false),
+        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => (20, 21, false),
+        _ => return None,
+    };
+    Some(bp)
 }
 
-// Mapeia cada token infixo para seu nível de precedência.
-pub fn precedence_of(token: &TokenKind) -> Precedence {
-    match token {
-        TokenKind::Equal => Precedence::Assignment,
-        TokenKind::OrOr => Precedence::LogicalOr,
-        TokenKind::AndAnd => Precedence::LogicalAnd,
-        TokenKind::EqualEqual | TokenKind::BangEqual => Precedence::Equality,
-        TokenKind::Less | TokenKind::LessEqual | TokenKind::Greater | TokenKind::GreaterEqual => {
-            Precedence::Comparison
-        }
-        TokenKind::Plus | TokenKind::Minus => Precedence::Term,
-        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Precedence::Factor,
-        TokenKind::LeftParen | TokenKind::LeftBracket => Precedence::Call,
-        _ => Precedence::None,
+pub fn prefix_binding_power(op: &TokenKind) -> Option<u8> {
+    match op {
+        TokenKind::Bang
+        | TokenKind::Tilde
+        | TokenKind::Minus
+        | TokenKind::PlusPlus
+        | TokenKind::MinusMinus
+        | TokenKind::Star
+        | TokenKind::Ampersand
+        | TokenKind::Sizeof => Some(30),
+        _ => None,
     }
 }
