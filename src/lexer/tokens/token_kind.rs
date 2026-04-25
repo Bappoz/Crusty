@@ -11,7 +11,6 @@ pub enum TokenKind {
     Default,
     Break,
     Continue,
-    Question,
 
     // Palavras reservadas de tipos
     Int,
@@ -90,6 +89,7 @@ pub enum TokenKind {
     LeftBracket,  // [
     RightBracket, // ]
     Colon,        // :
+    Question,     // ?
 
     // Literais
     IntLiteral(i64),
