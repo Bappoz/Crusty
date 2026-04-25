@@ -82,7 +82,10 @@ mod tests {
         let cases = vec![
             (vec![tk(TokenKind::Minus, 1), ident("x", 2), eof(3)], "neg"),
             (vec![tk(TokenKind::Bang, 1), ident("x", 2), eof(3)], "not"),
-            (vec![tk(TokenKind::PlusPlus, 1), ident("x", 3), eof(4)], "inc"),
+            (
+                vec![tk(TokenKind::PlusPlus, 1), ident("x", 3), eof(4)],
+                "inc",
+            ),
         ];
 
         for (tokens, kind) in cases {
@@ -101,7 +104,13 @@ mod tests {
     fn parses_postfix_operators() {
         let cases = vec![
             vec![ident("x", 1), tk(TokenKind::PlusPlus, 2), eof(4)],
-            vec![ident("x", 1), tk(TokenKind::LeftBracket, 2), int(0, 3), tk(TokenKind::RightBracket, 4), eof(5)],
+            vec![
+                ident("x", 1),
+                tk(TokenKind::LeftBracket, 2),
+                int(0, 3),
+                tk(TokenKind::RightBracket, 4),
+                eof(5),
+            ],
             vec![
                 ident("f", 1),
                 tk(TokenKind::LeftParen, 2),
@@ -113,13 +122,19 @@ mod tests {
             ],
         ];
 
-        let first = Parser::new(cases[0].clone()).parse_expr(0).expect("postfix válido");
+        let first = Parser::new(cases[0].clone())
+            .parse_expr(0)
+            .expect("postfix válido");
         assert!(matches!(first, Expr::Postfix(PostfixOp::Inc, _, _)));
 
-        let second = Parser::new(cases[1].clone()).parse_expr(0).expect("indexação válida");
+        let second = Parser::new(cases[1].clone())
+            .parse_expr(0)
+            .expect("indexação válida");
         assert!(matches!(second, Expr::Index(_, _, _)));
 
-        let third = Parser::new(cases[2].clone()).parse_expr(0).expect("chamada válida");
+        let third = Parser::new(cases[2].clone())
+            .parse_expr(0)
+            .expect("chamada válida");
         let Expr::Call(_, args, _) = third else {
             panic!("esperava chamada de função");
         };
@@ -139,7 +154,16 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("cast válido");
 
-        let Expr::Cast(QualifierType { ty, is_const, is_unsigned }, inner, _) = expr else {
+        let Expr::Cast(
+            QualifierType {
+                ty,
+                is_const,
+                is_unsigned,
+            },
+            inner,
+            _,
+        ) = expr
+        else {
             panic!("esperava cast no topo da árvore");
         };
 
@@ -151,7 +175,12 @@ mod tests {
 
     #[test]
     fn parses_assignment_expression() {
-        let tokens = vec![ident("x", 1), tk(TokenKind::Equal, 2), ident("y", 3), eof(4)];
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::Equal, 2),
+            ident("y", 3),
+            eof(4),
+        ];
 
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("atribuição válida");

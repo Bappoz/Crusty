@@ -35,7 +35,8 @@ impl Parser {
             }
 
             let op = self.peek_kind().clone();
-            let Some((lbp, rbp, ternary)) = crate::parser::precedence::infix_binding_power(&op) else {
+            let Some((lbp, rbp, ternary)) = crate::parser::precedence::infix_binding_power(&op)
+            else {
                 break;
             };
 
@@ -63,7 +64,11 @@ impl Parser {
 
         if !self.is_expression_terminator(self.peek_kind()) {
             let found = self.peek().clone();
-            return Err(self.syntax_error(&found, "fim de expressão", &format!("{:?}", found.kind)));
+            return Err(self.syntax_error(
+                &found,
+                "fim de expressão",
+                &format!("{:?}", found.kind),
+            ));
         }
 
         Ok(lhs)
@@ -103,7 +108,11 @@ impl Parser {
         false
     }
 
-    pub(crate) fn expect(&mut self, kind: &TokenKind, expected: &str) -> Result<&Token, CompilerError> {
+    pub(crate) fn expect(
+        &mut self,
+        kind: &TokenKind,
+        expected: &str,
+    ) -> Result<&Token, CompilerError> {
         if self.check(kind) {
             return Ok(self.advance());
         }
@@ -152,7 +161,12 @@ impl Parser {
         })
     }
 
-    pub(crate) fn syntax_error_from_span(&self, span: Span, expected: &str, found: &str) -> CompilerError {
+    pub(crate) fn syntax_error_from_span(
+        &self,
+        span: Span,
+        expected: &str,
+        found: &str,
+    ) -> CompilerError {
         CompilerError::Syntax(SyntaxError {
             span,
             expected: expected.to_string(),
@@ -160,4 +174,3 @@ impl Parser {
         })
     }
 }
-

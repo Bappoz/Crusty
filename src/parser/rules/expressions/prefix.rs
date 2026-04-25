@@ -1,7 +1,7 @@
 use crate::common::ast::ast::QualifierType;
 use crate::common::ast::expr::{Expr, Literal, PrefixOp, UnOp};
-use crate::common::errors::types::CompilerError;
 use crate::common::errors::error_data::Span;
+use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
@@ -23,9 +23,10 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
         | TokenKind::Ampersand
         | TokenKind::Sizeof => {
             let op = parser.advance().clone();
-            let bp = crate::parser::precedence::prefix_binding_power(&op.kind).ok_or_else(|| {
-                parser.syntax_error(&op, "operador prefixo", &format!("{:?}", op.kind))
-            })?;
+            let bp =
+                crate::parser::precedence::prefix_binding_power(&op.kind).ok_or_else(|| {
+                    parser.syntax_error(&op, "operador prefixo", &format!("{:?}", op.kind))
+                })?;
             let rhs = parser.parse_expr(bp)?;
             let span = parser.join_span(parser.span_of(&op), rhs.span());
             build_prefix_expr(parser, op.kind, rhs, span)
@@ -61,7 +62,9 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
 }
 
 pub fn parse_cast_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
-    let lpar = parser.expect(&TokenKind::LeftParen, "'(' para iniciar cast")?.clone();
+    let lpar = parser
+        .expect(&TokenKind::LeftParen, "'(' para iniciar cast")?
+        .clone();
     let ty = parse_cast_type(parser)?;
     parser.expect(&TokenKind::RightParen, "')' após tipo no cast")?;
     let expr = parser.parse_expr(30)?;
@@ -130,7 +133,11 @@ pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerErr
         }
         _ => {
             let found = parser.peek().clone();
-            return Err(parser.syntax_error(&found, "tipo para cast", &format!("{:?}", found.kind)));
+            return Err(parser.syntax_error(
+                &found,
+                "tipo para cast",
+                &format!("{:?}", found.kind),
+            ));
         }
     };
 

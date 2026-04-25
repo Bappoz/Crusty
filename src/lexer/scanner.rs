@@ -5,9 +5,7 @@ use crate::common::errors::{
 use crate::common::input::source::SourceFile;
 use crate::common::utils::char_utils::is_ident_start;
 use crate::lexer::rules::{
-    identifiers::IdentifierRules,
-    literals::LiteralsRules,
-    operators::OperatorRules,
+    identifiers::IdentifierRules, literals::LiteralsRules, operators::OperatorRules,
 };
 use crate::lexer::tokens::{token::Token, token_kind::TokenKind};
 
@@ -44,7 +42,12 @@ impl Scanner {
         let unclosed: Vec<(char, usize, usize)> = self.delimiter_stack.drain(..).collect();
         for (c, line, col) in unclosed {
             self.diagnostics.push(CompilerError::Lexical(LexicalError {
-                span: Span { line, end_line: line, column_start: col, column_end: col + 1 },
+                span: Span {
+                    line,
+                    end_line: line,
+                    column_start: col,
+                    column_end: col + 1,
+                },
                 kind: LexicalErrorKind::UnclosedDelimiter(c),
             }));
         }
@@ -66,14 +69,23 @@ impl Scanner {
 
         match c {
             '0'..='9' => self.lex_number(c, line, col),
-            '"'  => self.lex_string(line, col),
+            '"' => self.lex_string(line, col),
             '\'' => self.lex_char(line, col),
             c if is_ident_start(c) => self.lex_identifier(c, line, col),
 
             // Delimitadores de abertura — empilha para rastrear fechamento
-            '(' => { self.delimiter_stack.push(('(', line, col)); self.emit_at(TokenKind::LeftParen,    "(", line, col); }
-            '[' => { self.delimiter_stack.push(('[', line, col)); self.emit_at(TokenKind::LeftBracket,  "[", line, col); }
-            '{' => { self.delimiter_stack.push(('{', line, col)); self.emit_at(TokenKind::LeftBrace,    "{", line, col); }
+            '(' => {
+                self.delimiter_stack.push(('(', line, col));
+                self.emit_at(TokenKind::LeftParen, "(", line, col);
+            }
+            '[' => {
+                self.delimiter_stack.push(('[', line, col));
+                self.emit_at(TokenKind::LeftBracket, "[", line, col);
+            }
+            '{' => {
+                self.delimiter_stack.push(('{', line, col));
+                self.emit_at(TokenKind::LeftBrace, "{", line, col);
+            }
 
             // Delimitadores de fechamento — desempilha o par ou reporta mismatch/inesperado
             ')' => {
@@ -102,17 +114,18 @@ impl Scanner {
             }
 
             // Pontuação simples sem lookahead
-            '%' => self.emit_at(TokenKind::Percent,   "%", line, col),
-            '^' => self.emit_at(TokenKind::Caret,     "^", line, col),
-            '~' => self.emit_at(TokenKind::Tilde,     "~", line, col),
-            '.' => self.emit_at(TokenKind::Dot,       ".", line, col),
+            '%' => self.emit_at(TokenKind::Percent, "%", line, col),
+            '^' => self.emit_at(TokenKind::Caret, "^", line, col),
+            '~' => self.emit_at(TokenKind::Tilde, "~", line, col),
+            '.' => self.emit_at(TokenKind::Dot, ".", line, col),
             ';' => self.emit_at(TokenKind::Semicolon, ";", line, col),
-            ',' => self.emit_at(TokenKind::Comma,     ",", line, col),
-            ':' => self.emit_at(TokenKind::Colon,     ":", line, col),
+            ',' => self.emit_at(TokenKind::Comma, ",", line, col),
+            ':' => self.emit_at(TokenKind::Colon, ":", line, col),
 
             // Operadores (simples e compostos) — delega para operators.rs
-            '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|'
-                => self.lex_operator(c, line, col),
+            '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|' => {
+                self.lex_operator(c, line, col)
+            }
 
             c => self.emit_unknown(c, line, col),
         }
@@ -153,7 +166,7 @@ impl Scanner {
             // Comentário de bloco: /* ... */
             if self.src.peek() == Some('/') && self.src.peek_ahead() == Some('*') {
                 let comment_line = self.src.line();
-                let comment_col  = self.src.col();
+                let comment_col = self.src.col();
                 self.src.advance(); // '/'
                 self.src.advance(); // '*'
 
@@ -180,7 +193,11 @@ impl Scanner {
                         _ => {}
                     }
                 }
-                if closed { continue; } else { break; }
+                if closed {
+                    continue;
+                } else {
+                    break;
+                }
             }
 
             // Diretivas de pré-processador: #include, #define, etc.
@@ -211,13 +228,24 @@ impl Scanner {
 
     fn emit_unexpected_delimiter(&mut self, c: char, line: usize, col: usize) {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
-            span: Span { line, end_line: line, column_start: col, column_end: col + 1 },
+            span: Span {
+                line,
+                end_line: line,
+                column_start: col,
+                column_end: col + 1,
+            },
             kind: LexicalErrorKind::UnexpectedClosingDelimiter(c),
         }));
     }
 
     // Emite um diagnóstico de literal não terminada (string ou char sem fechamento)
-    pub fn emit_unterminated_literal(&mut self, lit: &str, line: usize, col_start: usize, col_end: usize) {
+    pub fn emit_unterminated_literal(
+        &mut self,
+        lit: &str,
+        line: usize,
+        col_start: usize,
+        col_end: usize,
+    ) {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
             span: Span {
                 line,

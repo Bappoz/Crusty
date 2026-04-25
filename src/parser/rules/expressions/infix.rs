@@ -4,7 +4,11 @@ use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
-pub fn token_to_bin_op(parser: &Parser, kind: &TokenKind, found: &Token) -> Result<BinOp, CompilerError> {
+pub fn token_to_bin_op(
+    parser: &Parser,
+    kind: &TokenKind,
+    found: &Token,
+) -> Result<BinOp, CompilerError> {
     let op = match kind {
         TokenKind::OrOr => BinOp::Or,
         TokenKind::AndAnd => BinOp::And,
@@ -27,16 +31,22 @@ pub fn token_to_bin_op(parser: &Parser, kind: &TokenKind, found: &Token) -> Resu
     Ok(op)
 }
 
-pub fn parse_ternary(
-    parser: &mut Parser,
-    lhs: Expr,
-    rbp: u8,
-) -> Result<Expr, CompilerError> {
+pub fn parse_ternary(parser: &mut Parser, lhs: Expr, rbp: u8) -> Result<Expr, CompilerError> {
     let then_expr = parser.parse_expr(rbp)?;
     parser.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:")?;
     let else_expr = parser.parse_expr(rbp)?;
 
     let span = parser.join_span(lhs.span(), else_expr.span());
-    let encoded = Expr::Binary(Box::new(then_expr), BinOp::Or, Box::new(else_expr), span.clone());
-    Ok(Expr::Binary(Box::new(lhs), BinOp::Or, Box::new(encoded), span))
+    let encoded = Expr::Binary(
+        Box::new(then_expr),
+        BinOp::Or,
+        Box::new(else_expr),
+        span.clone(),
+    );
+    Ok(Expr::Binary(
+        Box::new(lhs),
+        BinOp::Or,
+        Box::new(encoded),
+        span,
+    ))
 }

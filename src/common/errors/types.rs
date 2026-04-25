@@ -73,7 +73,7 @@ impl ToReport for LexicalError {
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("literal '{}' nao foi terminada", lit))
                 .with_help("Feche a string ou char corretamente."),
-            
+
             LexicalErrorKind::InvalidOctalDigit(c) => Report::new("invalid octal digit")
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("'{}' nao e um digito octal valido", c))

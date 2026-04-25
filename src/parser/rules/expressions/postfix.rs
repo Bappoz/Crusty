@@ -19,7 +19,9 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
                 }
             }
 
-            let end = parser.expect(&TokenKind::RightParen, "')' ao fechar chamada")?.clone();
+            let end = parser
+                .expect(&TokenKind::RightParen, "')' ao fechar chamada")?
+                .clone();
             let span = parser.join_span(start, parser.span_of(&end));
             *lhs = Expr::Call(Box::new(lhs.clone()), args, span);
             Ok(true)
@@ -28,7 +30,9 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
             let start = lhs.span();
             parser.advance();
             let index = parser.parse_expr(0)?;
-            let end = parser.expect(&TokenKind::RightBracket, "']' ao fechar indexação")?.clone();
+            let end = parser
+                .expect(&TokenKind::RightBracket, "']' ao fechar indexação")?
+                .clone();
             let span = parser.join_span(start, parser.span_of(&end));
             *lhs = Expr::Index(Box::new(lhs.clone()), Box::new(index), span);
             Ok(true)
@@ -46,7 +50,11 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
 
             let field = Expr::Ident(field_name, parser.span_of(&field_token));
             let span = parser.join_span(lhs.span(), parser.span_of(&field_token));
-            let op_kind = if op.kind == TokenKind::Dot { BinOp::BitOr } else { BinOp::BitAnd };
+            let op_kind = if op.kind == TokenKind::Dot {
+                BinOp::BitOr
+            } else {
+                BinOp::BitAnd
+            };
             *lhs = Expr::Binary(Box::new(lhs.clone()), op_kind, Box::new(field), span);
             Ok(true)
         }

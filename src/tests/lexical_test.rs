@@ -127,21 +127,21 @@ mod tests {
 
     #[test]
     fn lex_compound_operators() {
-        assert_eq!(scan("=="),  vec![TokenKind::EqualEqual]);
-        assert_eq!(scan("!="),  vec![TokenKind::BangEqual]);
-        assert_eq!(scan("<="),  vec![TokenKind::LessEqual]);
-        assert_eq!(scan(">="),  vec![TokenKind::GreaterEqual]);
-        assert_eq!(scan("&&"),  vec![TokenKind::AndAnd]);
-        assert_eq!(scan("||"),  vec![TokenKind::OrOr]);
-        assert_eq!(scan("++"),  vec![TokenKind::PlusPlus]);
-        assert_eq!(scan("--"),  vec![TokenKind::MinusMinus]);
-        assert_eq!(scan("+="),  vec![TokenKind::PlusEqual]);
-        assert_eq!(scan("-="),  vec![TokenKind::MinusEqual]);
-        assert_eq!(scan("*="),  vec![TokenKind::StarEqual]);
-        assert_eq!(scan("/="),  vec![TokenKind::SlashEqual]);
-        assert_eq!(scan("->"),  vec![TokenKind::Arrow]);
-        assert_eq!(scan("<<"),  vec![TokenKind::LessLess]);
-        assert_eq!(scan(">>"),  vec![TokenKind::GreaterGreater]);
+        assert_eq!(scan("=="), vec![TokenKind::EqualEqual]);
+        assert_eq!(scan("!="), vec![TokenKind::BangEqual]);
+        assert_eq!(scan("<="), vec![TokenKind::LessEqual]);
+        assert_eq!(scan(">="), vec![TokenKind::GreaterEqual]);
+        assert_eq!(scan("&&"), vec![TokenKind::AndAnd]);
+        assert_eq!(scan("||"), vec![TokenKind::OrOr]);
+        assert_eq!(scan("++"), vec![TokenKind::PlusPlus]);
+        assert_eq!(scan("--"), vec![TokenKind::MinusMinus]);
+        assert_eq!(scan("+="), vec![TokenKind::PlusEqual]);
+        assert_eq!(scan("-="), vec![TokenKind::MinusEqual]);
+        assert_eq!(scan("*="), vec![TokenKind::StarEqual]);
+        assert_eq!(scan("/="), vec![TokenKind::SlashEqual]);
+        assert_eq!(scan("->"), vec![TokenKind::Arrow]);
+        assert_eq!(scan("<<"), vec![TokenKind::LessLess]);
+        assert_eq!(scan(">>"), vec![TokenKind::GreaterGreater]);
         assert_eq!(scan(">>="), vec![TokenKind::GreaterGreaterEqual]);
         assert_eq!(scan("<<="), vec![TokenKind::LessLessEqual]);
     }
@@ -191,18 +191,21 @@ mod tests {
     }
 
     #[test]
-    fn invalid_octal_digit(){
+    fn invalid_octal_digit() {
         let src = SourceFile::from_string("08");
         let mut scanner = Scanner::new(src);
         scanner.scan();
 
         assert_eq!(scanner.diagnostics.len(), 1); // verificação se ele capturou o erro
-        
-        if let crate::common::errors::types::CompilerError::Lexical(ref err) = scanner.diagnostics[0]{ // resgatamos o erro
-            if let crate::common::errors::types::LexicalErrorKind::InvalidOctalDigit(c) = err.kind{// verificação se condiz a classificação certa
+
+        if let crate::common::errors::types::CompilerError::Lexical(ref err) =
+            scanner.diagnostics[0]
+        {
+            // resgatamos o erro
+            if let crate::common::errors::types::LexicalErrorKind::InvalidOctalDigit(c) = err.kind {
+                // verificação se condiz a classificação certa
                 assert_eq!(c, '8');
-            } 
-            else{
+            } else {
                 panic!("Esperava InvalidOctalDigit, mas achou {:?}", err.kind);
             }
         }
