@@ -5,6 +5,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::exit;
 
+/// Ponto de entrada: decide entre modo interativo (sem args) ou compilação de arquivo (1 arg).
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = env::args().collect();
     match args.len() {
@@ -26,10 +27,12 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Modo REPL interativo; ainda não implementado.
 fn run_prompt() -> Result<(), Box<dyn ToReport>> {
     todo!()
 }
 
+/// Executa o scanner sobre o `SourceFile` e imprime os tokens produzidos e eventuais diagnósticos.
 fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
     scanner.scan();
@@ -52,12 +55,14 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     Ok(())
 }
 
+/// Lê o arquivo no caminho informado e delega a execução para `run`.
 fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
     let source = SourceFile::from_path(PathBuf::from(path))?;
     run(source)?;
     Ok(())
 }
 
+/// Imprime o `Report` de erro no stderr de forma estruturada e encerra o processo com código 74.
 fn report_and_exit(e: Box<dyn ToReport>) {
     let report = e.to_report();
 

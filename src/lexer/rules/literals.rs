@@ -28,6 +28,9 @@ impl LiteralsRules for Scanner {
             }
             // Converte "FF" para i64 na base 16
             let value = i64::from_str_radix(&buf[2..], 16).unwrap_or(0);
+            while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
+                buf.push(self.src.advance().unwrap());
+            }
             return self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
         }
 
@@ -47,6 +50,9 @@ impl LiteralsRules for Scanner {
             }
             // Converte na base 8 pulando o 0 inicial
             let value = i64::from_str_radix(&buf[1..], 8).unwrap_or(0);
+            while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
+                buf.push(self.src.advance().unwrap());
+            }
             return self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
         }
 
@@ -83,7 +89,6 @@ impl LiteralsRules for Scanner {
             if matches!(self.src.peek(), Some('e') | Some('E')) {
                 buf.push(self.src.advance().unwrap());
 
-
                 if matches!(self.src.peek(), Some('-') | Some('+')) {
                     buf.push(self.src.advance().unwrap());
                 }
@@ -100,10 +105,16 @@ impl LiteralsRules for Scanner {
 
             // Parse da string completa para f64
             let value: f64 = buf.parse().unwrap_or(0.0);
+            while matches!(self.src.peek(), Some('f' | 'F' | 'l' | 'L')) {
+                buf.push(self.src.advance().unwrap());
+            }
             self.emit_at(TokenKind::FloatLiteral(value), &buf, line, col);
         } else {
             // Chechou tudo e é Inteiro
             let value: i64 = buf.parse().unwrap_or(0);
+            while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
+                buf.push(self.src.advance().unwrap());
+            }
             self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
         }
     }
@@ -117,7 +128,6 @@ impl LiteralsRules for Scanner {
             match self.src.advance() {
                 Some('"') => {
                     lexeme.push('"');
-                    col_end += 1;
                     break;
                 }
                 Some('\\') => {
@@ -178,7 +188,6 @@ impl LiteralsRules for Scanner {
         match self.src.advance() {
             Some('\'') => {
                 lexeme.push('\'');
-                col_end += 1;
                 self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),
