@@ -56,6 +56,7 @@ impl LiteralsRules for Scanner {
                 self.diagnostics.push(CompilerError::Lexical(LexicalError{ // relatório de erro: posição ee tipo
                     span: Span{
                         line,
+                        end_line: line,
                         column_start: error_col,
                         column_end: error_col + 1,
                     },

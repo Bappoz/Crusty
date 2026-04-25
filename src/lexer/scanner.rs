@@ -44,7 +44,7 @@ impl Scanner {
         let unclosed: Vec<(char, usize, usize)> = self.delimiter_stack.drain(..).collect();
         for (c, line, col) in unclosed {
             self.diagnostics.push(CompilerError::Lexical(LexicalError {
-                span: Span { line, column_start: col, column_end: col + 1 },
+                span: Span { line, end_line: line, column_start: col, column_end: col + 1 },
                 kind: LexicalErrorKind::UnclosedDelimiter(c),
             }));
         }
@@ -164,6 +164,7 @@ impl Scanner {
                             self.diagnostics.push(CompilerError::Lexical(LexicalError {
                                 span: Span {
                                     line: comment_line,
+                                    end_line: comment_line,
                                     column_start: comment_col,
                                     column_end: comment_col + 2,
                                 },
@@ -210,7 +211,7 @@ impl Scanner {
 
     fn emit_unexpected_delimiter(&mut self, c: char, line: usize, col: usize) {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
-            span: Span { line, column_start: col, column_end: col + 1 },
+            span: Span { line, end_line: line, column_start: col, column_end: col + 1 },
             kind: LexicalErrorKind::UnexpectedClosingDelimiter(c),
         }));
     }
