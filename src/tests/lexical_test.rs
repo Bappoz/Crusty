@@ -170,10 +170,16 @@ mod tests {
     #[test]
     fn multiple_unknowns_keep_scanning() {
         // O scanner não para no primeiro erro
+        // '?' is now a valid token (Question), so only '@' and '$' are unknown
         let src = SourceFile::from_string("@ ? $");
         let mut scanner = Scanner::new(src);
         scanner.scan();
-        assert_eq!(scanner.diagnostics.len(), 3);
+        assert_eq!(scanner.diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn question_mark_emits_question_token() {
+        assert_eq!(scan("?"), vec![TokenKind::Question]);
     }
 
     // --- Comentários e Diretivas são ignorados ---

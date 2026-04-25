@@ -119,8 +119,9 @@ impl Scanner {
             '~' => self.emit_at(TokenKind::Tilde, "~", line, col),
             '.' => self.emit_at(TokenKind::Dot, ".", line, col),
             ';' => self.emit_at(TokenKind::Semicolon, ";", line, col),
-            ',' => self.emit_at(TokenKind::Comma, ",", line, col),
-            ':' => self.emit_at(TokenKind::Colon, ":", line, col),
+            ',' => self.emit_at(TokenKind::Comma,     ",", line, col),
+            ':' => self.emit_at(TokenKind::Colon,     ":", line, col),
+            '?' => self.emit_at(TokenKind::Question,  "?", line, col),
 
             // Operadores (simples e compostos) — delega para operators.rs
             '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|' => {
