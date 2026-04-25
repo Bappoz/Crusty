@@ -1,3 +1,7 @@
+use crate::common::errors::{
+    error_data::Span,
+    types::{CompilerError, LexicalError, LexicalErrorKind},
+};
 use crate::common::utils::char_utils::*;
 use crate::lexer::scanner::Scanner;
 use crate::lexer::tokens::TokenKind;
@@ -36,8 +40,23 @@ impl LiteralsRules for Scanner {
 
         // -------------------------------------------------
 
+        // OCTAL INVÁLIDO: 08, 09 — dígitos 8 e 9 não são válidos em octal
+        if first == '0' && matches!(self.src.peek(), Some('8' | '9')) {
+            let c = self.src.advance().unwrap();
+            self.diagnostics.push(CompilerError::Lexical(LexicalError {
+                span: Span {
+                    line,
+                    end_line: line,
+                    column_start: col,
+                    column_end: col + 2,
+                },
+                kind: LexicalErrorKind::InvalidOctalDigit(c),
+            }));
+            self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
+            return;
+        }
+
         // OCTAL: 0755, ...
-        // If Responsavel para resolver os Hexadecimais
         if first == '0' && matches!(self.src.peek(), Some('0'..='7')) {
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {

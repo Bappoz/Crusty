@@ -37,20 +37,32 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
     scanner.scan();
 
+    let token_count = scanner.tokens.len();
+    println!("=== Tokens ({token_count}) ===");
     for token in &scanner.tokens {
         let lexeme = &scanner.src.source.as_str()[token.span.start..token.span.end];
-        println!("{:?} {:?}", token.kind, lexeme);
+        let kind_str = format!("{:?}", token.kind);
+        println!("  [{:3}:{:<3}]  {:<35} {:?}", token.line, token.col, kind_str, lexeme);
     }
 
-    if !scanner.diagnostics.is_empty() {
-        eprintln!(
-            "\n--- {} erro(s) encontrado(s) ---",
-            scanner.diagnostics.len()
-        );
-        for diaginostic in &scanner.diagnostics {
-            let report = diaginostic.to_report();
-            eprintln!("  {}", report.message);
+    let diag_count = scanner.diagnostics.len();
+    if diag_count > 0 {
+        eprintln!("\n=== Diagnostics ({diag_count}) ===");
+        for diagnostic in &scanner.diagnostics {
+            let report = diagnostic.to_report();
+            eprintln!("  error: {}", report.message);
+            if let Some(span) = &report.span {
+                eprintln!("    --> {}:{}", span.line, span.column_start);
+            }
+            for label in &report.labels {
+                eprintln!("    | {}", label.message);
+            }
+            if let Some(help) = &report.help {
+                eprintln!("    = help: {}", help);
+            }
         }
+    } else {
+        println!("\n=== Diagnostics (0) ===");
     }
     Ok(())
 }
