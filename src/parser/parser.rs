@@ -19,12 +19,13 @@ pub struct Parser {
 }
 
 impl Parser {
-    // Construtor mínimo para o parser de expressões.
+    /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
     }
 
-    // Implementação atual com tipo de erro já existente no projeto.
+    /// Parseia uma expressão com precedência mínima `min_bp` usando o algoritmo Pratt (top-down operator precedence).
+    /// Retorna a expressão construída ou um `Diagnostic` de erro sintático.
     pub fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         let mut lhs = prefix::parse_prefix_expr(self)?;
 
@@ -74,15 +75,17 @@ impl Parser {
         Ok(lhs)
     }
 
-    // Helpers de navegação de token.
+    /// Retorna o token atual sem avançar a posição.
     pub(crate) fn peek(&self) -> &Token {
         &self.tokens[self.pos]
     }
 
+    /// Retorna o `TokenKind` do token atual sem avançar a posição.
     pub(crate) fn peek_kind(&self) -> &TokenKind {
         &self.peek().kind
     }
 
+    /// Consome e retorna o token atual, avançando a posição (sem ultrapassar EOF).
     pub(crate) fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.pos += 1;
@@ -90,16 +93,19 @@ impl Parser {
         &self.tokens[self.pos.saturating_sub(1)]
     }
 
+    /// Retorna `true` se o token atual é `Eof`, indicando fim do stream de tokens.
     pub(crate) fn is_at_end(&self) -> bool {
         matches!(self.peek_kind(), TokenKind::Eof)
     }
 
+    /// Verifica se o token atual tem o mesmo discriminante de `kind`, ignorando valores internos.
     pub(crate) fn check(&self, kind: &TokenKind) -> bool {
         // O parser usa essa verificação apenas para tokens sem payload, como ')', ',', ']'.
         // Comparar discriminante evita depender do valor interno de literais/identificadores.
         std::mem::discriminant(self.peek_kind()) == std::mem::discriminant(kind)
     }
 
+    /// Avança e retorna `true` se o token atual corresponde a `kind`; não avança caso contrário.
     pub(crate) fn match_kind(&mut self, kind: &TokenKind) -> bool {
         if self.check(kind) {
             self.advance();
@@ -108,6 +114,7 @@ impl Parser {
         false
     }
 
+    /// Consome o token atual se corresponder a `kind`; retorna erro sintático com `expected` caso contrário.
     pub(crate) fn expect(
         &mut self,
         kind: &TokenKind,
@@ -120,7 +127,7 @@ impl Parser {
         Err(self.syntax_error(&found, expected, &format!("{:?}", found.kind)))
     }
 
-    // Helpers de erro e span.
+    /// Converte um `Token` em `Span` de diagnóstico, usando a largura em bytes como extensão da coluna.
     pub(crate) fn span_of(&self, token: &Token) -> Span {
         let width = token.span.end.saturating_sub(token.span.start).max(1);
         Span {
@@ -131,6 +138,7 @@ impl Parser {
         }
     }
 
+    /// Une dois spans em um único span que vai do início de `start` até o fim de `end`.
     pub(crate) fn join_span(&self, start: Span, end: Span) -> Span {
         Span {
             line: start.line,
@@ -140,6 +148,7 @@ impl Parser {
         }
     }
 
+    /// Retorna `true` se o token indica um terminador de expressão válido (`;`, `)`, `]`, etc.).
     fn is_expression_terminator(&self, kind: &TokenKind) -> bool {
         matches!(
             kind,
@@ -153,6 +162,7 @@ impl Parser {
         )
     }
 
+    /// Constrói um `CompilerError::Syntax` com o span do token, o que era esperado e o que foi encontrado.
     pub(crate) fn syntax_error(&self, token: &Token, expected: &str, found: &str) -> CompilerError {
         CompilerError::Syntax(SyntaxError {
             span: self.span_of(token),
@@ -161,6 +171,7 @@ impl Parser {
         })
     }
 
+    /// Constrói um `CompilerError::Syntax` a partir de um `Span` já calculado (sem token direto).
     pub(crate) fn syntax_error_from_span(
         &self,
         span: Span,

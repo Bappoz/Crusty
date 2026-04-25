@@ -4,6 +4,8 @@ use crate::lexer::tokens::token_kind::TokenKind;
 // Se um Pratt table-driven completo voltar a ser necessário, um enum de precedência
 // pode ser reintroduzido aqui com uso real no fluxo de parse.
 
+/// Retorna `(lbp, rbp, is_ternary)` para operadores infix; `None` se o token não for infix.
+/// `lbp` é o poder de ligação à esquerda e `rbp` à direita, seguindo a tabela de precedência do C.
 pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
     let bp = match op {
         TokenKind::Equal => (1, 1, false),
@@ -23,6 +25,7 @@ pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
     Some(bp)
 }
 
+/// Retorna o poder de ligação (rbp) de um operador prefix; `None` se não for prefix reconhecido.
 pub fn prefix_binding_power(op: &TokenKind) -> Option<u8> {
     match op {
         TokenKind::Bang

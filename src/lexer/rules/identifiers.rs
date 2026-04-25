@@ -7,13 +7,11 @@ pub trait IdentifierRules {
 }
 
 impl IdentifierRules for Scanner {
+    /// Consome caracteres válidos de identificador a partir de `first` e emite o token correspondente,
+    /// distinguindo palavras-chave de identificadores de usuário via `lookup_keyword`.
     fn lex_identifier(&mut self, first: char, line: usize, col: usize) {
-        // Começa com o buffer preenchido com o primeiro char
-        // só chama essa função se is_ident_continue for true
         let mut buf = String::from(first);
 
-        // Consome o restante dos chars(digito, letra, underscore)
-        // ate atingir um whitespace, operador, etc...
         while let Some(c) = self.src.peek() {
             if is_ident_continue(c) {
                 buf.push(c);
@@ -29,9 +27,7 @@ impl IdentifierRules for Scanner {
     }
 }
 
-// Tabela de todas as keywords do C.
-// Responsabilidade do módulo de Identificadores saer a diferença entre keyworkds e
-// identificador de usuário
+/// Mapeia uma string para o `TokenKind` de keyword correspondente, ou `None` se for identificador de usuário.
 fn lookup_keyword(ident: &str) -> Option<TokenKind> {
     match ident {
         // Controle de fluxo

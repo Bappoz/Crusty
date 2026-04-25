@@ -18,7 +18,7 @@ pub struct Scanner {
 }
 
 impl Scanner {
-    // Construtor
+    /// Cria um novo `Scanner` a partir de um `SourceFile`, com listas de tokens e diagnósticos vazias.
     pub fn new(src: SourceFile) -> Self {
         Self {
             src,
@@ -28,7 +28,7 @@ impl Scanner {
         }
     }
 
-    // Roda o scanner ate o fim do arquivo e retorna os tokens produzidos
+    /// Executa o scanner até o fim do arquivo, populando `tokens` e `diagnostics`, e retorna os tokens produzidos.
     pub fn scan(&mut self) -> &[Token] {
         while !self.src.is_at_end() {
             self.skip_whitespaces_and_comments();
@@ -57,7 +57,7 @@ impl Scanner {
         &self.tokens
     }
 
-    // lê o próximo char e despacha para o método correto
+    /// Lê o próximo char e despacha para o método de lexing correto conforme o caractere.
     fn next_token(&mut self) {
         let line = self.src.line();
         let col = self.src.col();
@@ -131,7 +131,7 @@ impl Scanner {
         }
     }
 
-    // Emite um token com posição explícita.
+    /// Adiciona um token com `kind`, `lexeme` e posição explícita à lista de tokens produzidos.
     pub fn emit_at(&mut self, kind: TokenKind, lexeme: &str, line: usize, col: usize) {
         use crate::common::input::span::ByteSpan;
         let start = self.src.pos.saturating_sub(lexeme.len());
@@ -144,7 +144,7 @@ impl Scanner {
         });
     }
 
-    // Ignora espaços em branco, comentários de linha (//) e de bloco (/* */)
+    /// Ignora espaços em branco, comentários de linha (`//`), de bloco (`/* */`) e diretivas `#`.
     fn skip_whitespaces_and_comments(&mut self) {
         loop {
             // Pula whitespace
@@ -212,7 +212,7 @@ impl Scanner {
         }
     }
 
-    // Emite um token Unknown e registra o diagnostico de error
+    /// Emite um token `Unknown` e registra um diagnóstico de caractere inválido para o char `c`.
     pub fn emit_unknown(&mut self, c: char, line: usize, col: usize) {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
             span: Span {
@@ -226,6 +226,7 @@ impl Scanner {
         self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
     }
 
+    /// Registra um diagnóstico de delimitador de fechamento sem par de abertura correspondente.
     fn emit_unexpected_delimiter(&mut self, c: char, line: usize, col: usize) {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
             span: Span {
@@ -238,7 +239,7 @@ impl Scanner {
         }));
     }
 
-    // Emite um diagnóstico de literal não terminada (string ou char sem fechamento)
+    /// Registra um diagnóstico de literal não terminada (string ou char sem fechamento).
     pub fn emit_unterminated_literal(
         &mut self,
         lit: &str,

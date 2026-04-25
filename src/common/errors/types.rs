@@ -12,6 +12,7 @@ pub enum CompilerError {
 }
 
 impl ToReport for CompilerError {
+    /// Delega a conversão para o `Report` específico de cada variante de erro do compilador.
     fn to_report(&self) -> Report {
         match self {
             CompilerError::Lexical(e) => e.to_report(),
@@ -47,6 +48,7 @@ pub struct LexicalError {
 }
 
 impl ToReport for LexicalError {
+    /// Converte o erro léxico em `Report` com mensagem, span e sugestão de correção específicos ao tipo.
     fn to_report(&self) -> Report {
         match &self.kind {
             LexicalErrorKind::InvalidChar(c) => Report::new("invalid character")
@@ -90,6 +92,7 @@ pub struct SyntaxError {
 }
 
 impl ToReport for SyntaxError {
+    /// Converte o erro sintático em `Report` indicando o token esperado versus o encontrado.
     fn to_report(&self) -> Report {
         Report::new("syntax error")
             .with_span(self.span.clone())
@@ -122,6 +125,7 @@ pub struct SemanticError {
 }
 
 impl ToReport for SemanticError {
+    /// Converte o erro semântico em `Report` descrevendo variável indefinida ou incompatibilidade de tipos.
     fn to_report(&self) -> Report {
         match &self.kind {
             SemanticErrorKind::UndefinedVariable(var) => Report::new("variable not defined")
@@ -152,6 +156,7 @@ pub struct IntermediateError {
 }
 
 impl ToReport for IntermediateError {
+    /// Converte o erro de IR em `Report` indicando a instrução problemática e a causa da falha.
     fn to_report(&self) -> Report {
         let mut report = Report::new("IR error");
         if let Some(instr) = &self.instruction {
@@ -186,6 +191,7 @@ pub struct OptimizationError {
 }
 
 impl ToReport for OptimizationError {
+    /// Converte o erro de otimização em `Report` identificando o passo (pass) e o motivo da falha.
     fn to_report(&self) -> Report {
         Report::new(&format!("Error na otimizacao ({})", self.pass)).with_help(&self.message)
     }
@@ -207,6 +213,7 @@ pub struct CodegenError {
 }
 
 impl ToReport for CodegenError {
+    /// Converte o erro de geração de código em `Report` com detalhes da instrução e registrador envolvidos.
     fn to_report(&self) -> Report {
         let mut report = Report::new("code generation");
         if let Some(instr) = &self.instruction {

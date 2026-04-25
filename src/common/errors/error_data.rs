@@ -12,6 +12,7 @@ pub struct Source {
 }
 
 impl Source {
+    /// Cria um `Source` a partir do nome do arquivo e seu conteúdo completo, dividindo em linhas.
     pub fn new(filename: &str, content: &str) -> Self {
         Self {
             filename: filename.to_string(),
@@ -19,6 +20,7 @@ impl Source {
         }
     }
 
+    /// Retorna a linha de número `line` (1-indexed), ou `None` se o índice estiver fora do intervalo.
     pub fn get_lines(&self, line: usize) -> Option<&str> {
         if line == 0 {
             return None;

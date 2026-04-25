@@ -4,6 +4,8 @@ use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
+/// Converte um `TokenKind` de operador infix no `BinOp` correspondente do AST.
+/// Retorna erro sintático se o token não for um operador binário suportado.
 pub fn token_to_bin_op(
     parser: &Parser,
     kind: &TokenKind,
@@ -31,6 +33,8 @@ pub fn token_to_bin_op(
     Ok(op)
 }
 
+/// Parseia o operador ternário `? then : else` após o `?` já ter sido consumido,
+/// codificando-o como `Expr::Binary` aninhado para representação temporária no AST.
 pub fn parse_ternary(parser: &mut Parser, lhs: Expr, rbp: u8) -> Result<Expr, CompilerError> {
     let then_expr = parser.parse_expr(rbp)?;
     parser.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:")?;

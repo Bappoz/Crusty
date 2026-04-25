@@ -2,18 +2,22 @@
 
 use crate::common::errors::{error_data::Source, report::Report};
 
+/// Envolve a string `s` na sequência ANSI de cor vermelha para exibição no terminal.
 fn red(s: &str) -> String {
     format!("\x1b[31m{}\x1b[0m", s)
 }
 
+/// Envolve a string `s` na sequência ANSI de cor verde para exibição no terminal.
 fn green(s: &str) -> String {
     format!("\x1b[32m{}\x1b[0m", s)
 }
 
+/// Envolve a string `s` na sequência ANSI de negrito para exibição no terminal.
 fn bold(s: &str) -> String {
     format!("\x1b[1m{}\x1b[0m", s)
 }
 
+/// Imprime o `Report` formatado no terminal com localização, setas indicadoras e sugestão de ajuda.
 pub fn render(report: &Report, source: &Source) {
     println!("{}: {}", red(&bold("error")), report.message);
 

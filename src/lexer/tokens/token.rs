@@ -11,6 +11,7 @@ pub struct Token {
 }
 
 impl fmt::Display for Token {
+    /// Formata o token exibindo o intervalo de bytes que ele ocupa no source.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{}..{}]", self.span.start, self.span.end)
     }

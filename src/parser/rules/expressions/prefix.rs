@@ -5,6 +5,8 @@ use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
+/// Parseia uma expressão prefix: operadores unários, literais, identificadores, agrupamentos e casts.
+/// É o ponto de entrada principal do lado esquerdo no algoritmo Pratt.
 pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let token = parser.peek().clone();
     let kind = parser.peek_kind().clone();
@@ -61,6 +63,7 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     }
 }
 
+/// Parseia uma expressão de cast do tipo `(tipo) expr`, consumindo os parênteses e o tipo.
 pub fn parse_cast_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let lpar = parser
         .expect(&TokenKind::LeftParen, "'(' para iniciar cast")?
@@ -72,6 +75,7 @@ pub fn parse_cast_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     Ok(Expr::Cast(ty, Box::new(expr), span))
 }
 
+/// Retorna `true` se o token atual parece ser o início de um cast `(tipo)`, usando lookahead de 1.
 pub fn looks_like_cast(parser: &Parser) -> bool {
     if !parser.check(&TokenKind::LeftParen) {
         return false;
@@ -94,6 +98,7 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
     )
 }
 
+/// Parseia o tipo dentro de um cast, incluindo qualificadores `const`/`unsigned` e ponteiros `*`.
 pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
     let mut is_const = false;
     let mut is_unsigned = false;
@@ -153,6 +158,7 @@ pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerErr
     })
 }
 
+/// Constrói o nó de expressão prefix correto para o operador `op` aplicado sobre `rhs`.
 pub fn build_prefix_expr(
     parser: &Parser,
     op: TokenKind,

@@ -3,6 +3,8 @@ use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
+/// Tenta parsear uma operação postfix (`()`, `[]`, `.`, `->`, `++`, `--`) sobre `lhs`.
+/// Retorna `Ok(true)` se consumiu um postfix, `Ok(false)` se não há postfix aplicável.
 pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, CompilerError> {
     match parser.peek_kind() {
         TokenKind::LeftParen => {
