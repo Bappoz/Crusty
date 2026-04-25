@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub line: usize,
+    pub end_line: usize,
     pub column_start: usize,
     pub column_end: usize,
 }
