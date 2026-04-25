@@ -119,9 +119,6 @@ mod tests {
     #[test]
     fn preprocessor_directives_are_skipped() {
         let kinds = scan("#include <stdio.h>\n#define MAX 10\n42");
-        assert_eq!(
-            kinds,
-            vec![TokenKind::IntLiteral(42)]
-        );
+        assert_eq!(kinds, vec![TokenKind::IntLiteral(42)]);
     }
 }
