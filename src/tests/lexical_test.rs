@@ -3,6 +3,7 @@ mod tests {
     use crate::common::input::source::SourceFile;
     use crate::lexer::scanner::Scanner;
     use crate::lexer::tokens::token_kind::TokenKind;
+    // use crate::common::errors::types::{CompilerError, LexicalError, LexicalErrorKind};
 
     // Helper que tokeniza uma string e devolve só os kinds, sem o Eof.
     // Evita repetição nos testes — cada teste foca só no que importa.
@@ -120,5 +121,92 @@ mod tests {
     fn preprocessor_directives_are_skipped() {
         let kinds = scan("#include <stdio.h>\n#define MAX 10\n42");
         assert_eq!(kinds, vec![TokenKind::IntLiteral(42)]);
+    }
+
+    // --- Operadores compostos ---
+
+    #[test]
+    fn lex_compound_operators() {
+        assert_eq!(scan("=="),  vec![TokenKind::EqualEqual]);
+        assert_eq!(scan("!="),  vec![TokenKind::BangEqual]);
+        assert_eq!(scan("<="),  vec![TokenKind::LessEqual]);
+        assert_eq!(scan(">="),  vec![TokenKind::GreaterEqual]);
+        assert_eq!(scan("&&"),  vec![TokenKind::AndAnd]);
+        assert_eq!(scan("||"),  vec![TokenKind::OrOr]);
+        assert_eq!(scan("++"),  vec![TokenKind::PlusPlus]);
+        assert_eq!(scan("--"),  vec![TokenKind::MinusMinus]);
+        assert_eq!(scan("+="),  vec![TokenKind::PlusEqual]);
+        assert_eq!(scan("-="),  vec![TokenKind::MinusEqual]);
+        assert_eq!(scan("*="),  vec![TokenKind::StarEqual]);
+        assert_eq!(scan("/="),  vec![TokenKind::SlashEqual]);
+        assert_eq!(scan("->"),  vec![TokenKind::Arrow]);
+        assert_eq!(scan("<<"),  vec![TokenKind::LessLess]);
+        assert_eq!(scan(">>"),  vec![TokenKind::GreaterGreater]);
+        assert_eq!(scan(">>="), vec![TokenKind::GreaterGreaterEqual]);
+        assert_eq!(scan("<<="), vec![TokenKind::LessLessEqual]);
+    }
+
+    // --- Comentários de bloco ---
+
+    #[test]
+    fn multi_line_comment_skipped() {
+        let kinds = scan("42 /* este é um comentário\n de bloco */ 99");
+        assert_eq!(
+            kinds,
+            vec![TokenKind::IntLiteral(42), TokenKind::IntLiteral(99)]
+        );
+    }
+
+    #[test]
+    fn mismatched_delimiter_emits_diagnostic() {
+        // '{' abre mas ')' fecha — mismatch deve gerar diagnóstico
+        let src = SourceFile::from_string("{)");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        // Um UnexpectedClosingDelimiter(')') + Um UnclosedDelimiter('{')
+        assert_eq!(scanner.diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn unexpected_closing_with_empty_stack_emits_diagnostic() {
+        let src = SourceFile::from_string(")");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        assert_eq!(scanner.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn unclosed_block_comment_errors() {
+        let src = SourceFile::from_string("42 /* comentário não fechado");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        // Deve ter exatamente um diagnóstico de comentário não fechado
+        assert_eq!(scanner.diagnostics.len(), 1);
+
+        // O token 42 ainda foi emitido antes do comentário
+        assert_eq!(scanner.tokens[0].kind, TokenKind::IntLiteral(42));
+    }
+
+    #[test]
+    fn invalid_octal_digit(){
+        let src = SourceFile::from_string("08");
+        let mut scanner = Scanner::new(src);
+        scanner.scan();
+
+        assert_eq!(scanner.diagnostics.len(), 1); // verificação se ele capturou o erro
+        
+        if let crate::common::errors::types::CompilerError::Lexical(ref err) = scanner.diagnostics[0]{ // resgatamos o erro
+            if let crate::common::errors::types::LexicalErrorKind::InvalidOctalDigit(c) = err.kind{// verificação se condiz a classificação certa
+                assert_eq!(c, '8');
+            } 
+            else{
+                panic!("Esperava InvalidOctalDigit, mas achou {:?}", err.kind);
+            }
+        }
+
+        assert_eq!(scanner.tokens[0].kind, TokenKind::Unknown('8')); // verificação se o 8 foi convertido para um token Unknow
     }
 }

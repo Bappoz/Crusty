@@ -16,7 +16,7 @@ mod tests {
         let found = scanner
             .diagnostics
             .iter()
-            .any(|e| format!("{:?}", e).contains("unterminated_literal: Some"));
+            .any(|e| format!("{:?}", e).contains("UnterminatedLiteral"));
         assert!(found, "Deveria detectar string não terminada");
     }
 
@@ -26,7 +26,21 @@ mod tests {
         let found = scanner
             .diagnostics
             .iter()
-            .any(|e| format!("{:?}", e).contains("unterminated_literal: Some"));
+            .any(|e| format!("{:?}", e).contains("UnterminatedLiteral"));
         assert!(found, "Deveria detectar char não terminado");
+    }
+
+    #[test]
+    fn empty_char_literal() {
+        let scanner = scan_source("''");
+        assert!(
+            scanner.diagnostics.len() >= 1,
+            "Deveria detectar char literal vazio"
+        );
+        let found = scanner
+            .diagnostics
+            .iter()
+            .any(|e| format!("{:?}", e).contains("UnterminatedLiteral"));
+        assert!(found, "Diagnostico deve ser UnterminatedLiteral");
     }
 }

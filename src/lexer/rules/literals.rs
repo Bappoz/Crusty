@@ -1,6 +1,8 @@
 use crate::common::utils::char_utils::*;
 use crate::lexer::scanner::Scanner;
 use crate::lexer::tokens::TokenKind;
+use crate::common::errors::error_data::Span;
+use crate::common::errors::types::{CompilerError, LexicalError, LexicalErrorKind};
 
 pub trait LiteralsRules {
     fn lex_number(&mut self, first: char, line: usize, col: usize);
@@ -35,7 +37,7 @@ impl LiteralsRules for Scanner {
 
         // OCTAL: 0755, ...
         // If Responsavel para resolver os Hexadecimais
-        if first == '0' && matches!(self.src.peek(), Some('0'..='7')) {
+        if first == '0'{
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {
                 if is_octal_digit(c) {
@@ -44,6 +46,27 @@ impl LiteralsRules for Scanner {
                 } else {
                     break;
                 }
+            }
+
+            // Se o proximo carctere é 8 ou 9, armazene em 'c' sem consumi-lo
+            if let Some(c @ ('8' | '9')) = self.src.peek(){
+                let error_col = self.src.col(); // Pego a coluna que está o 8/9
+                self.src.advance(); // consumo o 8/9, para não passar novamente pelo scanner
+
+                self.diagnostics.push(CompilerError::Lexical(LexicalError{ // relatório de erro: posição ee tipo
+                    span: Span{
+                        line,
+                        column_start: error_col,
+                        column_end: error_col + 1,
+                    },
+                    kind: LexicalErrorKind::InvalidOctalDigit(c),
+                }));
+
+                return self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, error_col); // classifica como erro para não passar pra próxima fase:
+            }                                                                                // passando o digito inválido com string e sua posição       
+
+            if buf.len() == 1{
+                return self.emit_at(TokenKind::IntLiteral(0), &buf, line, col);
             }
             // Converte na base 8 pulando o 0 inicial
             let value = i64::from_str_radix(&buf[1..], 8).unwrap_or(0);
@@ -146,6 +169,13 @@ impl LiteralsRules for Scanner {
         let mut lexeme = String::from('\'');
         let mut col_end = col + 1;
 
+        // '' é inválido em C — char literal vazio
+        if self.src.peek() == Some('\'') {
+            self.src.advance(); // consome o fechamento imediato
+            self.emit_unterminated_literal("char", line, col, col_end);
+            return;
+        }
+
         let c = match self.src.advance() {
             Some('\\') => {
                 lexeme.push('\\');
@@ -177,6 +207,7 @@ impl LiteralsRules for Scanner {
         match self.src.advance() {
             Some('\'') => {
                 lexeme.push('\'');
+             
                 self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),

@@ -25,30 +25,59 @@ impl ToReport for CompilerError {
 }
 
 #[derive(Debug)]
+pub enum LexicalErrorKind {
+    /// Caractere que o lexer não reconhece (ex: `@`, `$`)
+    InvalidChar(char),
+    /// `/*` aberto mas nunca fechado com `*/`
+    UnclosedBlockComment,
+    /// `(`, `[` ou `{` aberto mas nunca fechado
+    UnclosedDelimiter(char),
+    /// `)`, `]` ou `}` encontrado sem par de abertura correspondente
+    UnexpectedClosingDelimiter(char),
+    /// String ou char literal não fechada (ex: `"hello` sem `"`)
+    UnterminatedLiteral(String),
+    /// Dígito inválido 8 e 9 para Octal
+    InvalidOctalDigit(char),
+}
+
+#[derive(Debug)]
 pub struct LexicalError {
     pub span: Span,
-    pub invalid_char: char,
-    pub unterminated_literal: Option<String>,
+    pub kind: LexicalErrorKind,
 }
 
 impl ToReport for LexicalError {
     fn to_report(&self) -> Report {
-        if let Some(lit) = &self.unterminated_literal {
-            Report::new("unterminated literal")
+        match &self.kind {
+            LexicalErrorKind::InvalidChar(c) => Report::new("invalid character")
                 .with_span(self.span.clone())
-                .with_label(
-                    self.span.clone(),
-                    format!("literal '{}' não foi terminada", lit),
-                )
-                .with_help("Feche a string ou char corretamente.")
-        } else {
-            Report::new("invalid character")
+                .with_label(self.span.clone(), format!("'{}' nao e valido", c))
+                .with_help("Remova ou substitua o caractere."),
+
+            LexicalErrorKind::UnclosedBlockComment => Report::new("unclosed block comment")
                 .with_span(self.span.clone())
-                .with_label(
-                    self.span.clone(),
-                    format!("'{}' nao e valido", self.invalid_char),
-                )
-                .with_help("Remova ou substitua o caractere.")
+                .with_label(self.span.clone(), "comentario de bloco nao fechado".to_string())
+                .with_help("Adicione '*/' para fechar o comentario."),
+
+            LexicalErrorKind::UnclosedDelimiter(c) => Report::new("unclosed delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao foi fechado", c))
+                .with_help("Adicione o delimitador de fechamento correspondente."),
+
+            LexicalErrorKind::UnexpectedClosingDelimiter(c) => Report::new("unexpected closing delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao tem par de abertura", c))
+                .with_help("Remova o delimitador ou adicione o par de abertura correspondente."),
+
+            LexicalErrorKind::UnterminatedLiteral(lit) => Report::new("unterminated literal")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("literal '{}' nao foi terminada", lit))
+                .with_help("Feche a string ou char corretamente."),
+            
+            LexicalErrorKind::InvalidOctalDigit(c) => Report::new("invalid octal digit")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao e um digito octal valido", c))
+                .with_help("Numeros que comecam com '0' sao tratados como octais. Use apenas digitos de 0 a 7."),
         }
     }
 }

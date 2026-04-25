@@ -73,6 +73,12 @@ pub enum TokenKind {
     Ampersand, // &
     Pipe,      // |
 
+    // Operadores de shift
+    LessLess,              // <<
+    GreaterGreater,        // >>
+    LessLessEqual,         // <<=
+    GreaterGreaterEqual,   // >>= 
+
     // Delimitadores
     LeftParen,    // (
     RightParen,   // )

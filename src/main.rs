@@ -35,7 +35,7 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     scanner.scan();
 
     for token in &scanner.tokens {
-        let lexeme = &scanner.src.source[token.span.start..token.span.end];
+        let lexeme = &scanner.src.source.as_str()[token.span.start..token.span.end];
         println!("{:?} {:?}", token.kind, lexeme);
     }
 
