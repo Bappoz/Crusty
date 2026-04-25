@@ -8,7 +8,7 @@ mod test{
 
     #[test]
     fn ast_nodes_are_debug_printable() {
-        let span = Span { line: 1, column_start: 1, column_end: 5 };
+        let span = Span { line: 1, end_line: 1, column_start: 1, column_end: 5 };
         // Criando um literal "10"
         let expr = Expr::Literal(Literal::Int(10), span.clone());
         
@@ -18,9 +18,9 @@ mod test{
 
     #[test]
     fn binary_expr_span_covers_both_operands() {
-        let span1 = Span { line: 1, column_start: 1, column_end: 2 };
-        let span2 = Span { line: 1, column_start: 5, column_end: 6 };
-        let span_total = Span { line: 1, column_start: 1, column_end: 6 };
+        let span1 = Span { line: 1, end_line: 1, column_start: 1, column_end: 2 };
+        let span2 = Span { line: 1, end_line: 1, column_start: 5, column_end: 6 };
+        let span_total = Span { line: 1, end_line: 1, column_start: 1, column_end: 6 };
 
         let left = Box::new(Expr::Literal(Literal::Int(1), span1));
         let right = Box::new(Expr::Literal(Literal::Int(2), span2));
@@ -55,7 +55,7 @@ mod test{
 
     #[test]
     fn test_unary_operations(){
-        let span = Span {line:1, column_start: 1, column_end: 2};
+        let span = Span { line: 1, end_line: 1, column_start: 1, column_end: 2 };
         let expr = Box::new(Expr::Ident("IdentificadoVariável".to_string(), span.clone()));
 
         let deref_expr = Expr::Unary(UnOp::Deref, expr, span);
