@@ -117,7 +117,6 @@ impl LiteralsRules for Scanner {
             match self.src.advance() {
                 Some('"') => {
                     lexeme.push('"');
-                    col_end += 1;
                     break;
                 }
                 Some('\\') => {
@@ -178,7 +177,6 @@ impl LiteralsRules for Scanner {
         match self.src.advance() {
             Some('\'') => {
                 lexeme.push('\'');
-                col_end += 1;
                 self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),

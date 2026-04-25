@@ -133,6 +133,7 @@ impl Scanner {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
             span: Span {
                 line,
+                end_line: line,
                 column_start: col,
                 column_end: col + 1,
             },
@@ -146,6 +147,7 @@ impl Scanner {
         self.diagnostics.push(CompilerError::Lexical(LexicalError {
             span: Span {
                 line,
+                end_line: line,
                 column_start: col_start,
                 column_end: col_end,
             },
