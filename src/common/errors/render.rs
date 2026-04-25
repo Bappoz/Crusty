@@ -18,7 +18,11 @@ pub fn render(report: &Report, source: &Source) {
     println!("{}: {}", red(&bold("error")), report.message);
 
     if let Some(span) = &report.span {
-        println!(" --> {}:{}", source.filename, span.line);
+        if span.end_line == span.line {
+            println!(" --> {}:{}", source.filename, span.line);
+        } else {
+            println!(" --> {}:{}-{}", source.filename, span.line, span.end_line);
+        }
         println!("  |");
 
         if let Some(line) = source.get_lines(span.line) {

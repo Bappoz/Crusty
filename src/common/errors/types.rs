@@ -129,6 +129,7 @@ impl ToReport for IntermediateError {
             report = report.with_label(
                 Span {
                     line: 0,
+                    end_line: 0,
                     column_start: 0,
                     column_end: 0,
                 },
