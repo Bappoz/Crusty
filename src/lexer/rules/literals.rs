@@ -29,7 +29,7 @@ impl LiteralsRules for Scanner {
             // Converte "FF" para i64 na base 16
             let value = i64::from_str_radix(&buf[2..], 16).unwrap_or(0);
             while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
-                self.src.advance();
+                buf.push(self.src.advance().unwrap());
             }
             return self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
         }
