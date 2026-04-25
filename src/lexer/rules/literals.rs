@@ -113,7 +113,7 @@ impl LiteralsRules for Scanner {
             // Chechou tudo e é Inteiro
             let value: i64 = buf.parse().unwrap_or(0);
             while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
-                self.src.advance();
+                buf.push(self.src.advance().unwrap());
             }
             self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
         }
