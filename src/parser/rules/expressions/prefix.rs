@@ -120,9 +120,13 @@ pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerErr
             parser.advance();
             crate::common::ast::ast::Type::Char
         }
-        TokenKind::Float | TokenKind::Double => {
+        TokenKind::Float => {
             parser.advance();
             crate::common::ast::ast::Type::Float
+        }
+        TokenKind::Double => {
+            parser.advance();
+            crate::common::ast::ast::Type::Double
         }
         TokenKind::Void => {
             parser.advance();

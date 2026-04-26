@@ -6,6 +6,7 @@ pub enum Type {
     Int,
     Char,
     Float,
+    Double,
     Void,
     Array(Box<Type>),   //Determinar os tipos de arrays
     Pointer(Box<Type>), // olhar onde pode usar
