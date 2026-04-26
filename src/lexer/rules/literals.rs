@@ -1,3 +1,7 @@
+use crate::common::errors::{
+    error_data::Span,
+    types::{CompilerError, LexicalError, LexicalErrorKind},
+};
 use crate::common::utils::char_utils::*;
 use crate::lexer::scanner::Scanner;
 use crate::lexer::tokens::TokenKind;
@@ -38,12 +42,31 @@ impl LiteralsRules for Scanner {
 
         // OCTAL: 0755, ...
         // If Responsavel para resolver os Hexadecimais
-        if first == '0' && matches!(self.src.peek(), Some('0'..='7')) {
+        if first == '0' && matches!(self.src.peek(), Some('0'..='9')) {
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {
                 if is_octal_digit(c) {
                     buf.push(c);
                     self.src.advance();
+                } else if c.is_ascii_digit() {
+                    // Dígito inválido para octal (8 ou 9)
+                    let invalid = self.src.advance().unwrap();
+                    let col_invalid = col + buf.len();
+                    self.diagnostics.push(CompilerError::Lexical(LexicalError {
+                        span: Span {
+                            line,
+                            end_line: line,
+                            column_start: col_invalid,
+                            column_end: col_invalid + 1,
+                        },
+                        kind: LexicalErrorKind::InvalidOctalDigit(invalid),
+                    }));
+                    return self.emit_at(
+                        TokenKind::Unknown(invalid),
+                        &invalid.to_string(),
+                        line,
+                        col_invalid,
+                    );
                 } else {
                     break;
                 }
@@ -140,6 +163,10 @@ impl LiteralsRules for Scanner {
                     }
                 }
                 None => {
+                    self.emit_unterminated_literal("string", line, col, col_end);
+                    break;
+                }
+                Some('\n') => {
                     self.emit_unterminated_literal("string", line, col, col_end);
                     break;
                 }
