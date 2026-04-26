@@ -20,20 +20,20 @@ mod tests {
         assert!(found, "Deveria detectar string não terminada");
     }
 
-        #[test]
-        fn string_with_real_newline_should_error() {
-            // Testa string com newline real (não \n)
-            let scanner = scan_source("\"hello\nworld\"");
-            assert!(
-                scanner.diagnostics.len() >= 1,
-                "Deveria detectar UnterminatedLiteral para string com newline real"
-            );
-            let found = scanner
-                .diagnostics
-                .iter()
-                .any(|e| format!("{:?}", e).contains("UnterminatedLiteral"));
-            assert!(found, "Diagnostico deve ser UnterminatedLiteral");
-        }
+    #[test]
+    fn string_with_real_newline_should_error() {
+        // Testa string com newline real (não \n)
+        let scanner = scan_source("\"hello\nworld\"");
+        assert!(
+            scanner.diagnostics.len() >= 1,
+            "Deveria detectar UnterminatedLiteral para string com newline real"
+        );
+        let found = scanner
+            .diagnostics
+            .iter()
+            .any(|e| format!("{:?}", e).contains("UnterminatedLiteral"));
+        assert!(found, "Diagnostico deve ser UnterminatedLiteral");
+    }
 
     #[test]
     fn unterminated_char_literal() {

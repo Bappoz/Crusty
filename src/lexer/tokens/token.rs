@@ -1,6 +1,6 @@
+use crate::common::input::span::ByteSpan;
 use crate::lexer::tokens::token_kind::TokenKind;
 use std::fmt;
-use crate::common::input::span::ByteSpan;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
