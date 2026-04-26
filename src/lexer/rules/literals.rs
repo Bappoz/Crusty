@@ -61,7 +61,12 @@ impl LiteralsRules for Scanner {
                         },
                         kind: LexicalErrorKind::InvalidOctalDigit(invalid),
                     }));
-                    return self.emit_at(TokenKind::Unknown(invalid), &invalid.to_string(), line, col_invalid);
+                    return self.emit_at(
+                        TokenKind::Unknown(invalid),
+                        &invalid.to_string(),
+                        line,
+                        col_invalid,
+                    );
                 } else {
                     break;
                 }
