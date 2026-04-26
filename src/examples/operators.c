@@ -1,0 +1,16 @@
+int a = 1 + 2;
+int b = a - 1;
+a += 1;
+b -= 1;
+a++;
+b--;
+int c = a == b;
+int d = a != b;
+int e = a <= b;
+int f = a >= b;
+int g = a && b;
+int h = a || b;
+int i = a << 1;
+int j = a >> 1;
+i <<= 2;
+j >>= 2;

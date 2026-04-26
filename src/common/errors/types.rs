@@ -1,6 +1,7 @@
 use crate::common::errors::error_data::Span;
 use crate::common::errors::report::{Report, ToReport};
 
+#[derive(Debug)]
 pub enum CompilerError {
     Lexical(LexicalError),
     Syntax(SyntaxError),
@@ -11,6 +12,7 @@ pub enum CompilerError {
 }
 
 impl ToReport for CompilerError {
+    /// Delega a conversão para o `Report` específico de cada variante de erro do compilador.
     fn to_report(&self) -> Report {
         match self {
             CompilerError::Lexical(e) => e.to_report(),
@@ -23,23 +25,66 @@ impl ToReport for CompilerError {
     }
 }
 
+#[derive(Debug)]
+pub enum LexicalErrorKind {
+    /// Caractere que o lexer não reconhece (ex: `@`, `$`)
+    InvalidChar(char),
+    /// `/*` aberto mas nunca fechado com `*/`
+    UnclosedBlockComment,
+    /// `(`, `[` ou `{` aberto mas nunca fechado
+    UnclosedDelimiter(char),
+    /// `)`, `]` ou `}` encontrado sem par de abertura correspondente
+    UnexpectedClosingDelimiter(char),
+    /// String ou char literal não fechada (ex: `"hello` sem `"`)
+    UnterminatedLiteral(String),
+    /// Dígito inválido 8 e 9 para Octal
+    InvalidOctalDigit(char),
+}
+
+#[derive(Debug)]
 pub struct LexicalError {
     pub span: Span,
-    pub invalid_char: char,
+    pub kind: LexicalErrorKind,
 }
 
 impl ToReport for LexicalError {
+    /// Converte o erro léxico em `Report` com mensagem, span e sugestão de correção específicos ao tipo.
     fn to_report(&self) -> Report {
-        Report::new("invalid character")
-            .with_span(self.span.clone())
-            .with_label(
-                self.span.clone(),
-                format!("'{}' nao e valido", self.invalid_char),
-            )
-            .with_help("Remova ou substitua o caractere.")
+        match &self.kind {
+            LexicalErrorKind::InvalidChar(c) => Report::new("invalid character")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao e valido", c))
+                .with_help("Remova ou substitua o caractere."),
+
+            LexicalErrorKind::UnclosedBlockComment => Report::new("unclosed block comment")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), "comentario de bloco nao fechado".to_string())
+                .with_help("Adicione '*/' para fechar o comentario."),
+
+            LexicalErrorKind::UnclosedDelimiter(c) => Report::new("unclosed delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao foi fechado", c))
+                .with_help("Adicione o delimitador de fechamento correspondente."),
+
+            LexicalErrorKind::UnexpectedClosingDelimiter(c) => Report::new("unexpected closing delimiter")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao tem par de abertura", c))
+                .with_help("Remova o delimitador ou adicione o par de abertura correspondente."),
+
+            LexicalErrorKind::UnterminatedLiteral(lit) => Report::new("unterminated literal")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("literal '{}' nao foi terminada", lit))
+                .with_help("Feche a string ou char corretamente."),
+
+            LexicalErrorKind::InvalidOctalDigit(c) => Report::new("invalid octal digit")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' nao e um digito octal valido", c))
+                .with_help("Numeros que comecam com '0' sao tratados como octais. Use apenas digitos de 0 a 7."),
+        }
     }
 }
 
+#[derive(Debug)]
 pub struct SyntaxError {
     pub span: Span,
     pub expected: String,
@@ -47,6 +92,7 @@ pub struct SyntaxError {
 }
 
 impl ToReport for SyntaxError {
+    /// Converte o erro sintático em `Report` indicando o token esperado versus o encontrado.
     fn to_report(&self) -> Report {
         Report::new("syntax error")
             .with_span(self.span.clone())
@@ -66,16 +112,20 @@ impl ToReport for SyntaxError {
  *      - uso incorreto de simbolos
 */
 
+#[derive(Debug)]
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
     TypeMismatch { expected: String, found: String },
 }
+
+#[derive(Debug)]
 pub struct SemanticError {
     pub span: Span,
     pub kind: SemanticErrorKind,
 }
 
 impl ToReport for SemanticError {
+    /// Converte o erro semântico em `Report` descrevendo variável indefinida ou incompatibilidade de tipos.
     fn to_report(&self) -> Report {
         match &self.kind {
             SemanticErrorKind::UndefinedVariable(var) => Report::new("variable not defined")
@@ -98,18 +148,22 @@ impl ToReport for SemanticError {
        - Inconsistência de nós
        - Variáveis temporárias inválidas
 */
+
+#[derive(Debug)]
 pub struct IntermediateError {
     pub message: String,
     pub instruction: Option<String>,
 }
 
 impl ToReport for IntermediateError {
+    /// Converte o erro de IR em `Report` indicando a instrução problemática e a causa da falha.
     fn to_report(&self) -> Report {
         let mut report = Report::new("IR error");
         if let Some(instr) = &self.instruction {
             report = report.with_label(
                 Span {
                     line: 0,
+                    end_line: 0,
                     column_start: 0,
                     column_end: 0,
                 },
@@ -129,12 +183,15 @@ impl ToReport for IntermediateError {
 
     EXEMPLO: [Optimization Error] Erro na otimização (Constant Folding): divisão por zero detectada
 */
+
+#[derive(Debug)]
 pub struct OptimizationError {
     pub message: String,
     pub pass: String,
 }
 
 impl ToReport for OptimizationError {
+    /// Converte o erro de otimização em `Report` identificando o passo (pass) e o motivo da falha.
     fn to_report(&self) -> Report {
         Report::new(&format!("Error na otimizacao ({})", self.pass)).with_help(&self.message)
     }
@@ -148,12 +205,15 @@ impl ToReport for OptimizationError {
 
     EXEMPLO: [CodeGen Error] instrução 'MOV' falhou no registrador 'R1'
 */
+
+#[derive(Debug)]
 pub struct CodegenError {
     pub message: String,
     pub instruction: Option<String>,
 }
 
 impl ToReport for CodegenError {
+    /// Converte o erro de geração de código em `Report` com detalhes da instrução e registrador envolvidos.
     fn to_report(&self) -> Report {
         let mut report = Report::new("code generation");
         if let Some(instr) = &self.instruction {

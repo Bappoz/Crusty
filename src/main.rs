@@ -1,8 +1,11 @@
+use crusty::common::errors::report::{Report, ToReport};
+use crusty::common::input::source::SourceFile;
+use crusty::lexer::scanner::Scanner;
+use std::env;
+use std::path::PathBuf;
 use std::process::exit;
-use std::{env, fs};
-use Rippler::common::errors::report::ToReport;
-use Rippler::common::errors::system_error::SystemError;
 
+/// Ponto de entrada: decide entre modo interativo (sem args) ou compilação de arquivo (1 arg).
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = env::args().collect();
     match args.len() {
@@ -17,41 +20,81 @@ fn main() -> std::io::Result<()> {
             }
         }
         _ => {
-            eprintln!("Usage: jlox [script]");
+            eprintln!("Usage: crusty [script]");
             exit(64);
         }
     }
     Ok(())
 }
 
-// Function to run the interactive prompt, returning an error if it fails (Not implemented yet)
+/// Erro retornado por `run()` quando o scanner produz diagnósticos.
+#[derive(Debug)]
+struct DiagnosticError {
+    count: usize,
+}
+
+impl ToReport for DiagnosticError {
+    fn to_report(&self) -> Report {
+        Report::new(&format!("compilation failed with {} error(s)", self.count))
+    }
+}
+
+/// Modo REPL interativo; ainda não implementado.
 fn run_prompt() -> Result<(), Box<dyn ToReport>> {
     todo!()
 }
 
-// Function to run the source code, returning an error if it fails
-fn run(source: String) -> Result<(), Box<dyn ToReport>> {
-    for _ in source.lines() {
-        for c in source.chars() {
-            println!("Read Char: {}", c);
-        }
+/// Executa o scanner sobre o `SourceFile` e imprime os tokens produzidos e eventuais diagnósticos.
+fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
+    let mut scanner = Scanner::new(source);
+    scanner.scan();
+
+    let token_count = scanner.tokens.len();
+    println!("=== Tokens ({token_count}) ===");
+    for token in &scanner.tokens {
+        let lexeme = &scanner.src.source.as_str()[token.span.start..token.span.end];
+        let kind_str = format!("{:?}", token.kind);
+        println!(
+            "  [{:3}:{:<3}]  {:<35} {:?}",
+            token.line, token.col, kind_str, lexeme
+        );
     }
+
+    let diag_count = scanner.diagnostics.len();
+    if diag_count > 0 {
+        eprintln!("\n=== Diagnostics ({diag_count}) ===");
+        for diagnostic in &scanner.diagnostics {
+            let report = diagnostic.to_report();
+            eprintln!("  error: {}", report.message);
+            if let Some(span) = &report.span {
+                eprintln!("    --> {}:{}", span.line, span.column_start);
+            }
+            for label in &report.labels {
+                eprintln!("    | {}", label.message);
+            }
+            if let Some(help) = &report.help {
+                eprintln!("    = help: {}", help);
+            }
+        }
+    } else {
+        println!("\n=== Diagnostics (0) ===");
+    }
+
+    if diag_count > 0 {
+        return Err(Box::new(DiagnosticError { count: diag_count }));
+    }
+
     Ok(())
 }
 
-//  Function to read a file and run its contents, returning an error if the file cannot be read
+/// Lê o arquivo no caminho informado e delega a execução para `run`.
 fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
-    let source = fs::read_to_string(path).map_err(|e| {
-        Box::new(SystemError {
-            msg: format!("Could not read file '{}': {}", path, e),
-        }) as Box<dyn ToReport>
-    })?;
-
+    let source = SourceFile::from_path(PathBuf::from(path))?;
     run(source)?;
     Ok(())
 }
 
-// Function to report errors and exit the program with a non-zero status code
+/// Imprime o `Report` de erro no stderr de forma estruturada e encerra o processo com código 74.
 fn report_and_exit(e: Box<dyn ToReport>) {
     let report = e.to_report();
 
@@ -66,6 +109,5 @@ fn report_and_exit(e: Box<dyn ToReport>) {
         eprintln!("Help: {}", help);
     }
 
-    // No jlox, erros de entrada/arquivo costumam usar o código 66 ou 74
     std::process::exit(74);
 }
