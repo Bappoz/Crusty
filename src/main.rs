@@ -67,6 +67,11 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     } else {
         println!("\n=== Diagnostics (0) ===");
     }
+
+    if diag_count > 0 {
+        exit(1);
+    }
+
     Ok(())
 }
 
