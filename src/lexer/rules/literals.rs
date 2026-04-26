@@ -40,29 +40,33 @@ impl LiteralsRules for Scanner {
 
         // -------------------------------------------------
 
-        // OCTAL INVÁLIDO: 08, 09 — dígitos 8 e 9 não são válidos em octal
-        if first == '0' && matches!(self.src.peek(), Some('8' | '9')) {
-            let c = self.src.advance().unwrap();
-            self.diagnostics.push(CompilerError::Lexical(LexicalError {
-                span: Span {
-                    line,
-                    end_line: line,
-                    column_start: col,
-                    column_end: col + 2,
-                },
-                kind: LexicalErrorKind::InvalidOctalDigit(c),
-            }));
-            self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
-            return;
-        }
-
         // OCTAL: 0755, ...
-        if first == '0' && matches!(self.src.peek(), Some('0'..='7')) {
+        // If Responsavel para resolver os Hexadecimais
+        if first == '0' && matches!(self.src.peek(), Some('0'..='9')) {
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {
                 if is_octal_digit(c) {
                     buf.push(c);
                     self.src.advance();
+                } else if c.is_ascii_digit() {
+                    // Dígito inválido para octal (8 ou 9)
+                    let invalid = self.src.advance().unwrap();
+                    let col_invalid = col + buf.len();
+                    self.diagnostics.push(CompilerError::Lexical(LexicalError {
+                        span: Span {
+                            line,
+                            end_line: line,
+                            column_start: col_invalid,
+                            column_end: col_invalid + 1,
+                        },
+                        kind: LexicalErrorKind::InvalidOctalDigit(invalid),
+                    }));
+                    return self.emit_at(
+                        TokenKind::Unknown(invalid),
+                        &invalid.to_string(),
+                        line,
+                        col_invalid,
+                    );
                 } else {
                     break;
                 }
@@ -159,6 +163,10 @@ impl LiteralsRules for Scanner {
                     }
                 }
                 None => {
+                    self.emit_unterminated_literal("string", line, col, col_end);
+                    break;
+                }
+                Some('\n') => {
                     self.emit_unterminated_literal("string", line, col, col_end);
                     break;
                 }

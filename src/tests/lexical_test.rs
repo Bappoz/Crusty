@@ -288,18 +288,20 @@ mod tests {
         let mut scanner = Scanner::new(src);
         scanner.scan();
 
-        assert_eq!(scanner.diagnostics.len(), 1);
+        assert_eq!(scanner.diagnostics.len(), 1); // verificação se ele capturou o erro
 
         if let crate::common::errors::types::CompilerError::Lexical(ref err) =
             scanner.diagnostics[0]
         {
+            // resgatamos o erro
             if let crate::common::errors::types::LexicalErrorKind::InvalidOctalDigit(c) = err.kind {
+                // verificação se condiz a classificação certa
                 assert_eq!(c, '8');
             } else {
                 panic!("Esperava InvalidOctalDigit, mas achou {:?}", err.kind);
             }
         }
 
-        assert_eq!(scanner.tokens[0].kind, TokenKind::Unknown('8'));
+        assert_eq!(scanner.tokens[0].kind, TokenKind::Unknown('8')); // verificação se o 8 foi convertido para um token Unknow
     }
 }
