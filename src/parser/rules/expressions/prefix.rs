@@ -170,8 +170,8 @@ pub fn build_prefix_expr(
         TokenKind::Minus => Expr::Unary(UnOp::Neg, Box::new(rhs), span),
         TokenKind::Star => Expr::Unary(UnOp::Deref, Box::new(rhs), span),
         TokenKind::Ampersand => Expr::Unary(UnOp::AddrOf, Box::new(rhs), span),
-        TokenKind::Tilde => Expr::Unary(UnOp::Not, Box::new(rhs), span),
-        TokenKind::Sizeof => Expr::Unary(UnOp::Not, Box::new(rhs), span),
+        TokenKind::Tilde => Expr::Unary(UnOp::BitNot, Box::new(rhs), span),
+        TokenKind::Sizeof => Expr::Sizeof(Box::new(rhs), span),
         TokenKind::PlusPlus => Expr::Prefix(PrefixOp::Inc, Box::new(rhs), span),
         TokenKind::MinusMinus => Expr::Prefix(PrefixOp::Dec, Box::new(rhs), span),
         _ => {

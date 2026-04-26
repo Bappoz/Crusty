@@ -35,6 +35,7 @@ pub enum Literal {
 pub enum UnOp {
     Neg,
     Not,
+    BitNot,
     Deref,
     AddrOf,
 }
@@ -63,6 +64,7 @@ pub enum Expr {
     Cast(QualifierType, Box<Expr>, Span),
     Index(Box<Expr>, Box<Expr>, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
+    Sizeof(Box<Expr>, Span),
 }
 
 impl Expr {
@@ -79,6 +81,7 @@ impl Expr {
             Expr::Cast(_, _, s) => s.clone(),
             Expr::Index(_, _, s) => s.clone(),
             Expr::Assign(_, _, s) => s.clone(),
+            Expr::Sizeof(_, s) => s.clone(),
         }
     }
 }
