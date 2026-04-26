@@ -33,24 +33,17 @@ pub fn token_to_bin_op(
     Ok(op)
 }
 
-/// Parseia o operador ternário `? then : else` após o `?` já ter sido consumido,
-/// codificando-o como `Expr::Binary` aninhado para representação temporária no AST.
+/// Parseia o operador ternário `? then : else` após o `?` já ter sido consumido.
 pub fn parse_ternary(parser: &mut Parser, lhs: Expr, rbp: u8) -> Result<Expr, CompilerError> {
     let then_expr = parser.parse_expr(rbp)?;
     parser.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:")?;
     let else_expr = parser.parse_expr(rbp)?;
 
     let span = parser.join_span(lhs.span(), else_expr.span());
-    let encoded = Expr::Binary(
-        Box::new(then_expr),
-        BinOp::Or,
-        Box::new(else_expr),
-        span.clone(),
-    );
-    Ok(Expr::Binary(
+    Ok(Expr::Ternary(
         Box::new(lhs),
-        BinOp::Or,
-        Box::new(encoded),
+        Box::new(then_expr),
+        Box::new(else_expr),
         span,
     ))
 }
