@@ -87,10 +87,11 @@ impl Parser {
 
     /// Consome e retorna o token atual, avançando a posição (sem ultrapassar EOF).
     pub(crate) fn advance(&mut self) -> &Token {
+        let token = &self.tokens[self.pos];
         if !self.is_at_end() {
             self.pos += 1;
         }
-        &self.tokens[self.pos.saturating_sub(1)]
+        token
     }
 
     /// Retorna `true` se o token atual é `Eof`, indicando fim do stream de tokens.

@@ -143,7 +143,10 @@ impl Scanner {
         use crate::common::input::span::ByteSpan;
         self.tokens.push(Token {
             kind,
-            span: ByteSpan { start: self.token_start, end: self.src.pos },
+            span: ByteSpan {
+                start: self.token_start,
+                end: self.src.pos,
+            },
             line,
             col,
         });

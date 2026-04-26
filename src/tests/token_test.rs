@@ -12,7 +12,7 @@ mod tests {
             col: 1,
         };
 
-        assert_eq!(token.span, ByteSpan { start: 0, end: 3 });
+        assert_eq!(token.to_string(), "[0..3]");
     }
 
     #[test]

@@ -206,7 +206,7 @@ impl LiteralsRules for Scanner {
             Some('\'') => {
                 self.emit_at(TokenKind::CharLiteral(c), line, col);
             }
-            Some(err) => self.emit_unknown(err, line, col),
+            Some(err) => self.emit_unknown(err, line, self.src.col() - 1),
             None => self.emit_unterminated_literal("char", line, col, col_end),
         }
     }
