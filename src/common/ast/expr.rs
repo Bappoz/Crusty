@@ -53,6 +53,12 @@ pub enum PostfixOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum MemberAccess {
+    Direct,  // .
+    Pointer, // ->
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Literal, Span),
     Ident(String, Span),
@@ -66,6 +72,7 @@ pub enum Expr {
     Assign(Box<Expr>, Box<Expr>, Span),
     Sizeof(Box<Expr>, Span),
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>, Span),
+    Member(Box<Expr>, MemberAccess, String, Span),
 }
 
 impl Expr {
@@ -84,6 +91,7 @@ impl Expr {
             Expr::Assign(_, _, s) => s.clone(),
             Expr::Sizeof(_, s) => s.clone(),
             Expr::Ternary(_, _, _, s) => s.clone(),
+            Expr::Member(_, _, _, s) => s.clone(),
         }
     }
 }

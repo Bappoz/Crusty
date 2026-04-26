@@ -1,4 +1,4 @@
-use crate::common::ast::expr::{BinOp, Expr, PostfixOp};
+use crate::common::ast::expr::{Expr, MemberAccess, PostfixOp};
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
@@ -50,14 +50,13 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
                 ));
             };
 
-            let field = Expr::Ident(field_name, parser.span_of(&field_token));
             let span = parser.join_span(lhs.span(), parser.span_of(&field_token));
-            let op_kind = if op.kind == TokenKind::Dot {
-                BinOp::BitOr
+            let access = if op.kind == TokenKind::Dot {
+                MemberAccess::Direct
             } else {
-                BinOp::BitAnd
+                MemberAccess::Pointer
             };
-            *lhs = Expr::Binary(Box::new(lhs.clone()), op_kind, Box::new(field), span);
+            *lhs = Expr::Member(Box::new(lhs.clone()), access, field_name, span);
             Ok(true)
         }
         TokenKind::PlusPlus | TokenKind::MinusMinus => {
