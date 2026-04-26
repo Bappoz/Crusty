@@ -7,7 +7,7 @@ pub enum Decl {
         QualifierType,
         String,
         Vec<(QualifierType, String)>,
-        Vec<Stmt>, // Mudei para vec, ja que o body é sempre um bloco.
+        Vec<Stmt>,
         Span,
     ),
     GlobalVar(QualifierType, String, Option<Expr>, Span),
@@ -15,10 +15,11 @@ pub enum Decl {
 }
 
 impl Decl {
+    /// Retorna o `Span` de código-fonte associado à declaração, independente de seu tipo.
     pub fn span(&self) -> Span {
         match self {
             Decl::Function(_, _, _, _, s) => s.clone(),
-            Decl::GlobalVar(_, _, _, s) => s.clone(), //Troca de nome para melhor identificação
+            Decl::GlobalVar(_, _, _, s) => s.clone(),
             Decl::StructDecl(_, _, s) => s.clone(),
         }
     }

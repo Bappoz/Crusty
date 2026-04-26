@@ -3,7 +3,7 @@ use crate::common::errors::error_data::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    Block(Vec<Stmt>, Span), // Conteúdo entre as chaves
+    Block(Vec<Stmt>, Span),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>, Span),
     While(Expr, Box<Stmt>, Span),
     For(
@@ -12,16 +12,16 @@ pub enum Stmt {
         Option<Expr>,
         Box<Stmt>,
         Span,
-    ), // Inicialização, condição
-    // For(Init, Cond, Inc, Body, Span)
+    ), // For(Init, Cond, Inc, Body, Span)
     Break(Span),
     Continue(Span),
-    ExprStmt(Expr, Span), // Qualquer expressão que vira instrução
+    ExprStmt(Expr, Span),
     Return(Option<Expr>, Span),
     VarDecl(QualifierType, String, Option<Expr>, Span),
 }
 
 impl Stmt {
+    /// Retorna o `Span` de código-fonte associado ao statement, independente de seu tipo.
     pub fn span(&self) -> Span {
         match self {
             Stmt::Block(_, s) => s.clone(),

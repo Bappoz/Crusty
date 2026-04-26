@@ -6,6 +6,7 @@ pub trait OperatorRules {
 }
 
 impl OperatorRules for Scanner {
+    /// Reconhece operadores simples e compostos com lookahead de 1 char, emitindo o token correto.
     fn lex_operator(&mut self, c: char, line: usize, col: usize) {
         match c {
             // -------------------------------------------------------

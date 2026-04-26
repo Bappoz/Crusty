@@ -89,6 +89,7 @@ pub enum TokenKind {
     LeftBracket,  // [
     RightBracket, // ]
     Colon,        // :
+    Question,     // ?
 
     // Literais
     IntLiteral(i64),

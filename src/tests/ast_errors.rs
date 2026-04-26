@@ -10,6 +10,7 @@ mod test {
     fn ast_nodes_are_debug_printable() {
         let span = Span {
             line: 1,
+            end_line: 1,
             column_start: 1,
             column_end: 5,
         };
@@ -24,16 +25,19 @@ mod test {
     fn binary_expr_span_covers_both_operands() {
         let span1 = Span {
             line: 1,
+            end_line: 1,
             column_start: 1,
             column_end: 2,
         };
         let span2 = Span {
             line: 1,
+            end_line: 1,
             column_start: 5,
             column_end: 6,
         };
         let span_total = Span {
             line: 1,
+            end_line: 1,
             column_start: 1,
             column_end: 6,
         };
@@ -73,6 +77,7 @@ mod test {
     fn test_unary_operations() {
         let span = Span {
             line: 1,
+            end_line: 1,
             column_start: 1,
             column_end: 2,
         };
