@@ -41,7 +41,7 @@ impl LiteralsRules for Scanner {
         // -------------------------------------------------
 
         // OCTAL: 0755, ...
-        // If Responsavel para resolver os Hexadecimais
+        // Responsável por resolver os octais
         if first == '0' && matches!(self.src.peek(), Some('0'..='9')) {
             // Consome todos os digitos do OCTAL
             while let Some(c) = self.src.peek() {
