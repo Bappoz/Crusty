@@ -1,4 +1,4 @@
-use crusty::common::errors::report::ToReport;
+use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
 use std::env;
@@ -25,6 +25,18 @@ fn main() -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Erro retornado por `run()` quando o scanner produz diagnósticos.
+#[derive(Debug)]
+struct DiagnosticError {
+    count: usize,
+}
+
+impl ToReport for DiagnosticError {
+    fn to_report(&self) -> Report {
+        Report::new(&format!("compilation failed with {} error(s)", self.count))
+    }
 }
 
 /// Modo REPL interativo; ainda não implementado.
@@ -69,7 +81,7 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     }
 
     if diag_count > 0 {
-        exit(1);
+        return Err(Box::new(DiagnosticError { count: diag_count }));
     }
 
     Ok(())
