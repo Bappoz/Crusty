@@ -15,6 +15,8 @@ pub struct Scanner {
     pub diagnostics: Vec<CompilerError>,
     /// Pilha de delimitadores abertos ainda não fechados: (char, linha, coluna)
     delimiter_stack: Vec<(char, usize, usize)>,
+    /// Posição (em bytes) do início do token sendo reconhecido; capturada antes de consumir o primeiro char.
+    pub(crate) token_start: usize,
 }
 
 impl Scanner {
@@ -25,6 +27,7 @@ impl Scanner {
             tokens: Vec::new(),
             diagnostics: Vec::new(),
             delimiter_stack: Vec::new(),
+            token_start: 0,
         }
     }
 
@@ -53,7 +56,8 @@ impl Scanner {
         }
 
         // Sempre termina com EOF para o parser saber que acabou
-        self.emit_at(TokenKind::Eof, "", self.src.line(), self.src.col());
+        self.token_start = self.src.pos;
+        self.emit_at(TokenKind::Eof, self.src.line(), self.src.col());
         &self.tokens
     }
 
@@ -61,6 +65,7 @@ impl Scanner {
     fn next_token(&mut self) {
         let line = self.src.line();
         let col = self.src.col();
+        self.token_start = self.src.pos;
 
         let c = match self.src.advance() {
             Some(c) => c,
@@ -76,15 +81,15 @@ impl Scanner {
             // Delimitadores de abertura — empilha para rastrear fechamento
             '(' => {
                 self.delimiter_stack.push(('(', line, col));
-                self.emit_at(TokenKind::LeftParen, "(", line, col);
+                self.emit_at(TokenKind::LeftParen, line, col);
             }
             '[' => {
                 self.delimiter_stack.push(('[', line, col));
-                self.emit_at(TokenKind::LeftBracket, "[", line, col);
+                self.emit_at(TokenKind::LeftBracket, line, col);
             }
             '{' => {
                 self.delimiter_stack.push(('{', line, col));
-                self.emit_at(TokenKind::LeftBrace, "{", line, col);
+                self.emit_at(TokenKind::LeftBrace, line, col);
             }
 
             // Delimitadores de fechamento — desempilha o par ou reporta mismatch/inesperado
@@ -94,7 +99,7 @@ impl Scanner {
                 } else {
                     self.emit_unexpected_delimiter(')', line, col);
                 }
-                self.emit_at(TokenKind::RightParen, ")", line, col);
+                self.emit_at(TokenKind::RightParen, line, col);
             }
             ']' => {
                 if matches!(self.delimiter_stack.last(), Some(('[', _, _))) {
@@ -102,7 +107,7 @@ impl Scanner {
                 } else {
                     self.emit_unexpected_delimiter(']', line, col);
                 }
-                self.emit_at(TokenKind::RightBracket, "]", line, col);
+                self.emit_at(TokenKind::RightBracket, line, col);
             }
             '}' => {
                 if matches!(self.delimiter_stack.last(), Some(('{', _, _))) {
@@ -110,18 +115,18 @@ impl Scanner {
                 } else {
                     self.emit_unexpected_delimiter('}', line, col);
                 }
-                self.emit_at(TokenKind::RightBrace, "}", line, col);
+                self.emit_at(TokenKind::RightBrace, line, col);
             }
 
             // Pontuação simples sem lookahead
-            '%' => self.emit_at(TokenKind::Percent, "%", line, col),
-            '^' => self.emit_at(TokenKind::Caret, "^", line, col),
-            '~' => self.emit_at(TokenKind::Tilde, "~", line, col),
-            '.' => self.emit_at(TokenKind::Dot, ".", line, col),
-            ';' => self.emit_at(TokenKind::Semicolon, ";", line, col),
-            ',' => self.emit_at(TokenKind::Comma, ",", line, col),
-            ':' => self.emit_at(TokenKind::Colon, ":", line, col),
-            '?' => self.emit_at(TokenKind::Question, "?", line, col),
+            '%' => self.emit_at(TokenKind::Percent, line, col),
+            '^' => self.emit_at(TokenKind::Caret, line, col),
+            '~' => self.emit_at(TokenKind::Tilde, line, col),
+            '.' => self.emit_at(TokenKind::Dot, line, col),
+            ';' => self.emit_at(TokenKind::Semicolon, line, col),
+            ',' => self.emit_at(TokenKind::Comma, line, col),
+            ':' => self.emit_at(TokenKind::Colon, line, col),
+            '?' => self.emit_at(TokenKind::Question, line, col),
 
             // Operadores (simples e compostos) — delega para operators.rs
             '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|' => {
@@ -132,14 +137,13 @@ impl Scanner {
         }
     }
 
-    /// Adiciona um token com `kind`, `lexeme` e posição explícita à lista de tokens produzidos.
-    pub fn emit_at(&mut self, kind: TokenKind, lexeme: &str, line: usize, col: usize) {
+    /// Adiciona um token com `kind` e posição explícita à lista de tokens produzidos.
+    /// O span do token vai de `token_start` (capturado antes de consumir o primeiro char) até `src.pos`.
+    pub fn emit_at(&mut self, kind: TokenKind, line: usize, col: usize) {
         use crate::common::input::span::ByteSpan;
-        let start = self.src.pos.saturating_sub(lexeme.len());
-        let end = self.src.pos;
         self.tokens.push(Token {
             kind,
-            span: ByteSpan { start, end },
+            span: ByteSpan { start: self.token_start, end: self.src.pos },
             line,
             col,
         });
@@ -224,7 +228,7 @@ impl Scanner {
             },
             kind: LexicalErrorKind::InvalidChar(c),
         }));
-        self.emit_at(TokenKind::Unknown(c), &c.to_string(), line, col);
+        self.emit_at(TokenKind::Unknown(c), line, col);
     }
 
     /// Registra um diagnóstico de delimitador de fechamento sem par de abertura correspondente.

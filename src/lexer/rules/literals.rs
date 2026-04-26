@@ -35,7 +35,7 @@ impl LiteralsRules for Scanner {
             while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
                 buf.push(self.src.advance().unwrap());
             }
-            return self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
+            return self.emit_at(TokenKind::IntLiteral(value), line, col);
         }
 
         // -------------------------------------------------
@@ -61,12 +61,11 @@ impl LiteralsRules for Scanner {
                         },
                         kind: LexicalErrorKind::InvalidOctalDigit(invalid),
                     }));
-                    return self.emit_at(
-                        TokenKind::Unknown(invalid),
-                        &invalid.to_string(),
-                        line,
-                        col_invalid,
-                    );
+                    // token_start normally points to the first char of the current token (the leading '0').
+                    // For invalid octal digits the Unknown token should cover only the bad digit itself,
+                    // so we reset token_start to the byte just before the digit that was consumed.
+                    self.token_start = self.src.pos - invalid.len_utf8();
+                    return self.emit_at(TokenKind::Unknown(invalid), line, col_invalid);
                 } else {
                     break;
                 }
@@ -76,7 +75,7 @@ impl LiteralsRules for Scanner {
             while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
                 buf.push(self.src.advance().unwrap());
             }
-            return self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
+            return self.emit_at(TokenKind::IntLiteral(value), line, col);
         }
 
         // -------------------------------------------------
@@ -131,33 +130,29 @@ impl LiteralsRules for Scanner {
             while matches!(self.src.peek(), Some('f' | 'F' | 'l' | 'L')) {
                 buf.push(self.src.advance().unwrap());
             }
-            self.emit_at(TokenKind::FloatLiteral(value), &buf, line, col);
+            self.emit_at(TokenKind::FloatLiteral(value), line, col);
         } else {
             // Chechou tudo e é Inteiro
             let value: i64 = buf.parse().unwrap_or(0);
             while matches!(self.src.peek(), Some('u' | 'U' | 'l' | 'L')) {
                 buf.push(self.src.advance().unwrap());
             }
-            self.emit_at(TokenKind::IntLiteral(value), &buf, line, col);
+            self.emit_at(TokenKind::IntLiteral(value), line, col);
         }
     }
 
     fn lex_string(&mut self, line: usize, col: usize) {
         let mut value = String::new();
-        let mut lexeme = String::from('"');
         let mut col_end = col + 1;
 
         loop {
             match self.src.advance() {
                 Some('"') => {
-                    lexeme.push('"');
                     break;
                 }
                 Some('\\') => {
-                    lexeme.push('\\');
                     col_end += 1;
                     if let Some(e) = self.src.advance() {
-                        lexeme.push(e);
                         value.push(resolve_escape(e).unwrap_or(e));
                         col_end += 1;
                     }
@@ -171,26 +166,22 @@ impl LiteralsRules for Scanner {
                     break;
                 }
                 Some(c) => {
-                    lexeme.push(c);
                     value.push(c);
                     col_end += 1;
                 }
             }
         }
-        self.emit_at(TokenKind::StringLiteral(value), &lexeme, line, col);
+        self.emit_at(TokenKind::StringLiteral(value), line, col);
     }
 
     fn lex_char(&mut self, line: usize, col: usize) {
-        let mut lexeme = String::from('\'');
         let mut col_end = col + 1;
 
         let c = match self.src.advance() {
             Some('\\') => {
-                lexeme.push('\\');
                 col_end += 1;
                 match self.src.advance() {
                     Some(e) => {
-                        lexeme.push(e);
                         col_end += 1;
                         resolve_escape(e).unwrap_or(e)
                     }
@@ -201,7 +192,6 @@ impl LiteralsRules for Scanner {
                 }
             }
             Some(c) => {
-                lexeme.push(c);
                 col_end += 1;
                 c
             }
@@ -214,8 +204,7 @@ impl LiteralsRules for Scanner {
         // Fecha aspas simples
         match self.src.advance() {
             Some('\'') => {
-                lexeme.push('\'');
-                self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
+                self.emit_at(TokenKind::CharLiteral(c), line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),
             None => self.emit_unterminated_literal("char", line, col, col_end),

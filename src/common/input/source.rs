@@ -10,11 +10,15 @@ pub enum SourceData {
 }
 
 impl SourceData {
-    /// Retorna o conteúdo do source como `&str`, assumindo UTF-8 válido.
+    /// Retorna o conteúdo do source como `&str`. Para arquivos mapeados, a validade UTF-8
+    /// é garantida na construção via `from_path`; caso contrário, entra em panic.
     pub fn as_str(&self) -> &str {
         match self {
-            // Assumindo que o codigo do usaurio é UTF8 valido
-            SourceData::Mapped(mmap) => std::str::from_utf8(mmap).unwrap_or(""),
+            SourceData::Mapped(mmap) => std::str::from_utf8(mmap).expect(
+                "SourceData::Mapped contains invalid UTF-8; \
+                 ensure the file was opened through SourceFile::from_path, \
+                 which validates UTF-8 at construction time",
+            ),
             SourceData::Memory(s) => s.as_str(),
         }
     }
@@ -43,6 +47,17 @@ impl SourceFile {
             Box::new(SystemError {
                 msg: format!(
                     "Could not memory map file '{}': {}",
+                    path.to_string_lossy(),
+                    e
+                ),
+            }) as Box<dyn ToReport>
+        })?;
+
+        // Valida que o arquivo é UTF-8 antes de prosseguir; falhar aqui é preferível a mascarar o erro
+        std::str::from_utf8(&mmap).map_err(|e| {
+            Box::new(SystemError {
+                msg: format!(
+                    "File '{}' contains invalid UTF-8: {}",
                     path.to_string_lossy(),
                     e
                 ),

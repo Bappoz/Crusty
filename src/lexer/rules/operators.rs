@@ -14,13 +14,13 @@ impl OperatorRules for Scanner {
             '+' => match self.src.peek() {
                 Some('+') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::PlusPlus, "++", line, col);
+                    self.emit_at(TokenKind::PlusPlus, line, col);
                 }
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::PlusEqual, "+=", line, col);
+                    self.emit_at(TokenKind::PlusEqual, line, col);
                 }
-                _ => self.emit_at(TokenKind::Plus, "+", line, col),
+                _ => self.emit_at(TokenKind::Plus, line, col),
             },
 
             // -------------------------------------------------------
@@ -28,17 +28,17 @@ impl OperatorRules for Scanner {
             '-' => match self.src.peek() {
                 Some('-') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::MinusMinus, "--", line, col);
+                    self.emit_at(TokenKind::MinusMinus, line, col);
                 }
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::MinusEqual, "-=", line, col);
+                    self.emit_at(TokenKind::MinusEqual, line, col);
                 }
                 Some('>') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::Arrow, "->", line, col);
+                    self.emit_at(TokenKind::Arrow, line, col);
                 }
-                _ => self.emit_at(TokenKind::Minus, "-", line, col),
+                _ => self.emit_at(TokenKind::Minus, line, col),
             },
 
             // -------------------------------------------------------
@@ -46,9 +46,9 @@ impl OperatorRules for Scanner {
             '*' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::StarEqual, "*=", line, col);
+                    self.emit_at(TokenKind::StarEqual, line, col);
                 }
-                _ => self.emit_at(TokenKind::Star, "*", line, col),
+                _ => self.emit_at(TokenKind::Star, line, col),
             },
 
             // -------------------------------------------------------
@@ -58,9 +58,9 @@ impl OperatorRules for Scanner {
             '/' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::SlashEqual, "/=", line, col);
+                    self.emit_at(TokenKind::SlashEqual, line, col);
                 }
-                _ => self.emit_at(TokenKind::Slash, "/", line, col),
+                _ => self.emit_at(TokenKind::Slash, line, col),
             },
 
             // -------------------------------------------------------
@@ -68,9 +68,9 @@ impl OperatorRules for Scanner {
             '=' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::EqualEqual, "==", line, col);
+                    self.emit_at(TokenKind::EqualEqual, line, col);
                 }
-                _ => self.emit_at(TokenKind::Equal, "=", line, col),
+                _ => self.emit_at(TokenKind::Equal, line, col),
             },
 
             // -------------------------------------------------------
@@ -78,9 +78,9 @@ impl OperatorRules for Scanner {
             '!' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::BangEqual, "!=", line, col);
+                    self.emit_at(TokenKind::BangEqual, line, col);
                 }
-                _ => self.emit_at(TokenKind::Bang, "!", line, col),
+                _ => self.emit_at(TokenKind::Bang, line, col),
             },
 
             // -------------------------------------------------------
@@ -88,18 +88,18 @@ impl OperatorRules for Scanner {
             '<' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::LessEqual, "<=", line, col);
+                    self.emit_at(TokenKind::LessEqual, line, col);
                 }
                 Some('<') => {
                     self.src.advance();
                     if self.src.peek() == Some('=') {
                         self.src.advance();
-                        self.emit_at(TokenKind::LessLessEqual, "<<=", line, col);
+                        self.emit_at(TokenKind::LessLessEqual, line, col);
                     } else {
-                        self.emit_at(TokenKind::LessLess, "<<", line, col);
+                        self.emit_at(TokenKind::LessLess, line, col);
                     }
                 }
-                _ => self.emit_at(TokenKind::Less, "<", line, col),
+                _ => self.emit_at(TokenKind::Less, line, col),
             },
 
             // -------------------------------------------------------
@@ -107,18 +107,18 @@ impl OperatorRules for Scanner {
             '>' => match self.src.peek() {
                 Some('=') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::GreaterEqual, ">=", line, col);
+                    self.emit_at(TokenKind::GreaterEqual, line, col);
                 }
                 Some('>') => {
                     self.src.advance();
                     if self.src.peek() == Some('=') {
                         self.src.advance();
-                        self.emit_at(TokenKind::GreaterGreaterEqual, ">>=", line, col);
+                        self.emit_at(TokenKind::GreaterGreaterEqual, line, col);
                     } else {
-                        self.emit_at(TokenKind::GreaterGreater, ">>", line, col);
+                        self.emit_at(TokenKind::GreaterGreater, line, col);
                     }
                 }
-                _ => self.emit_at(TokenKind::Greater, ">", line, col),
+                _ => self.emit_at(TokenKind::Greater, line, col),
             },
 
             // -------------------------------------------------------
@@ -126,9 +126,9 @@ impl OperatorRules for Scanner {
             '&' => match self.src.peek() {
                 Some('&') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::AndAnd, "&&", line, col);
+                    self.emit_at(TokenKind::AndAnd, line, col);
                 }
-                _ => self.emit_at(TokenKind::Ampersand, "&", line, col),
+                _ => self.emit_at(TokenKind::Ampersand, line, col),
             },
 
             // -------------------------------------------------------
@@ -136,9 +136,9 @@ impl OperatorRules for Scanner {
             '|' => match self.src.peek() {
                 Some('|') => {
                     self.src.advance();
-                    self.emit_at(TokenKind::OrOr, "||", line, col);
+                    self.emit_at(TokenKind::OrOr, line, col);
                 }
-                _ => self.emit_at(TokenKind::Pipe, "|", line, col),
+                _ => self.emit_at(TokenKind::Pipe, line, col),
             },
 
             // Qualquer outro char cai aqui como desconhecido

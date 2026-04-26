@@ -23,7 +23,7 @@ impl IdentifierRules for Scanner {
 
         let kind = lookup_keyword(&buf).unwrap_or(TokenKind::Identifier(buf.clone()));
 
-        self.emit_at(kind, &buf, line, col);
+        self.emit_at(kind, line, col);
     }
 }
 
