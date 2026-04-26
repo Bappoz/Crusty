@@ -42,7 +42,10 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     for token in &scanner.tokens {
         let lexeme = &scanner.src.source.as_str()[token.span.start..token.span.end];
         let kind_str = format!("{:?}", token.kind);
-        println!("  [{:3}:{:<3}]  {:<35} {:?}", token.line, token.col, kind_str, lexeme);
+        println!(
+            "  [{:3}:{:<3}]  {:<35} {:?}",
+            token.line, token.col, kind_str, lexeme
+        );
     }
 
     let diag_count = scanner.diagnostics.len();

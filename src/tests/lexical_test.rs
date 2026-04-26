@@ -41,31 +41,39 @@ mod tests {
     #[test]
     fn lex_integer_literals_with_suffix_single_token() {
         // Deve emitir exatamente um token IntLiteral, sem tokens extras
-        assert_eq!(scan("42u"),    vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("42U"),    vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("42l"),    vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("42L"),    vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("42ul"),   vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("42UL"),   vec![TokenKind::IntLiteral(42)]);
-        assert_eq!(scan("0xFFu"),  vec![TokenKind::IntLiteral(255)]);
+        assert_eq!(scan("42u"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("42U"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("42l"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("42L"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("42ul"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("42UL"), vec![TokenKind::IntLiteral(42)]);
+        assert_eq!(scan("0xFFu"), vec![TokenKind::IntLiteral(255)]);
         assert_eq!(scan("0xFFUL"), vec![TokenKind::IntLiteral(255)]);
-        assert_eq!(scan("0755L"),  vec![TokenKind::IntLiteral(493)]);
+        assert_eq!(scan("0755L"), vec![TokenKind::IntLiteral(493)]);
     }
 
     #[test]
     fn lex_integer_literals_suffix_span_covers_full_lexeme() {
         let cases: &[(&str, &str)] = &[
-            ("42u",    "42u"),
-            ("42UL",   "42UL"),
-            ("0xFFu",  "0xFFu"),
+            ("42u", "42u"),
+            ("42UL", "42UL"),
+            ("0xFFu", "0xFFu"),
             ("0xFFUL", "0xFFUL"),
-            ("0755L",  "0755L"),
+            ("0755L", "0755L"),
         ];
         for (input, expected_lexeme) in cases {
             let (src, scanner) = scan_full(input);
-            let token = scanner.tokens.iter().find(|t| t.kind != TokenKind::Eof).unwrap();
+            let token = scanner
+                .tokens
+                .iter()
+                .find(|t| t.kind != TokenKind::Eof)
+                .unwrap();
             let actual = &src[token.span.start..token.span.end];
-            assert_eq!(actual, *expected_lexeme, "span mismatch for input {:?}", input);
+            assert_eq!(
+                actual, *expected_lexeme,
+                "span mismatch for input {:?}",
+                input
+            );
         }
     }
 
@@ -83,27 +91,35 @@ mod tests {
     #[test]
     fn lex_float_literals_with_suffix_single_token() {
         // Deve emitir exatamente um token FloatLiteral, sem tokens extras
-        assert_eq!(scan("3.14f"),  vec![TokenKind::FloatLiteral(3.14)]);
-        assert_eq!(scan("3.14F"),  vec![TokenKind::FloatLiteral(3.14)]);
-        assert_eq!(scan("3.14l"),  vec![TokenKind::FloatLiteral(3.14)]);
-        assert_eq!(scan("3.14L"),  vec![TokenKind::FloatLiteral(3.14)]);
-        assert_eq!(scan("1e10L"),  vec![TokenKind::FloatLiteral(1e10)]);
+        assert_eq!(scan("3.14f"), vec![TokenKind::FloatLiteral(3.14)]);
+        assert_eq!(scan("3.14F"), vec![TokenKind::FloatLiteral(3.14)]);
+        assert_eq!(scan("3.14l"), vec![TokenKind::FloatLiteral(3.14)]);
+        assert_eq!(scan("3.14L"), vec![TokenKind::FloatLiteral(3.14)]);
+        assert_eq!(scan("1e10L"), vec![TokenKind::FloatLiteral(1e10)]);
         assert_eq!(scan("2.5e-3f"), vec![TokenKind::FloatLiteral(2.5e-3)]);
     }
 
     #[test]
     fn lex_float_literals_suffix_span_covers_full_lexeme() {
         let cases: &[(&str, &str)] = &[
-            ("3.14f",   "3.14f"),
-            ("3.14L",   "3.14L"),
-            ("1e10L",   "1e10L"),
+            ("3.14f", "3.14f"),
+            ("3.14L", "3.14L"),
+            ("1e10L", "1e10L"),
             ("2.5e-3f", "2.5e-3f"),
         ];
         for (input, expected_lexeme) in cases {
             let (src, scanner) = scan_full(input);
-            let token = scanner.tokens.iter().find(|t| t.kind != TokenKind::Eof).unwrap();
+            let token = scanner
+                .tokens
+                .iter()
+                .find(|t| t.kind != TokenKind::Eof)
+                .unwrap();
             let actual = &src[token.span.start..token.span.end];
-            assert_eq!(actual, *expected_lexeme, "span mismatch for input {:?}", input);
+            assert_eq!(
+                actual, *expected_lexeme,
+                "span mismatch for input {:?}",
+                input
+            );
         }
     }
 
@@ -196,31 +212,28 @@ mod tests {
     #[test]
     fn preprocessor_directives_are_skipped() {
         let kinds = scan("#include <stdio.h>\n#define MAX 10\n42");
-        assert_eq!(
-            kinds,
-            vec![TokenKind::IntLiteral(42)]
-        );
+        assert_eq!(kinds, vec![TokenKind::IntLiteral(42)]);
     }
 
     // --- Operadores compostos ---
 
     #[test]
     fn lex_compound_operators() {
-        assert_eq!(scan("=="),  vec![TokenKind::EqualEqual]);
-        assert_eq!(scan("!="),  vec![TokenKind::BangEqual]);
-        assert_eq!(scan("<="),  vec![TokenKind::LessEqual]);
-        assert_eq!(scan(">="),  vec![TokenKind::GreaterEqual]);
-        assert_eq!(scan("&&"),  vec![TokenKind::AndAnd]);
-        assert_eq!(scan("||"),  vec![TokenKind::OrOr]);
-        assert_eq!(scan("++"),  vec![TokenKind::PlusPlus]);
-        assert_eq!(scan("--"),  vec![TokenKind::MinusMinus]);
-        assert_eq!(scan("+="),  vec![TokenKind::PlusEqual]);
-        assert_eq!(scan("-="),  vec![TokenKind::MinusEqual]);
-        assert_eq!(scan("*="),  vec![TokenKind::StarEqual]);
-        assert_eq!(scan("/="),  vec![TokenKind::SlashEqual]);
-        assert_eq!(scan("->"),  vec![TokenKind::Arrow]);
-        assert_eq!(scan("<<"),  vec![TokenKind::LessLess]);
-        assert_eq!(scan(">>"),  vec![TokenKind::GreaterGreater]);
+        assert_eq!(scan("=="), vec![TokenKind::EqualEqual]);
+        assert_eq!(scan("!="), vec![TokenKind::BangEqual]);
+        assert_eq!(scan("<="), vec![TokenKind::LessEqual]);
+        assert_eq!(scan(">="), vec![TokenKind::GreaterEqual]);
+        assert_eq!(scan("&&"), vec![TokenKind::AndAnd]);
+        assert_eq!(scan("||"), vec![TokenKind::OrOr]);
+        assert_eq!(scan("++"), vec![TokenKind::PlusPlus]);
+        assert_eq!(scan("--"), vec![TokenKind::MinusMinus]);
+        assert_eq!(scan("+="), vec![TokenKind::PlusEqual]);
+        assert_eq!(scan("-="), vec![TokenKind::MinusEqual]);
+        assert_eq!(scan("*="), vec![TokenKind::StarEqual]);
+        assert_eq!(scan("/="), vec![TokenKind::SlashEqual]);
+        assert_eq!(scan("->"), vec![TokenKind::Arrow]);
+        assert_eq!(scan("<<"), vec![TokenKind::LessLess]);
+        assert_eq!(scan(">>"), vec![TokenKind::GreaterGreater]);
         assert_eq!(scan(">>="), vec![TokenKind::GreaterGreaterEqual]);
         assert_eq!(scan("<<="), vec![TokenKind::LessLessEqual]);
     }
