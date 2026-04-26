@@ -18,6 +18,7 @@ pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
         TokenKind::Less | TokenKind::Greater | TokenKind::LessEqual | TokenKind::GreaterEqual => {
             (14, 15, false)
         }
+        TokenKind::LessLess | TokenKind::GreaterGreater => (16, 17, false),
         TokenKind::Plus | TokenKind::Minus => (18, 19, false),
         TokenKind::Star | TokenKind::Slash | TokenKind::Percent => (20, 21, false),
         _ => return None,

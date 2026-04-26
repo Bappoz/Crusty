@@ -23,6 +23,8 @@ pub fn token_to_bin_op(
         TokenKind::Greater => BinOp::Greater,
         TokenKind::LessEqual => BinOp::Leq,
         TokenKind::GreaterEqual => BinOp::Geq,
+        TokenKind::LessLess => BinOp::Shl,
+        TokenKind::GreaterGreater => BinOp::Shr,
         TokenKind::Plus => BinOp::Add,
         TokenKind::Minus => BinOp::Sub,
         TokenKind::Star => BinOp::Mul,
