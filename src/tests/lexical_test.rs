@@ -213,3 +213,4 @@ mod tests {
         assert_eq!(scanner.tokens[0].kind, TokenKind::Unknown('8')); // verificação se o 8 foi convertido para um token Unknow
     }
 }
+// 
