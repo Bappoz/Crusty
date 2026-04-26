@@ -151,6 +151,11 @@ impl LiteralsRules for Scanner {
                         col_end += 1;
                     }
                 }
+                // FIX: Issue #58 - Rejeita newline real dentro de string
+                Some('\n') => {
+                    self.emit_unterminated_literal("string", line, col, col_end);
+                    break;
+                }
                 None => {
                     self.emit_unterminated_literal("string", line, col, col_end);
                     break;
@@ -192,6 +197,10 @@ impl LiteralsRules for Scanner {
                     }
                 }
             }
+            Some('\n') => {
+                self.emit_unterminated_literal("char", line, col, col_end);
+                return; // Early return para não tentar fechar as aspas
+            }
             Some(c) => {
                 lexeme.push(c);
                 col_end += 1;
@@ -207,7 +216,6 @@ impl LiteralsRules for Scanner {
         match self.src.advance() {
             Some('\'') => {
                 lexeme.push('\'');
-             
                 self.emit_at(TokenKind::CharLiteral(c), &lexeme, line, col);
             }
             Some(err) => self.emit_unknown(err, line, col),
