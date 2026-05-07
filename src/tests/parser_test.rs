@@ -2,9 +2,11 @@
 mod tests {
     use crate::common::ast::ast::{QualifierType, Type};
     use crate::common::ast::expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp};
+    use crate::common::ast::stmt::Stmt;
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
+    use crate::parser::rules::statements::parse_stmt;
     use crate::parser::Parser;
 
     // Helper para criar tokens compactos nos testes sem depender do scanner.
@@ -28,6 +30,8 @@ mod tests {
     fn eof(col: usize) -> Token {
         tk(TokenKind::Eof, col)
     }
+
+    // ── testes de expressão ──────────────────────────────────────────────────
 
     // Garante que precedência de multiplicação vence soma: 1 + 2 * 3.
     #[test]
@@ -216,4 +220,165 @@ mod tests {
         let result = parser.parse_expr(0);
         assert!(result.is_err());
     }
+
+    // ── testes de statements (PARSER-01) ────────────────────────────────────
+
+    /// `return x;` produz Stmt::Return com expressão Ident("x").
+    #[test]
+    fn parses_return_with_value() {
+        // return x ;  EOF
+        let tokens = vec![
+            tk(TokenKind::Return, 1),
+            ident("x", 8),
+            tk(TokenKind::Semicolon, 9),
+            eof(10),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("return válido");
+
+        let Stmt::Return(Some(expr), _) = stmt else {
+            panic!("esperava Stmt::Return com valor");
+        };
+        assert!(matches!(expr, Expr::Ident(ref s, _) if s == "x"));
+    }
+
+    /// `return;` produz Stmt::Return sem valor.
+    #[test]
+    fn parses_return_without_value() {
+        let tokens = vec![
+            tk(TokenKind::Return, 1),
+            tk(TokenKind::Semicolon, 7),
+            eof(8),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("return vazio válido");
+
+        assert!(matches!(stmt, Stmt::Return(None, _)));
+    }
+
+    /// `break;` produz Stmt::Break.
+    #[test]
+    fn parses_break_statement() {
+        let tokens = vec![
+            tk(TokenKind::Break, 1),
+            tk(TokenKind::Semicolon, 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("break válido");
+
+        assert!(matches!(stmt, Stmt::Break(_)));
+    }
+
+    /// `continue;` produz Stmt::Continue.
+    #[test]
+    fn parses_continue_statement() {
+        let tokens = vec![
+            tk(TokenKind::Continue, 1),
+            tk(TokenKind::Semicolon, 9),
+            eof(10),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("continue válido");
+
+        assert!(matches!(stmt, Stmt::Continue(_)));
+    }
+
+    /// `x++;` produz Stmt::ExprStmt com Expr::Postfix.
+    #[test]
+    fn parses_expr_stmt_postfix_inc() {
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::PlusPlus, 2),
+            tk(TokenKind::Semicolon, 4),
+            eof(5),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("expr stmt válido");
+
+        let Stmt::ExprStmt(expr, _) = stmt else {
+            panic!("esperava ExprStmt");
+        };
+        assert!(matches!(expr, Expr::Postfix(PostfixOp::Inc, _, _)));
+    }
+
+    /// Bloco vazio `{}` produz Stmt::Block com zero statements.
+    #[test]
+    fn parses_empty_block() {
+        let tokens = vec![
+            tk(TokenKind::LeftBrace, 1),
+            tk(TokenKind::RightBrace, 2),
+            eof(3),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("bloco vazio válido");
+
+        let Stmt::Block(stmts, _) = stmt else {
+            panic!("esperava Block");
+        };
+        assert!(stmts.is_empty());
+    }
+
+    /// Bloco `{ return x; }` — reproduz o trecho de full_code1.c coberto por PARSER-01.
+    /// full_code1.c: `if (x > 0) { return x; }` — o corpo do if é um bloco com return.
+    #[test]
+    fn parses_block_with_return_from_full_code1() {
+        // { return x ; }  EOF
+        let tokens = vec![
+            tk(TokenKind::LeftBrace, 1),
+            tk(TokenKind::Return, 5),
+            ident("x", 12),
+            tk(TokenKind::Semicolon, 13),
+            tk(TokenKind::RightBrace, 5),
+            eof(6),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("bloco com return válido");
+
+        let Stmt::Block(stmts, _) = stmt else {
+            panic!("esperava Block");
+        };
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(stmts[0], Stmt::Return(Some(_), _)));
+    }
+
+    /// break sem ponto-e-vírgula deve gerar erro sintático.
+    #[test]
+    fn rejects_break_without_semicolon() {
+        let tokens = vec![tk(TokenKind::Break, 1), eof(6)];
+
+        let mut parser = Parser::new(tokens);
+        assert!(parse_stmt(&mut parser).is_err());
+    }
+
+    /// continue sem ponto-e-vírgula deve gerar erro sintático.
+    #[test]
+    fn rejects_continue_without_semicolon() {
+        let tokens = vec![tk(TokenKind::Continue, 1), eof(9)];
+
+        let mut parser = Parser::new(tokens);
+        assert!(parse_stmt(&mut parser).is_err());
+    }
+
+    /// Bloco sem fechar `}` deve gerar erro sintático.
+    #[test]
+    fn rejects_unclosed_block() {
+        let tokens = vec![
+            tk(TokenKind::LeftBrace, 1),
+            tk(TokenKind::Return, 3),
+            tk(TokenKind::Semicolon, 9),
+            eof(10),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        assert!(parse_stmt(&mut parser).is_err());
+    }
 }
+
