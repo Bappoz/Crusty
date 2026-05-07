@@ -4,3 +4,5 @@ pub mod parser;
 pub mod precedence;
 pub mod rules;
 pub use parser::Parser;
+pub mod expressions;
+pub mod statements;
