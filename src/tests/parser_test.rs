@@ -261,11 +261,7 @@ mod tests {
     /// `break;` produz Stmt::Break.
     #[test]
     fn parses_break_statement() {
-        let tokens = vec![
-            tk(TokenKind::Break, 1),
-            tk(TokenKind::Semicolon, 6),
-            eof(7),
-        ];
+        let tokens = vec![tk(TokenKind::Break, 1), tk(TokenKind::Semicolon, 6), eof(7)];
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("break válido");
@@ -381,4 +377,3 @@ mod tests {
         assert!(parse_stmt(&mut parser).is_err());
     }
 }
-
