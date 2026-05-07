@@ -135,7 +135,9 @@ fn parse_return(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         Some(parser.parse_expr(0)?)
     };
 
-    let semi = parser.expect(&TokenKind::Semicolon, "';' após return")?.clone();
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' após return")?
+        .clone();
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
     Ok(Stmt::Return(value, span))
 }
@@ -143,7 +145,9 @@ fn parse_return(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 /// Parseia `break;`.
 fn parse_break(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let kw = parser.expect(&TokenKind::Break, "'break'")?.clone();
-    let semi = parser.expect(&TokenKind::Semicolon, "';' após break")?.clone();
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' após break")?
+        .clone();
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
     Ok(Stmt::Break(span))
 }
@@ -151,7 +155,9 @@ fn parse_break(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 /// Parseia `continue;`.
 fn parse_continue(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let kw = parser.expect(&TokenKind::Continue, "'continue'")?.clone();
-    let semi = parser.expect(&TokenKind::Semicolon, "';' após continue")?.clone();
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' após continue")?
+        .clone();
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
     Ok(Stmt::Continue(span))
 }
