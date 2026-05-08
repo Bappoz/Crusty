@@ -47,13 +47,19 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("expressão válida");
+        println!("[parses_precedence_in_expression] AST: {expr:#?}");
 
         let Expr::Binary(left, BinOp::Add, right, _) = expr else {
             panic!("esperava soma no topo da árvore");
         };
+        println!("[parses_precedence_in_expression] nó raiz = Add  ✓");
+        println!("[parses_precedence_in_expression] left  = {left:?}");
+        println!("[parses_precedence_in_expression] right = {right:?}");
 
         assert!(matches!(*left, Expr::Literal(Literal::Int(1), _)));
+        println!("[parses_precedence_in_expression] left é Literal(1)  ✓");
         assert!(matches!(*right, Expr::Binary(_, BinOp::Mul, _, _)));
+        println!("[parses_precedence_in_expression] right é Mul  ✓");
     }
 
     // Garante respeito ao agrupamento com parênteses: (1 + 2) * 3.
@@ -72,13 +78,19 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("expressão válida");
+        println!("[parses_grouped_expression] AST: {expr:#?}");
 
         let Expr::Binary(left, BinOp::Mul, right, _) = expr else {
             panic!("esperava multiplicação no topo da árvore");
         };
+        println!("[parses_grouped_expression] nó raiz = Mul  ✓");
+        println!("[parses_grouped_expression] left  = {left:?}");
+        println!("[parses_grouped_expression] right = {right:?}");
 
         assert!(matches!(*right, Expr::Literal(Literal::Int(3), _)));
+        println!("[parses_grouped_expression] right é Literal(3)  ✓");
         assert!(matches!(*left, Expr::Binary(_, BinOp::Add, _, _)));
+        println!("[parses_grouped_expression] left é Add (grupo parênteses)  ✓");
     }
 
     #[test]
@@ -95,10 +107,11 @@ mod tests {
         for (tokens, kind) in cases {
             let mut parser = Parser::new(tokens);
             let expr = parser.parse_expr(0).expect("expressão válida");
+            println!("[parses_prefix_operators] caso '{kind}' => AST: {expr:?}");
             match (kind, expr) {
-                ("neg", Expr::Unary(_, _, _)) => {}
-                ("not", Expr::Unary(_, _, _)) => {}
-                ("inc", Expr::Prefix(PrefixOp::Inc, _, _)) => {}
+                ("neg", Expr::Unary(_, _, _)) => println!("[parses_prefix_operators] '-x' é Unary  ✓"),
+                ("not", Expr::Unary(_, _, _)) => println!("[parses_prefix_operators] '!x' é Unary  ✓"),
+                ("inc", Expr::Prefix(PrefixOp::Inc, _, _)) => println!("[parses_prefix_operators] '++x' é Prefix::Inc  ✓"),
                 _ => panic!("nó prefixo inesperado"),
             }
         }
@@ -129,19 +142,25 @@ mod tests {
         let first = Parser::new(cases[0].clone())
             .parse_expr(0)
             .expect("postfix válido");
+        println!("[parses_postfix_operators] 'x++' => {first:?}");
         assert!(matches!(first, Expr::Postfix(PostfixOp::Inc, _, _)));
+        println!("[parses_postfix_operators] 'x++' é Postfix::Inc  ✓");
 
         let second = Parser::new(cases[1].clone())
             .parse_expr(0)
             .expect("indexação válida");
+        println!("[parses_postfix_operators] 'x[0]' => {second:?}");
         assert!(matches!(second, Expr::Index(_, _, _)));
+        println!("[parses_postfix_operators] 'x[0]' é Index  ✓");
 
         let third = Parser::new(cases[2].clone())
             .parse_expr(0)
             .expect("chamada válida");
+        println!("[parses_postfix_operators] 'f(1,2)' => {third:?}");
         let Expr::Call(_, args, _) = third else {
             panic!("esperava chamada de função");
         };
+        println!("[parses_postfix_operators] 'f(1,2)' é Call com {} args  ✓", args.len());
         assert_eq!(args.len(), 2);
     }
 
@@ -157,6 +176,7 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("cast válido");
+        println!("[parses_cast_expression] AST: {expr:#?}");
 
         let Expr::Cast(
             QualifierType {
@@ -170,11 +190,17 @@ mod tests {
         else {
             panic!("esperava cast no topo da árvore");
         };
+        println!("[parses_cast_expression] Cast para ty={ty:?}  is_const={is_const}  is_unsigned={is_unsigned}");
 
         assert!(matches!(ty, Type::Int));
+        println!("[parses_cast_expression] ty é Int  ✓");
         assert!(!is_const);
+        println!("[parses_cast_expression] is_const=false  ✓");
         assert!(!is_unsigned);
+        println!("[parses_cast_expression] is_unsigned=false  ✓");
+        println!("[parses_cast_expression] inner = {inner:?}");
         assert!(matches!(*inner, Expr::Ident(_, _)));
+        println!("[parses_cast_expression] inner é Ident  ✓");
     }
 
     #[test]
@@ -188,13 +214,18 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr(0).expect("atribuição válida");
+        println!("[parses_assignment_expression] AST: {expr:#?}");
 
         let Expr::Assign(lhs, rhs, _) = expr else {
             panic!("esperava atribuição no topo da árvore");
         };
+        println!("[parses_assignment_expression] lhs = {lhs:?}");
+        println!("[parses_assignment_expression] rhs = {rhs:?}");
 
         assert!(matches!(*lhs, Expr::Ident(_, _)));
+        println!("[parses_assignment_expression] lhs é Ident  ✓");
         assert!(matches!(*rhs, Expr::Ident(_, _)));
+        println!("[parses_assignment_expression] rhs é Ident  ✓");
     }
 
     #[test]
@@ -202,7 +233,10 @@ mod tests {
         let tokens = vec![int(1, 1), tk(TokenKind::Unknown('?'), 2), int(2, 3), eof(4)];
 
         let mut parser = Parser::new(tokens);
-        assert!(parser.parse_expr(0).is_err());
+        let result = parser.parse_expr(0);
+        println!("[rejects_invalid_operator_tokens] resultado: {result:?}");
+        assert!(result.is_err());
+        println!("[rejects_invalid_operator_tokens] erro esperado ao encontrar '?'  ✓");
     }
 
     // Garante erro sintático quando falta fechar parêntese.
@@ -218,7 +252,9 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let result = parser.parse_expr(0);
+        println!("[reports_missing_right_paren] resultado: {result:?}");
         assert!(result.is_err());
+        println!("[reports_missing_right_paren] erro esperado por ')' ausente  ✓");
     }
 
     // ── testes de statements (PARSER-01) ────────────────────────────────────
@@ -236,11 +272,14 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("return válido");
+        println!("[parses_return_with_value] AST: {stmt:#?}");
 
         let Stmt::Return(Some(expr), _) = stmt else {
             panic!("esperava Stmt::Return com valor");
         };
+        println!("[parses_return_with_value] expr = {expr:?}");
         assert!(matches!(expr, Expr::Ident(ref s, _) if s == "x"));
+        println!("[parses_return_with_value] Stmt::Return(Ident(\"x\"))  ✓");
     }
 
     /// `return;` produz Stmt::Return sem valor.
@@ -254,8 +293,10 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("return vazio válido");
+        println!("[parses_return_without_value] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Return(None, _)));
+        println!("[parses_return_without_value] Stmt::Return(None)  ✓");
     }
 
     /// `break;` produz Stmt::Break.
@@ -265,8 +306,10 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("break válido");
+        println!("[parses_break_statement] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Break(_)));
+        println!("[parses_break_statement] Stmt::Break  ✓");
     }
 
     /// `continue;` produz Stmt::Continue.
@@ -280,8 +323,10 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("continue válido");
+        println!("[parses_continue_statement] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Continue(_)));
+        println!("[parses_continue_statement] Stmt::Continue  ✓");
     }
 
     /// `x++;` produz Stmt::ExprStmt com Expr::Postfix.
@@ -296,11 +341,14 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("expr stmt válido");
+        println!("[parses_expr_stmt_postfix_inc] AST: {stmt:#?}");
 
         let Stmt::ExprStmt(expr, _) = stmt else {
             panic!("esperava ExprStmt");
         };
+        println!("[parses_expr_stmt_postfix_inc] expr = {expr:?}");
         assert!(matches!(expr, Expr::Postfix(PostfixOp::Inc, _, _)));
+        println!("[parses_expr_stmt_postfix_inc] ExprStmt(Postfix::Inc)  ✓");
     }
 
     /// Bloco vazio `{}` produz Stmt::Block com zero statements.
@@ -314,11 +362,14 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("bloco vazio válido");
+        println!("[parses_empty_block] AST: {stmt:#?}");
 
         let Stmt::Block(stmts, _) = stmt else {
             panic!("esperava Block");
         };
+        println!("[parses_empty_block] Block com {} statements", stmts.len());
         assert!(stmts.is_empty());
+        println!("[parses_empty_block] Block vazio  ✓");
     }
 
     /// Bloco `{ return x; }` — reproduz o trecho de full_code1.c coberto por PARSER-01.
@@ -337,12 +388,16 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         let stmt = parse_stmt(&mut parser).expect("bloco com return válido");
+        println!("[parses_block_with_return_from_full_code1] AST: {stmt:#?}");
 
         let Stmt::Block(stmts, _) = stmt else {
             panic!("esperava Block");
         };
+        println!("[parses_block_with_return_from_full_code1] Block com {} statements", stmts.len());
         assert_eq!(stmts.len(), 1);
+        println!("[parses_block_with_return_from_full_code1] stmts[0] = {:?}", stmts[0]);
         assert!(matches!(stmts[0], Stmt::Return(Some(_), _)));
+        println!("[parses_block_with_return_from_full_code1] Block {{ Return(x) }}  ✓");
     }
 
     /// break sem ponto-e-vírgula deve gerar erro sintático.
@@ -351,7 +406,10 @@ mod tests {
         let tokens = vec![tk(TokenKind::Break, 1), eof(6)];
 
         let mut parser = Parser::new(tokens);
-        assert!(parse_stmt(&mut parser).is_err());
+        let result = parse_stmt(&mut parser);
+        println!("[rejects_break_without_semicolon] resultado: {result:?}");
+        assert!(result.is_err());
+        println!("[rejects_break_without_semicolon] erro esperado por ';' ausente após break  ✓");
     }
 
     /// continue sem ponto-e-vírgula deve gerar erro sintático.
@@ -360,7 +418,10 @@ mod tests {
         let tokens = vec![tk(TokenKind::Continue, 1), eof(9)];
 
         let mut parser = Parser::new(tokens);
-        assert!(parse_stmt(&mut parser).is_err());
+        let result = parse_stmt(&mut parser);
+        println!("[rejects_continue_without_semicolon] resultado: {result:?}");
+        assert!(result.is_err());
+        println!("[rejects_continue_without_semicolon] erro esperado por ';' ausente após continue  ✓");
     }
 
     /// Bloco sem fechar `}` deve gerar erro sintático.
@@ -374,6 +435,9 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        assert!(parse_stmt(&mut parser).is_err());
+        let result = parse_stmt(&mut parser);
+        println!("[rejects_unclosed_block] resultado: {result:?}");
+        assert!(result.is_err());
+        println!("[rejects_unclosed_block] erro esperado por '}}' ausente  ✓");
     }
 }
