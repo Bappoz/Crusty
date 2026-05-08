@@ -109,9 +109,15 @@ mod tests {
             let expr = parser.parse_expr(0).expect("expressão válida");
             println!("[parses_prefix_operators] caso '{kind}' => AST: {expr:?}");
             match (kind, expr) {
-                ("neg", Expr::Unary(_, _, _)) => println!("[parses_prefix_operators] '-x' é Unary  ✓"),
-                ("not", Expr::Unary(_, _, _)) => println!("[parses_prefix_operators] '!x' é Unary  ✓"),
-                ("inc", Expr::Prefix(PrefixOp::Inc, _, _)) => println!("[parses_prefix_operators] '++x' é Prefix::Inc  ✓"),
+                ("neg", Expr::Unary(_, _, _)) => {
+                    println!("[parses_prefix_operators] '-x' é Unary  ✓")
+                }
+                ("not", Expr::Unary(_, _, _)) => {
+                    println!("[parses_prefix_operators] '!x' é Unary  ✓")
+                }
+                ("inc", Expr::Prefix(PrefixOp::Inc, _, _)) => {
+                    println!("[parses_prefix_operators] '++x' é Prefix::Inc  ✓")
+                }
                 _ => panic!("nó prefixo inesperado"),
             }
         }
@@ -160,7 +166,10 @@ mod tests {
         let Expr::Call(_, args, _) = third else {
             panic!("esperava chamada de função");
         };
-        println!("[parses_postfix_operators] 'f(1,2)' é Call com {} args  ✓", args.len());
+        println!(
+            "[parses_postfix_operators] 'f(1,2)' é Call com {} args  ✓",
+            args.len()
+        );
         assert_eq!(args.len(), 2);
     }
 
@@ -393,9 +402,15 @@ mod tests {
         let Stmt::Block(stmts, _) = stmt else {
             panic!("esperava Block");
         };
-        println!("[parses_block_with_return_from_full_code1] Block com {} statements", stmts.len());
+        println!(
+            "[parses_block_with_return_from_full_code1] Block com {} statements",
+            stmts.len()
+        );
         assert_eq!(stmts.len(), 1);
-        println!("[parses_block_with_return_from_full_code1] stmts[0] = {:?}", stmts[0]);
+        println!(
+            "[parses_block_with_return_from_full_code1] stmts[0] = {:?}",
+            stmts[0]
+        );
         assert!(matches!(stmts[0], Stmt::Return(Some(_), _)));
         println!("[parses_block_with_return_from_full_code1] Block {{ Return(x) }}  ✓");
     }
@@ -421,7 +436,9 @@ mod tests {
         let result = parse_stmt(&mut parser);
         println!("[rejects_continue_without_semicolon] resultado: {result:?}");
         assert!(result.is_err());
-        println!("[rejects_continue_without_semicolon] erro esperado por ';' ausente após continue  ✓");
+        println!(
+            "[rejects_continue_without_semicolon] erro esperado por ';' ausente após continue  ✓"
+        );
     }
 
     /// Bloco sem fechar `}` deve gerar erro sintático.
