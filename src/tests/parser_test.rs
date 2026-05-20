@@ -2,6 +2,7 @@
 mod tests {
     use crate::common::ast::ast::{QualifierType, Type};
     use crate::common::ast::expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp};
+    use crate::common::ast::stmt::Stmt;
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
@@ -215,5 +216,64 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let result = parser.parse_expr(0);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parses_var_decl_with_init() {
+        // int x = 42;
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("x", 5),
+            tk(TokenKind::Equal, 7),
+            int(42, 9),
+            tk(TokenKind::Semicolon, 11),
+            eof(12),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, Some(init), _) = stmt else {
+            panic!("esperava VarDecl com init");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(name, "x");
+        assert!(matches!(init, Expr::Literal(Literal::Int(42), _)));
+    }
+
+    #[test]
+    fn parses_var_decl_no_init() {
+        // float y;
+        let tokens = vec![
+            tk(TokenKind::Float, 1),
+            ident("y", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, None, _) = stmt else {
+            panic!("esperava VarDecl sem init");
+        };
+        assert!(matches!(qty.ty, Type::Float));
+        assert_eq!(name, "y");
+    }
+
+    #[test]
+    fn parses_const_pointer_var_decl() {
+        // const int *p = 0;
+        let tokens = vec![
+            tk(TokenKind::Const, 1),
+            tk(TokenKind::Int, 7),
+            tk(TokenKind::Star, 11),
+            ident("p", 12),
+            tk(TokenKind::Equal, 14),
+            int(0, 16),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, Some(_), _) = stmt else {
+            panic!("esperava VarDecl");
+        };
+        assert!(qty.is_const);
+        assert!(matches!(qty.ty, Type::Pointer(_)));
+        assert_eq!(name, "p");
     }
 }
