@@ -14,7 +14,11 @@ pub fn parse_val_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     // Nome da variável
     let name_token = parser.advance().clone();
     let TokenKind::Identifier(name) = name_token.kind.clone() else {
-        return Err(parser.syntax_error(&name_token, "identifcador", &format!("{:?}", name_token.kind)));
+        return Err(parser.syntax_error(
+            &name_token,
+            "identifcador",
+            &format!("{:?}", name_token.kind),
+        ));
     };
 
     // Inicializador Opcional: = expr
