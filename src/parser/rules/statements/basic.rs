@@ -153,8 +153,24 @@ fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         parser.advance();
         None
     } else if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-        let decl = crate::parser::rules::declarations::parse_var_decl(parser)?;
-        Some(Box::new(decl))
+        // Ao parsear uma declaração dentro do init do `for`, capture erros sintáticos
+        // e reemita-os com uma mensagem contextualizada para "init do for". Outros
+        // tipos de erro são propagados sem alteração.
+        match crate::parser::rules::declarations::parse_var_decl(parser) {
+            Ok(decl) => Some(Box::new(decl)),
+            Err(e) => match e {
+                CompilerError::Syntax(syn) => {
+                    return Err(CompilerError::Syntax(
+                        crate::common::errors::types::SyntaxError {
+                            span: syn.span,
+                            expected: "';' após init do for".to_string(),
+                            found: syn.found,
+                        },
+                    ));
+                }
+                other => return Err(other),
+            },
+        }
     } else {
         let expr = parser.parse_expr(0)?;
         let semi = parser
