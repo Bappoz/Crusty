@@ -308,11 +308,11 @@ mod tests {
     fn parses_block_with_return_from_full_code1() {
         let tokens = vec![
             tk(TokenKind::LeftBrace, 1),
-            tk(TokenKind::Return, 5),
-            ident("x", 12),
-            tk(TokenKind::Semicolon, 13),
-            tk(TokenKind::RightBrace, 5),
-            eof(6),
+            tk(TokenKind::Return, 3),
+            ident("x", 10),
+            tk(TokenKind::Semicolon, 11),
+            tk(TokenKind::RightBrace, 13),
+            eof(14),
         ];
 
         let mut parser = Parser::new(tokens);
