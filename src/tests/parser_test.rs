@@ -2,7 +2,7 @@
 mod tests {
     use crate::common::ast::ast::{QualifierType, Type};
     use crate::common::ast::expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp};
-    use crate::common::ast::stmt::Stmt;
+    use crate::common::ast::stmt::{Stmt, SwitchLabel};
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
@@ -651,5 +651,276 @@ mod tests {
         };
         assert!(matches!(&stmts[0], Stmt::Break(_)));
         assert!(matches!(cond, Expr::Literal(Literal::Int(1), _)));
+    }
+
+    #[test]
+    fn parses_for_with_var_decl_init() {
+        // for (int i = 0; i < 10; i++) {}
+        let tokens = vec![
+            tk(TokenKind::For, 1),
+            tk(TokenKind::LeftParen, 5),
+            tk(TokenKind::Int, 6),
+            ident("i", 10),
+            tk(TokenKind::Equal, 12),
+            int(0, 14),
+            tk(TokenKind::Semicolon, 15),
+            ident("i", 17),
+            tk(TokenKind::Less, 19),
+            int(10, 21),
+            tk(TokenKind::Semicolon, 23),
+            ident("i", 25),
+            tk(TokenKind::PlusPlus, 26),
+            tk(TokenKind::RightParen, 28),
+            tk(TokenKind::LeftBrace, 30),
+            tk(TokenKind::RightBrace, 31),
+            eof(32),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("for válido");
+        let Stmt::For(init, cond, inc, body, _) = stmt else {
+            panic!("esperava Stmt::For");
+        };
+        let init_stmt = init.expect("esperava init");
+        let Stmt::VarDecl(qty, name, Some(val), _) = *init_stmt else {
+            panic!("esperava VarDecl no init");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(name, "i");
+        assert!(matches!(val, Expr::Literal(Literal::Int(0), _)));
+        assert!(matches!(cond, Some(Expr::Binary(_, BinOp::Less, _, _))));
+        assert!(matches!(inc, Some(Expr::Postfix(PostfixOp::Inc, _, _))));
+        let Stmt::Block(stmts, _) = *body else {
+            panic!("esperava bloco no corpo do for");
+        };
+        assert!(stmts.is_empty());
+    }
+
+    #[test]
+    fn parses_for_with_expr_init() {
+        // for (i = 0; i < 10; i++) {}
+        let tokens = vec![
+            tk(TokenKind::For, 1),
+            tk(TokenKind::LeftParen, 5),
+            ident("i", 6),
+            tk(TokenKind::Equal, 8),
+            int(0, 10),
+            tk(TokenKind::Semicolon, 11),
+            ident("i", 13),
+            tk(TokenKind::Less, 15),
+            int(10, 17),
+            tk(TokenKind::Semicolon, 19),
+            ident("i", 21),
+            tk(TokenKind::PlusPlus, 22),
+            tk(TokenKind::RightParen, 24),
+            tk(TokenKind::LeftBrace, 26),
+            tk(TokenKind::RightBrace, 27),
+            eof(28),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("for com expr init válido");
+        let Stmt::For(init, cond, inc, body, _) = stmt else {
+            panic!("esperava Stmt::For");
+        };
+        let init_stmt = init.expect("esperava init");
+        let Stmt::ExprStmt(Expr::Assign(_, _, _), _) = *init_stmt else {
+            panic!("esperava ExprStmt no init");
+        };
+        assert!(matches!(cond, Some(Expr::Binary(_, BinOp::Less, _, _))));
+        assert!(matches!(inc, Some(Expr::Postfix(PostfixOp::Inc, _, _))));
+        let Stmt::Block(stmts, _) = *body else {
+            panic!("esperava bloco no corpo do for");
+        };
+        assert!(stmts.is_empty());
+    }
+
+    #[test]
+    fn parses_for_empty_init() {
+        // for (; i < 10; i++) {}
+        let tokens = vec![
+            tk(TokenKind::For, 1),
+            tk(TokenKind::LeftParen, 5),
+            tk(TokenKind::Semicolon, 6),
+            ident("i", 8),
+            tk(TokenKind::Less, 10),
+            int(10, 12),
+            tk(TokenKind::Semicolon, 14),
+            ident("i", 16),
+            tk(TokenKind::PlusPlus, 17),
+            tk(TokenKind::RightParen, 19),
+            tk(TokenKind::LeftBrace, 21),
+            tk(TokenKind::RightBrace, 22),
+            eof(23),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("for com init vazio válido");
+        let Stmt::For(init, cond, inc, _, _) = stmt else {
+            panic!("esperava Stmt::For");
+        };
+        assert!(init.is_none());
+        assert!(matches!(cond, Some(Expr::Binary(_, BinOp::Less, _, _))));
+        assert!(matches!(inc, Some(Expr::Postfix(PostfixOp::Inc, _, _))));
+    }
+
+    #[test]
+    fn parses_for_no_cond_no_inc() {
+        // for (;;) {}
+        let tokens = vec![
+            tk(TokenKind::For, 1),
+            tk(TokenKind::LeftParen, 5),
+            tk(TokenKind::Semicolon, 6),
+            tk(TokenKind::Semicolon, 7),
+            tk(TokenKind::RightParen, 8),
+            tk(TokenKind::LeftBrace, 10),
+            tk(TokenKind::RightBrace, 11),
+            eof(12),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("for (;;) válido");
+        let Stmt::For(init, cond, inc, body, _) = stmt else {
+            panic!("esperava Stmt::For");
+        };
+        assert!(init.is_none());
+        assert!(cond.is_none());
+        assert!(inc.is_none());
+        let Stmt::Block(stmts, _) = *body else {
+            panic!("esperava bloco");
+        };
+        assert!(stmts.is_empty());
+    }
+
+    #[test]
+    fn parses_for_no_inc() {
+        // for (int i = 0; i < 10;) {}
+        let tokens = vec![
+            tk(TokenKind::For, 1),
+            tk(TokenKind::LeftParen, 5),
+            tk(TokenKind::Int, 6),
+            ident("i", 10),
+            tk(TokenKind::Equal, 12),
+            int(0, 14),
+            tk(TokenKind::Semicolon, 15),
+            ident("i", 17),
+            tk(TokenKind::Less, 19),
+            int(10, 21),
+            tk(TokenKind::Semicolon, 23),
+            tk(TokenKind::RightParen, 24),
+            tk(TokenKind::LeftBrace, 26),
+            tk(TokenKind::RightBrace, 27),
+            eof(28),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("for sem inc válido");
+        let Stmt::For(_, _, inc, _, _) = stmt else {
+            panic!("esperava Stmt::For");
+        };
+        assert!(inc.is_none());
+    }
+
+    #[test]
+    fn parses_switch_with_case_and_default() {
+        // switch (x) { case 1: break; default: break; }
+        let tokens = vec![
+            tk(TokenKind::Switch, 1),
+            tk(TokenKind::LeftParen, 8),
+            ident("x", 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::LeftBrace, 12),
+            tk(TokenKind::Case, 14),
+            int(1, 19),
+            tk(TokenKind::Colon, 20),
+            tk(TokenKind::Break, 22),
+            tk(TokenKind::Semicolon, 27),
+            tk(TokenKind::Default, 29),
+            tk(TokenKind::Colon, 36),
+            tk(TokenKind::Break, 38),
+            tk(TokenKind::Semicolon, 43),
+            tk(TokenKind::RightBrace, 45),
+            eof(46),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("switch válido");
+        let Stmt::Switch(expr, cases, _) = stmt else {
+            panic!("esperava Stmt::Switch");
+        };
+        assert!(matches!(expr, Expr::Ident(name, _) if name == "x"));
+        assert_eq!(cases.len(), 2);
+
+        assert!(matches!(&cases[0].label, SwitchLabel::Case(Expr::Literal(Literal::Int(1), _))));
+        assert_eq!(cases[0].stmts.len(), 1);
+        assert!(matches!(&cases[0].stmts[0], Stmt::Break(_)));
+
+        assert!(matches!(&cases[1].label, SwitchLabel::Default));
+        assert_eq!(cases[1].stmts.len(), 1);
+        assert!(matches!(&cases[1].stmts[0], Stmt::Break(_)));
+    }
+
+    #[test]
+    fn parses_switch_multiple_cases() {
+        // switch (x) { case 1: x = 2; break; case 2: break; default: break; }
+        let tokens = vec![
+            tk(TokenKind::Switch, 1),
+            tk(TokenKind::LeftParen, 8),
+            ident("x", 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::LeftBrace, 12),
+            tk(TokenKind::Case, 14),
+            int(1, 19),
+            tk(TokenKind::Colon, 20),
+            ident("x", 22),
+            tk(TokenKind::Equal, 24),
+            int(2, 26),
+            tk(TokenKind::Semicolon, 27),
+            tk(TokenKind::Break, 29),
+            tk(TokenKind::Semicolon, 34),
+            tk(TokenKind::Case, 36),
+            int(2, 41),
+            tk(TokenKind::Colon, 42),
+            tk(TokenKind::Break, 44),
+            tk(TokenKind::Semicolon, 49),
+            tk(TokenKind::Default, 51),
+            tk(TokenKind::Colon, 58),
+            tk(TokenKind::Break, 60),
+            tk(TokenKind::Semicolon, 65),
+            tk(TokenKind::RightBrace, 67),
+            eof(68),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("switch com múltiplos cases válido");
+        let Stmt::Switch(_, cases, _) = stmt else {
+            panic!("esperava Stmt::Switch");
+        };
+        assert_eq!(cases.len(), 3);
+        assert_eq!(cases[0].stmts.len(), 2);
+        assert!(matches!(&cases[0].stmts[0], Stmt::ExprStmt(Expr::Assign(_, _, _), _)));
+        assert!(matches!(&cases[0].stmts[1], Stmt::Break(_)));
+        assert_eq!(cases[1].stmts.len(), 1);
+        assert_eq!(cases[2].stmts.len(), 1);
+    }
+
+    #[test]
+    fn parses_switch_default_only() {
+        // switch (x) { default: break; }
+        let tokens = vec![
+            tk(TokenKind::Switch, 1),
+            tk(TokenKind::LeftParen, 8),
+            ident("x", 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::LeftBrace, 12),
+            tk(TokenKind::Default, 14),
+            tk(TokenKind::Colon, 21),
+            tk(TokenKind::Break, 23),
+            tk(TokenKind::Semicolon, 28),
+            tk(TokenKind::RightBrace, 30),
+            eof(31),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().expect("switch default-only válido");
+        let Stmt::Switch(_, cases, _) = stmt else {
+            panic!("esperava Stmt::Switch");
+        };
+        assert_eq!(cases.len(), 1);
+        assert!(matches!(&cases[0].label, SwitchLabel::Default));
+        assert_eq!(cases[0].stmts.len(), 1);
+        assert!(matches!(&cases[0].stmts[0], Stmt::Break(_)));
     }
 }
