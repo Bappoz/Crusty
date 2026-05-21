@@ -153,8 +153,9 @@ fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         parser.advance();
         None
     } else if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-        let decl = crate::parser::rules::declarations::parse_var_decl(parser)?;
-        Some(Box::new(decl))
+        Some(Box::new(crate::parser::rules::declarations::parse_var_decl(
+            parser,
+        )?))
     } else {
         let expr = parser.parse_expr(0)?;
         let semi = parser
@@ -195,17 +196,26 @@ fn parse_switch(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 
     let mut cases = Vec::new();
     while !parser.check(&TokenKind::RightBrace) && !parser.is_at_end() {
-        let label = if parser.match_kind(&TokenKind::Case) {
+        let label_start = parser.peek().clone();
+        let (label, label_span) = if parser.match_kind(&TokenKind::Case) {
+            let case_kw = label_start;
             let case_expr = parser.parse_expr(0)?;
-            parser.expect(&TokenKind::Colon, "':' após case")?;
-            SwitchLabel::Case(case_expr)
+            let colon = parser.expect(&TokenKind::Colon, "':' após case")?.clone();
+            let span = parser.join_span(parser.span_of(&case_kw), parser.span_of(&colon));
+            (SwitchLabel::Case(case_expr), span)
+        } else if parser.match_kind(&TokenKind::Default) {
+            let default_kw = label_start;
+            let colon = parser.expect(&TokenKind::Colon, "':' após default")?.clone();
+            let span = parser.join_span(parser.span_of(&default_kw), parser.span_of(&colon));
+            (SwitchLabel::Default, span)
         } else {
-            parser.expect(&TokenKind::Default, "'default'")?;
-            parser.expect(&TokenKind::Colon, "':' após default")?;
-            SwitchLabel::Default
+            let found = parser.peek().clone();
+            return Err(parser.syntax_error(
+                &found,
+                "'case' ou 'default'",
+                &format!("{:?}", found.kind),
+            ));
         };
-
-        let label_span_start = parser.peek().clone();
 
         let mut stmts = Vec::new();
         while !matches!(
@@ -216,11 +226,10 @@ fn parse_switch(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         }
 
         let span = if stmts.is_empty() {
-            parser.span_of(&label_span_start)
+            label_span
         } else {
-            let first = stmts.first().unwrap().span();
             let last = stmts.last().unwrap().span();
-            parser.join_span(first, last)
+            parser.join_span(label_span, last)
         };
 
         cases.push(SwitchCase { label, stmts, span });
