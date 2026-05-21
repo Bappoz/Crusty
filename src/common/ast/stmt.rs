@@ -14,6 +14,7 @@ pub enum Stmt {
         Span,
     ), // For(Init, Cond, Inc, Body, Span)
     DoWhile(Expr, Box<Stmt>, Span),
+    Switch(Expr, Vec<SwitchCase>, Span),
     Break(Span),
     Continue(Span),
     ExprStmt(Expr, Span),
@@ -21,8 +22,20 @@ pub enum Stmt {
     VarDecl(QualifierType, String, Option<Expr>, Span),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchCase {
+    pub label: SwitchLabel,
+    pub stmts: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SwitchLabel {
+    Case(Expr),
+    Default,
+}
+
 impl Stmt {
-    /// Retorna o `Span` de código-fonte associado ao statement, independente de seu tipo.
     pub fn span(&self) -> Span {
         match self {
             Stmt::Block(_, s) => s.clone(),
@@ -30,6 +43,7 @@ impl Stmt {
             Stmt::While(_, _, s) => s.clone(),
             Stmt::For(_, _, _, _, s) => s.clone(),
             Stmt::DoWhile(_, _, s) => s.clone(),
+            Stmt::Switch(_, _, s) => s.clone(),
             Stmt::Break(s) => s.clone(),
             Stmt::Continue(s) => s.clone(),
             Stmt::ExprStmt(_, s) => s.clone(),

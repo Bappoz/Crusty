@@ -1,4 +1,4 @@
-use crate::common::ast::stmt::Stmt;
+use crate::common::ast::stmt::{Stmt, SwitchCase, SwitchLabel};
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
@@ -8,7 +8,7 @@ use crate::parser::rules::declarations;
 ///
 /// Reconhece:
 ///   `{` → bloco, `return` → return, `break` → break, `continue` → continue,
-///   `if` → if, `while` → while, `do` → do-while,
+///   `if` → if, `while` → while, `do` → do-while, `for` → for, `switch` → switch,
 ///   keywords de tipo → declaração de variável,
 ///   qualquer outra coisa → statement de expressão.
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
@@ -20,10 +20,8 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         TokenKind::If => parse_if(parser),
         TokenKind::While => parse_while(parser),
         TokenKind::Do => parse_do_while(parser),
-        TokenKind::For => {
-            let tok = parser.peek().clone();
-            Err(parser.syntax_error(&tok, "statement", "'for' ainda não implementado"))
-        }
+        TokenKind::For => parse_for(parser),
+        TokenKind::Switch => parse_switch(parser),
         _ if declarations::starts_type(parser.peek_kind()) => declarations::parse_var_decl(parser),
         _ => parse_expr_stmt(parser),
     }
@@ -140,6 +138,105 @@ fn parse_do_while(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
     Ok(Stmt::DoWhile(cond, Box::new(body), span))
+}
+
+/// Parseia `for ( (decl | expr_stmt | ;) expr? ; expr? ) stmt`.
+fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+    let kw = parser.expect(&TokenKind::For, "'for'")?.clone();
+    parser.expect(&TokenKind::LeftParen, "'(' após for")?;
+
+    let init = if parser.check(&TokenKind::Semicolon) {
+        parser.advance();
+        None
+    } else if declarations::starts_type(parser.peek_kind()) {
+        Some(Box::new(declarations::parse_var_decl(parser)?))
+    } else {
+        let expr = parser.parse_expr(0)?;
+        let semi = parser
+            .expect(&TokenKind::Semicolon, "';' após init do for")?
+            .clone();
+        let span = parser.join_span(expr.span(), parser.span_of(&semi));
+        Some(Box::new(Stmt::ExprStmt(expr, span)))
+    };
+
+    let cond = if parser.check(&TokenKind::Semicolon) {
+        None
+    } else {
+        Some(parser.parse_expr(0)?)
+    };
+    parser.expect(&TokenKind::Semicolon, "';' após condição do for")?;
+
+    let inc = if parser.check(&TokenKind::RightParen) {
+        None
+    } else {
+        Some(parser.parse_expr(0)?)
+    };
+    parser.expect(&TokenKind::RightParen, "')' após cabeçalho do for")?;
+
+    let body = parse_stmt(parser)?;
+
+    let span = parser.join_span(parser.span_of(&kw), body.span());
+    Ok(Stmt::For(init, cond, inc, Box::new(body), span))
+}
+
+/// Parseia `switch (expr) { (case expr : stmt* | default : stmt*)* }`.
+fn parse_switch(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+    let kw = parser.expect(&TokenKind::Switch, "'switch'")?.clone();
+    parser.expect(&TokenKind::LeftParen, "'(' após switch")?;
+    let expr = parser.parse_expr(0)?;
+    parser.expect(&TokenKind::RightParen, "')' após expressão do switch")?;
+
+    parser.expect(&TokenKind::LeftBrace, "'{' após switch")?;
+
+    let mut cases = Vec::new();
+    while !parser.check(&TokenKind::RightBrace) && !parser.is_at_end() {
+        let label_start = parser.peek().clone();
+        let (label, label_span) = if parser.match_kind(&TokenKind::Case) {
+            let case_kw = label_start;
+            let case_expr = parser.parse_expr(0)?;
+            let colon = parser.expect(&TokenKind::Colon, "':' após case")?.clone();
+            let span = parser.join_span(parser.span_of(&case_kw), parser.span_of(&colon));
+            (SwitchLabel::Case(case_expr), span)
+        } else if parser.match_kind(&TokenKind::Default) {
+            let default_kw = label_start;
+            let colon = parser
+                .expect(&TokenKind::Colon, "':' após default")?
+                .clone();
+            let span = parser.join_span(parser.span_of(&default_kw), parser.span_of(&colon));
+            (SwitchLabel::Default, span)
+        } else {
+            let found = parser.peek().clone();
+            return Err(parser.syntax_error(
+                &found,
+                "'case' ou 'default'",
+                &format!("{:?}", found.kind),
+            ));
+        };
+
+        let mut stmts = Vec::new();
+        while !matches!(
+            parser.peek_kind(),
+            TokenKind::Case | TokenKind::Default | TokenKind::RightBrace | TokenKind::Eof
+        ) {
+            stmts.push(parse_stmt(parser)?);
+        }
+
+        let span = if stmts.is_empty() {
+            label_span
+        } else {
+            let last = stmts.last().unwrap().span();
+            parser.join_span(label_span, last)
+        };
+
+        cases.push(SwitchCase { label, stmts, span });
+    }
+
+    let rbrace = parser
+        .expect(&TokenKind::RightBrace, "'}' para fechar switch")?
+        .clone();
+
+    let span = parser.join_span(parser.span_of(&kw), parser.span_of(&rbrace));
+    Ok(Stmt::Switch(expr, cases, span))
 }
 
 /// Parseia qualquer expressão seguida de `;`.
