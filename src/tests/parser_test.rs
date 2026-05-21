@@ -6,7 +6,6 @@ mod tests {
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
-    use crate::parser::rules::statements::parse_stmt;
     use crate::parser::Parser;
 
     // Helper para criar tokens compactos nos testes sem depender do scanner.
@@ -280,7 +279,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("return válido");
+        let stmt = parser.parse_stmt().expect("return válido");
         println!("[parses_return_with_value] AST: {stmt:#?}");
 
         let Stmt::Return(Some(expr), _) = stmt else {
@@ -301,7 +300,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("return vazio válido");
+        let stmt = parser.parse_stmt().expect("return vazio válido");
         println!("[parses_return_without_value] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Return(None, _)));
@@ -314,7 +313,7 @@ mod tests {
         let tokens = vec![tk(TokenKind::Break, 1), tk(TokenKind::Semicolon, 6), eof(7)];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("break válido");
+        let stmt = parser.parse_stmt().expect("break válido");
         println!("[parses_break_statement] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Break(_)));
@@ -331,7 +330,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("continue válido");
+        let stmt = parser.parse_stmt().expect("continue válido");
         println!("[parses_continue_statement] AST: {stmt:#?}");
 
         assert!(matches!(stmt, Stmt::Continue(_)));
@@ -349,7 +348,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("expr stmt válido");
+        let stmt = parser.parse_stmt().expect("expr stmt válido");
         println!("[parses_expr_stmt_postfix_inc] AST: {stmt:#?}");
 
         let Stmt::ExprStmt(expr, _) = stmt else {
@@ -370,7 +369,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("bloco vazio válido");
+        let stmt = parser.parse_stmt().expect("bloco vazio válido");
         println!("[parses_empty_block] AST: {stmt:#?}");
 
         let Stmt::Block(stmts, _) = stmt else {
@@ -396,7 +395,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("bloco com return válido");
+        let stmt = parser.parse_stmt().expect("bloco com return válido");
         println!("[parses_block_with_return_from_full_code1] AST: {stmt:#?}");
 
         let Stmt::Block(stmts, _) = stmt else {
@@ -421,7 +420,7 @@ mod tests {
         let tokens = vec![tk(TokenKind::Break, 1), eof(6)];
 
         let mut parser = Parser::new(tokens);
-        let result = parse_stmt(&mut parser);
+        let result = parser.parse_stmt();
         println!("[rejects_break_without_semicolon] resultado: {result:?}");
         assert!(result.is_err());
         println!("[rejects_break_without_semicolon] erro esperado por ';' ausente após break  ✓");
@@ -433,7 +432,7 @@ mod tests {
         let tokens = vec![tk(TokenKind::Continue, 1), eof(9)];
 
         let mut parser = Parser::new(tokens);
-        let result = parse_stmt(&mut parser);
+        let result = parser.parse_stmt();
         println!("[rejects_continue_without_semicolon] resultado: {result:?}");
         assert!(result.is_err());
         println!(
@@ -452,7 +451,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let result = parse_stmt(&mut parser);
+        let result = parser.parse_stmt();
         println!("[rejects_unclosed_block] resultado: {result:?}");
         assert!(result.is_err());
         println!("[rejects_unclosed_block] erro esperado por '}}' ausente  ✓");
@@ -554,7 +553,7 @@ mod tests {
             eof(21),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("if válido");
+        let stmt = parser.parse_stmt().expect("if válido");
         let Stmt::If(cond, then_branch, None, _) = stmt else {
             panic!("esperava Stmt::If sem else");
         };
@@ -583,7 +582,7 @@ mod tests {
             eof(32),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("if-else válido");
+        let stmt = parser.parse_stmt().expect("if-else válido");
         let Stmt::If(cond, _, Some(else_branch), _) = stmt else {
             panic!("esperava Stmt::If com else");
         };
@@ -616,7 +615,7 @@ mod tests {
             eof(39),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("if-else-if válido");
+        let stmt = parser.parse_stmt().expect("if-else-if válido");
         let Stmt::If(_, _, Some(else_branch), _) = stmt else {
             panic!("esperava Stmt::If com else");
         };
@@ -644,7 +643,7 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("if com bloco válido");
+        let stmt = parser.parse_stmt().expect("if com bloco válido");
         let Stmt::If(cond, then_branch, None, _) = stmt else {
             panic!("esperava Stmt::If sem else");
         };
@@ -674,7 +673,7 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("while válido");
+        let stmt = parser.parse_stmt().expect("while válido");
         let Stmt::While(cond, body, _) = stmt else {
             panic!("esperava Stmt::While");
         };
@@ -699,7 +698,7 @@ mod tests {
             eof(21),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("while com bloco válido");
+        let stmt = parser.parse_stmt().expect("while com bloco válido");
         let Stmt::While(cond, body, _) = stmt else {
             panic!("esperava Stmt::While");
         };
@@ -731,7 +730,7 @@ mod tests {
             eof(30),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("do-while válido");
+        let stmt = parser.parse_stmt().expect("do-while válido");
         let Stmt::DoWhile(body, cond, _) = stmt else {
             panic!("esperava Stmt::DoWhile");
         };
@@ -758,7 +757,7 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let stmt = parse_stmt(&mut parser).expect("do-while com bloco válido");
+        let stmt = parser.parse_stmt().expect("do-while com bloco válido");
         let Stmt::DoWhile(body, cond, _) = stmt else {
             panic!("esperava Stmt::DoWhile");
         };
