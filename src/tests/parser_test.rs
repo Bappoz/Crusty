@@ -222,7 +222,8 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let Stmt::Return(Some(expr), _) = parser.parse_stmt().expect("return válido") else {
+        let Stmt::Return(Some(expr), _) = parser.parse_stmt().expect("return válido")
+        else {
             panic!("esperava Stmt::Return com valor");
         };
         assert!(matches!(expr, Expr::Ident(ref s, _) if s == "x"));
@@ -270,7 +271,8 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let Stmt::ExprStmt(expr, _) = parser.parse_stmt().expect("expr stmt válido") else {
+        let Stmt::ExprStmt(expr, _) = parser.parse_stmt().expect("expr stmt válido")
+        else {
             panic!("esperava ExprStmt");
         };
         assert!(matches!(expr, Expr::Postfix(PostfixOp::Inc, _, _)));
@@ -285,7 +287,8 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let Stmt::Block(stmts, _) = parser.parse_stmt().expect("bloco vazio válido") else {
+        let Stmt::Block(stmts, _) = parser.parse_stmt().expect("bloco vazio válido")
+        else {
             panic!("esperava Block");
         };
         assert!(stmts.is_empty());
@@ -303,7 +306,8 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let Stmt::Block(stmts, _) = parser.parse_stmt().expect("bloco com return válido") else {
+        let Stmt::Block(stmts, _) = parser.parse_stmt().expect("bloco com return válido")
+        else {
             panic!("esperava Block");
         };
         assert_eq!(stmts.len(), 1);
@@ -349,7 +353,8 @@ mod tests {
             tk(TokenKind::Semicolon, 11),
             eof(12),
         ];
-        let Stmt::VarDecl(qty, name, Some(init), _) = Parser::new(tokens).parse_stmt().expect("decl válida") else {
+        let Stmt::VarDecl(qty, name, Some(init), _) = Parser::new(tokens).parse_stmt().expect("decl válida")
+        else {
             panic!("esperava VarDecl com init");
         };
         assert!(matches!(qty.ty, Type::Int));
@@ -365,7 +370,8 @@ mod tests {
             tk(TokenKind::Semicolon, 8),
             eof(9),
         ];
-        let Stmt::VarDecl(qty, name, None, _) = Parser::new(tokens).parse_stmt().expect("decl válida") else {
+        let Stmt::VarDecl(qty, name, None, _) = Parser::new(tokens).parse_stmt().expect("decl válida")
+        else {
             panic!("esperava VarDecl sem init");
         };
         assert!(matches!(qty.ty, Type::Float));
@@ -381,7 +387,8 @@ mod tests {
             tk(TokenKind::Semicolon, 6),
             eof(7),
         ];
-        let Stmt::ExprStmt(expr, _) = Parser::new(tokens).parse_stmt().expect("expr stmt válido") else {
+        let Stmt::ExprStmt(expr, _) = Parser::new(tokens).parse_stmt().expect("expr stmt válido")
+        else {
             panic!("esperava ExprStmt");
         };
         let Expr::Assign(lhs, rhs, _) = expr else {
@@ -403,7 +410,8 @@ mod tests {
             tk(TokenKind::Semicolon, 17),
             eof(18),
         ];
-        let Stmt::VarDecl(qty, name, Some(_), _) = Parser::new(tokens).parse_stmt().expect("decl válida") else {
+        let Stmt::VarDecl(qty, name, Some(_), _) = Parser::new(tokens).parse_stmt().expect("decl válida")
+        else {
             panic!("esperava VarDecl");
         };
         assert!(qty.is_const);
@@ -426,7 +434,8 @@ mod tests {
             eof(21),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::If(cond, then_branch, None, _) = parser.parse_stmt().expect("if válido") else {
+        let Stmt::If(cond, then_branch, None, _) = parser.parse_stmt().expect("if válido")
+        else {
             panic!("esperava Stmt::If sem else");
         };
         assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
@@ -453,7 +462,8 @@ mod tests {
             eof(32),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::If(cond, _, Some(else_branch), _) = parser.parse_stmt().expect("if-else válido") else {
+        let Stmt::If(cond, _, Some(else_branch), _) = parser.parse_stmt().expect("if-else válido")
+        else {
             panic!("esperava Stmt::If com else");
         };
         assert!(matches!(cond, Expr::Ident(name, _) if name == "x"));
@@ -484,7 +494,8 @@ mod tests {
             eof(39),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::If(_, _, Some(else_branch), _) = parser.parse_stmt().expect("if-else-if válido") else {
+        let Stmt::If(_, _, Some(else_branch), _) = parser.parse_stmt().expect("if-else-if válido")
+        else {
             panic!("esperava Stmt::If com else");
         };
         let Stmt::If(inner_cond, _, None, _) = *else_branch else {
@@ -510,7 +521,8 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::If(cond, then_branch, None, _) = parser.parse_stmt().expect("if com bloco válido") else {
+        let Stmt::If(cond, then_branch, None, _) = parser.parse_stmt().expect("if com bloco válido")
+        else {
             panic!("esperava Stmt::If sem else");
         };
         assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
@@ -538,7 +550,8 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::While(cond, body, _) = parser.parse_stmt().expect("while válido") else {
+        let Stmt::While(cond, body, _) = parser.parse_stmt().expect("while válido")
+        else {
             panic!("esperava Stmt::While");
         };
         assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
@@ -561,7 +574,8 @@ mod tests {
             eof(21),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::While(cond, body, _) = parser.parse_stmt().expect("while com bloco válido") else {
+        let Stmt::While(cond, body, _) = parser.parse_stmt().expect("while com bloco válido")
+        else {
             panic!("esperava Stmt::While");
         };
         assert!(matches!(cond, Expr::Literal(Literal::Int(1), _)));
@@ -591,7 +605,8 @@ mod tests {
             eof(30),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while válido") else {
+        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while válido")
+        else {
             panic!("esperava Stmt::DoWhile");
         };
         let Stmt::ExprStmt(Expr::Assign(_, _, _), _) = *body else {
@@ -616,7 +631,8 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while com bloco válido") else {
+        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while com bloco válido")
+        else {
             panic!("esperava Stmt::DoWhile");
         };
         let Stmt::Block(stmts, _) = *body else {
@@ -649,7 +665,8 @@ mod tests {
             eof(32),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for válido") else {
+        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for válido")
+        else {
             panic!("esperava Stmt::For");
         };
         let init_stmt = init.expect("esperava init");
@@ -689,7 +706,8 @@ mod tests {
             eof(28),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for com expr init válido") else {
+        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for com expr init válido")
+        else {
             panic!("esperava Stmt::For");
         };
         let init_stmt = init.expect("esperava init");
@@ -723,7 +741,8 @@ mod tests {
             eof(23),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::For(init, cond, inc, _, _) = parser.parse_stmt().expect("for com init vazio válido") else {
+        let Stmt::For(init, cond, inc, _, _) = parser.parse_stmt().expect("for com init vazio válido")
+        else {
             panic!("esperava Stmt::For");
         };
         assert!(init.is_none());
@@ -745,7 +764,8 @@ mod tests {
             eof(12),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for (;;) válido") else {
+        let Stmt::For(init, cond, inc, body, _) = parser.parse_stmt().expect("for (;;) válido")
+        else {
             panic!("esperava Stmt::For");
         };
         assert!(init.is_none());
@@ -778,7 +798,8 @@ mod tests {
             eof(28),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::For(_, _, inc, _, _) = parser.parse_stmt().expect("for sem inc válido") else {
+        let Stmt::For(_, _, inc, _, _) = parser.parse_stmt().expect("for sem inc válido")
+        else {
             panic!("esperava Stmt::For");
         };
         assert!(inc.is_none());
@@ -806,7 +827,8 @@ mod tests {
             eof(46),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::Switch(expr, cases, _) = parser.parse_stmt().expect("switch válido") else {
+        let Stmt::Switch(expr, cases, _) = parser.parse_stmt().expect("switch válido")
+        else {
             panic!("esperava Stmt::Switch");
         };
         assert!(matches!(expr, Expr::Ident(name, _) if name == "x"));
@@ -852,7 +874,8 @@ mod tests {
             eof(68),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::Switch(_, cases, _) = parser.parse_stmt().expect("switch com múltiplos cases válido") else {
+        let Stmt::Switch(_, cases, _) = parser.parse_stmt().expect("switch com múltiplos cases válido")
+        else {
             panic!("esperava Stmt::Switch");
         };
         assert_eq!(cases.len(), 3);
@@ -880,7 +903,8 @@ mod tests {
             eof(31),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::Switch(_, cases, _) = parser.parse_stmt().expect("switch default-only válido") else {
+        let Stmt::Switch(_, cases, _) = parser.parse_stmt().expect("switch default-only válido")
+        else {
             panic!("esperava Stmt::Switch");
         };
         assert_eq!(cases.len(), 1);
