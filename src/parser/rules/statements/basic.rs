@@ -5,18 +5,27 @@ use crate::parser::parser::Parser;
 
 /// Dispatcher principal: decide qual parser de statement usar com base no token atual.
 ///
-/// Nesta iteração (PARSER-01) reconhece apenas:
+/// Reconhece:
 ///   `{` → bloco, `return` → return, `break` → break, `continue` → continue,
+///   `if` → if, `while` → while, `do` → do-while,
+///   keywords de tipo → declaração de variável,
 ///   qualquer outra coisa → statement de expressão.
-/// Palavras-chave de controle de fluxo (`if`, `while`, `for`) e declarações de
-/// variáveis serão adicionadas nas issues subsequentes.
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     match parser.peek_kind().clone() {
         TokenKind::LeftBrace => parse_block(parser),
         TokenKind::Return => parse_return(parser),
         TokenKind::Break => parse_break(parser),
         TokenKind::Continue => parse_continue(parser),
-        _ => parse_expr_stmt(parser),
+        TokenKind::If => parse_if(parser),
+        TokenKind::While => parse_while(parser),
+        TokenKind::Do => parse_do_while(parser),
+        _ => {
+            if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
+                crate::parser::rules::declarations::parse_var_decl(parser)
+            } else {
+                parse_expr_stmt(parser)
+            }
+        }
     }
 }
 
@@ -74,6 +83,63 @@ fn parse_continue(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         .clone();
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
     Ok(Stmt::Continue(span))
+}
+
+/// Parseia `if (expr) stmt [else stmt]`.
+/// Suporta `else if` via recursão natural (o `else` chama `parse_stmt` novamente).
+fn parse_if(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+    let kw = parser.expect(&TokenKind::If, "'if'")?.clone();
+
+    parser.expect(&TokenKind::LeftParen, "'(' após if")?;
+    let cond = parser.parse_expr(0)?;
+    parser.expect(&TokenKind::RightParen, "')' após condição do if")?;
+
+    let then_branch = parse_stmt(parser)?;
+
+    let else_branch = if parser.match_kind(&TokenKind::Else) {
+        Some(Box::new(parse_stmt(parser)?))
+    } else {
+        None
+    };
+
+    let end = else_branch
+        .as_ref()
+        .map(|e| e.span())
+        .unwrap_or_else(|| then_branch.span());
+    let span = parser.join_span(parser.span_of(&kw), end);
+    Ok(Stmt::If(cond, Box::new(then_branch), else_branch, span))
+}
+
+/// Parseia `while (expr) stmt`.
+fn parse_while(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+    let kw = parser.expect(&TokenKind::While, "'while'")?.clone();
+
+    parser.expect(&TokenKind::LeftParen, "'(' após while")?;
+    let cond = parser.parse_expr(0)?;
+    parser.expect(&TokenKind::RightParen, "')' após condição do while")?;
+
+    let body = parse_stmt(parser)?;
+
+    let span = parser.join_span(parser.span_of(&kw), body.span());
+    Ok(Stmt::While(cond, Box::new(body), span))
+}
+
+/// Parseia `do stmt while (expr);`.
+fn parse_do_while(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+    let kw = parser.expect(&TokenKind::Do, "'do'")?.clone();
+
+    let body = parse_stmt(parser)?;
+
+    parser.expect(&TokenKind::While, "'while' após corpo do do")?;
+    parser.expect(&TokenKind::LeftParen, "'(' após while do do-while")?;
+    let cond = parser.parse_expr(0)?;
+    parser.expect(&TokenKind::RightParen, "')' após condição do do-while")?;
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' após do-while")?
+        .clone();
+
+    let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
+    Ok(Stmt::DoWhile(Box::new(body), cond, span))
 }
 
 /// Parseia qualquer expressão seguida de `;`.

@@ -537,4 +537,235 @@ mod tests {
         assert!(matches!(qty.ty, Type::Pointer(_)));
         assert_eq!(name, "p");
     }
+
+    #[test]
+    fn parses_if_without_else() {
+        // if (x > 0) return x;
+        let tokens = vec![
+            tk(TokenKind::If, 1),
+            tk(TokenKind::LeftParen, 4),
+            ident("x", 5),
+            tk(TokenKind::Greater, 7),
+            int(0, 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::Return, 12),
+            ident("x", 19),
+            tk(TokenKind::Semicolon, 20),
+            eof(21),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("if válido");
+        let Stmt::If(cond, then_branch, None, _) = stmt else {
+            panic!("esperava Stmt::If sem else");
+        };
+        assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
+        let Stmt::Return(Some(ret_expr), _) = *then_branch else {
+            panic!("esperava return no then-branch");
+        };
+        assert!(matches!(ret_expr, Expr::Ident(name, _) if name == "x"));
+    }
+
+    #[test]
+    fn parses_if_with_else() {
+        // if (x) return 1; else return 0;
+        let tokens = vec![
+            tk(TokenKind::If, 1),
+            tk(TokenKind::LeftParen, 4),
+            ident("x", 5),
+            tk(TokenKind::RightParen, 6),
+            tk(TokenKind::Return, 8),
+            int(1, 15),
+            tk(TokenKind::Semicolon, 16),
+            tk(TokenKind::Else, 18),
+            tk(TokenKind::Return, 23),
+            int(0, 30),
+            tk(TokenKind::Semicolon, 31),
+            eof(32),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("if-else válido");
+        let Stmt::If(cond, _, Some(else_branch), _) = stmt else {
+            panic!("esperava Stmt::If com else");
+        };
+        assert!(matches!(cond, Expr::Ident(name, _) if name == "x"));
+        let Stmt::Return(Some(ret_expr), _) = *else_branch else {
+            panic!("esperava return no else-branch");
+        };
+        assert!(matches!(ret_expr, Expr::Literal(Literal::Int(0), _)));
+    }
+
+    #[test]
+    fn parses_if_else_if_chain() {
+        // if (a) return 1; else if (b) return 2;
+        let tokens = vec![
+            tk(TokenKind::If, 1),
+            tk(TokenKind::LeftParen, 4),
+            ident("a", 5),
+            tk(TokenKind::RightParen, 6),
+            tk(TokenKind::Return, 8),
+            int(1, 15),
+            tk(TokenKind::Semicolon, 16),
+            tk(TokenKind::Else, 18),
+            tk(TokenKind::If, 23),
+            tk(TokenKind::LeftParen, 26),
+            ident("b", 27),
+            tk(TokenKind::RightParen, 28),
+            tk(TokenKind::Return, 30),
+            int(2, 37),
+            tk(TokenKind::Semicolon, 38),
+            eof(39),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("if-else-if válido");
+        let Stmt::If(_, _, Some(else_branch), _) = stmt else {
+            panic!("esperava Stmt::If com else");
+        };
+        let Stmt::If(inner_cond, _, None, _) = *else_branch else {
+            panic!("esperava Stmt::If aninhado no else");
+        };
+        assert!(matches!(inner_cond, Expr::Ident(name, _) if name == "b"));
+    }
+
+    #[test]
+    fn parses_if_with_block() {
+        // if (x > 0) { return x; }
+        let tokens = vec![
+            tk(TokenKind::If, 1),
+            tk(TokenKind::LeftParen, 4),
+            ident("x", 5),
+            tk(TokenKind::Greater, 7),
+            int(0, 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::LeftBrace, 12),
+            tk(TokenKind::Return, 14),
+            ident("x", 21),
+            tk(TokenKind::Semicolon, 22),
+            tk(TokenKind::RightBrace, 24),
+            eof(25),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("if com bloco válido");
+        let Stmt::If(cond, then_branch, None, _) = stmt else {
+            panic!("esperava Stmt::If sem else");
+        };
+        assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
+        let Stmt::Block(stmts, _) = *then_branch else {
+            panic!("esperava bloco no then-branch");
+        };
+        assert_eq!(stmts.len(), 1);
+    }
+
+    #[test]
+    fn parses_while_stmt() {
+        // while (x > 0) x = x - 1;
+        let tokens = vec![
+            tk(TokenKind::While, 1),
+            tk(TokenKind::LeftParen, 7),
+            ident("x", 8),
+            tk(TokenKind::Greater, 10),
+            int(0, 12),
+            tk(TokenKind::RightParen, 13),
+            ident("x", 15),
+            tk(TokenKind::Equal, 17),
+            ident("x", 19),
+            tk(TokenKind::Minus, 21),
+            int(1, 23),
+            tk(TokenKind::Semicolon, 24),
+            eof(25),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("while válido");
+        let Stmt::While(cond, body, _) = stmt else {
+            panic!("esperava Stmt::While");
+        };
+        assert!(matches!(cond, Expr::Binary(_, BinOp::Greater, _, _)));
+        let Stmt::ExprStmt(Expr::Assign(_, _, _), _) = *body else {
+            panic!("esperava ExprStmt com atribuição no corpo do while");
+        };
+    }
+
+    #[test]
+    fn parses_while_with_block() {
+        // while (1) { break; }
+        let tokens = vec![
+            tk(TokenKind::While, 1),
+            tk(TokenKind::LeftParen, 7),
+            int(1, 8),
+            tk(TokenKind::RightParen, 9),
+            tk(TokenKind::LeftBrace, 11),
+            tk(TokenKind::Break, 13),
+            tk(TokenKind::Semicolon, 18),
+            tk(TokenKind::RightBrace, 20),
+            eof(21),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("while com bloco válido");
+        let Stmt::While(cond, body, _) = stmt else {
+            panic!("esperava Stmt::While");
+        };
+        assert!(matches!(cond, Expr::Literal(Literal::Int(1), _)));
+        let Stmt::Block(stmts, _) = *body else {
+            panic!("esperava bloco no corpo do while");
+        };
+        assert!(matches!(&stmts[0], Stmt::Break(_)));
+    }
+
+    #[test]
+    fn parses_do_while_stmt() {
+        // do x = x + 1; while (x < 10);
+        let tokens = vec![
+            tk(TokenKind::Do, 1),
+            ident("x", 4),
+            tk(TokenKind::Equal, 6),
+            ident("x", 8),
+            tk(TokenKind::Plus, 10),
+            int(1, 12),
+            tk(TokenKind::Semicolon, 13),
+            tk(TokenKind::While, 15),
+            tk(TokenKind::LeftParen, 21),
+            ident("x", 22),
+            tk(TokenKind::Less, 24),
+            int(10, 26),
+            tk(TokenKind::RightParen, 28),
+            tk(TokenKind::Semicolon, 29),
+            eof(30),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("do-while válido");
+        let Stmt::DoWhile(body, cond, _) = stmt else {
+            panic!("esperava Stmt::DoWhile");
+        };
+        let Stmt::ExprStmt(Expr::Assign(_, _, _), _) = *body else {
+            panic!("esperava ExprStmt com atribuição no corpo do do-while");
+        };
+        assert!(matches!(cond, Expr::Binary(_, BinOp::Less, _, _)));
+    }
+
+    #[test]
+    fn parses_do_while_with_block() {
+        // do { break; } while (1);
+        let tokens = vec![
+            tk(TokenKind::Do, 1),
+            tk(TokenKind::LeftBrace, 4),
+            tk(TokenKind::Break, 6),
+            tk(TokenKind::Semicolon, 11),
+            tk(TokenKind::RightBrace, 13),
+            tk(TokenKind::While, 15),
+            tk(TokenKind::LeftParen, 21),
+            int(1, 22),
+            tk(TokenKind::RightParen, 23),
+            tk(TokenKind::Semicolon, 24),
+            eof(25),
+        ];
+        let mut parser = Parser::new(tokens);
+        let stmt = parse_stmt(&mut parser).expect("do-while com bloco válido");
+        let Stmt::DoWhile(body, cond, _) = stmt else {
+            panic!("esperava Stmt::DoWhile");
+        };
+        let Stmt::Block(stmts, _) = *body else {
+            panic!("esperava bloco no corpo do do-while");
+        };
+        assert!(matches!(&stmts[0], Stmt::Break(_)));
+        assert!(matches!(cond, Expr::Literal(Literal::Int(1), _)));
+    }
 }
