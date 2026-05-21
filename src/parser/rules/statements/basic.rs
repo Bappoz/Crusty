@@ -153,9 +153,8 @@ fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         parser.advance();
         None
     } else if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-        Some(Box::new(crate::parser::rules::declarations::parse_var_decl(
-            parser,
-        )?))
+        let decl = crate::parser::rules::declarations::parse_var_decl(parser)?;
+        Some(Box::new(decl))
     } else {
         let expr = parser.parse_expr(0)?;
         let semi = parser
@@ -205,7 +204,9 @@ fn parse_switch(parser: &mut Parser) -> Result<Stmt, CompilerError> {
             (SwitchLabel::Case(case_expr), span)
         } else if parser.match_kind(&TokenKind::Default) {
             let default_kw = label_start;
-            let colon = parser.expect(&TokenKind::Colon, "':' após default")?.clone();
+            let colon = parser
+                .expect(&TokenKind::Colon, "':' após default")?
+                .clone();
             let span = parser.join_span(parser.span_of(&default_kw), parser.span_of(&colon));
             (SwitchLabel::Default, span)
         } else {
