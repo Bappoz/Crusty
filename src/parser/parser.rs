@@ -76,7 +76,7 @@ impl Parser {
         Ok(lhs)
     }
 
-    /// Dispatacher do statement: declaracao de variavel ou expression-statement
+    /// Dispatcher do statement: declaracao de variavel ou expression-statement
     pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         if declarations::starts_type(self.peek_kind()) {
             return declarations::parse_val_decl(self);
