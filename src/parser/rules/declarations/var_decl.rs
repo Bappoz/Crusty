@@ -16,7 +16,7 @@ pub fn parse_val_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let TokenKind::Identifier(name) = name_token.kind.clone() else {
         return Err(parser.syntax_error(
             &name_token,
-            "identifcador",
+            "identificador",
             &format!("{:?}", name_token.kind),
         ));
     };
