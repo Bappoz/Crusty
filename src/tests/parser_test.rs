@@ -457,4 +457,84 @@ mod tests {
         assert!(result.is_err());
         println!("[rejects_unclosed_block] erro esperado por '}}' ausente  ✓");
     }
+
+    #[test]
+    fn parses_var_decl_with_init() {
+        // int x = 42;
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("x", 5),
+            tk(TokenKind::Equal, 7),
+            int(42, 9),
+            tk(TokenKind::Semicolon, 11),
+            eof(12),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, Some(init), _) = stmt else {
+            panic!("esperava VarDecl com init");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(name, "x");
+        assert!(matches!(init, Expr::Literal(Literal::Int(42), _)));
+    }
+
+    #[test]
+    fn parses_var_decl_no_init() {
+        // float y;
+        let tokens = vec![
+            tk(TokenKind::Float, 1),
+            ident("y", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, None, _) = stmt else {
+            panic!("esperava VarDecl sem init");
+        };
+        assert!(matches!(qty.ty, Type::Float));
+        assert_eq!(name, "y");
+    }
+
+    #[test]
+    fn parses_expr_stmt() {
+        // x = 1;
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::Equal, 3),
+            int(1, 5),
+            tk(TokenKind::Semicolon, 6),
+            eof(7),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("expr stmt válido");
+        let Stmt::ExprStmt(expr, _) = stmt else {
+            panic!("esperava ExprStmt");
+        };
+        let Expr::Assign(lhs, rhs, _) = expr else {
+            panic!("esperava atribuição dentro do ExprStmt");
+        };
+        assert!(matches!(*lhs, Expr::Ident(name, _) if name == "x"));
+        assert!(matches!(*rhs, Expr::Literal(Literal::Int(1), _)));
+    }
+
+    #[test]
+    fn parses_const_pointer_var_decl() {
+        // const int *p = 0;
+        let tokens = vec![
+            tk(TokenKind::Const, 1),
+            tk(TokenKind::Int, 7),
+            tk(TokenKind::Star, 11),
+            ident("p", 12),
+            tk(TokenKind::Equal, 14),
+            int(0, 16),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("decl válida");
+        let Stmt::VarDecl(qty, name, Some(_), _) = stmt else {
+            panic!("esperava VarDecl");
+        };
+        assert!(qty.is_const);
+        assert!(matches!(qty.ty, Type::Pointer(_)));
+        assert_eq!(name, "p");
+    }
 }
