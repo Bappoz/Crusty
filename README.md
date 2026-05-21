@@ -58,7 +58,7 @@ cargo test
 
 ```bash
 cargo test lexical      # testes do scanner/lexer (21 casos)
-cargo test parser       # testes do parser / AST (12 casos)
+cargo test parser       # testes do parser / AST
 cargo test literals     # testes de literais numéricos (4 casos)
 cargo test token        # testes de tokens individuais (2 casos)
 cargo test source       # testes de SourceFile e spans (12 casos)
@@ -79,7 +79,7 @@ cargo test -- --nocapture
 | `src/tests/lexical_test.rs`   | Scanner: operadores, palavras-chave, literais  | 21     |
 | `src/tests/source_test.rs`    | `SourceFile`, `ByteSpan`, posicionamento       | 12     |
 | `src/tests/lexer_file_test.rs`| Scanner sobre arquivos reais                   | 7      |
-| `src/tests/parser_test.rs`    | Parser / construção de AST                     | 12     |
+| `src/tests/parser_test.rs`    | Parser / construção de AST                     | 30     |
 | `src/tests/literals_test.rs`  | Literais inteiros, floats, strings             | 4      |
 | `src/tests/ast_errors.rs`     | Diagnósticos e erros de AST                    | 4      |
 | `src/tests/token_test.rs`     | `Token` e `TokenKind`                          | 2      |
@@ -89,7 +89,7 @@ cargo test -- --nocapture
 | Nome                  | GitHub / contato                    |
 |-----------------------|-------------------------------------|
 | Lucas Andrade Zanetti | [@Bappoz](https://github.com/Bappoz) |
-| Gustavo               | [@guxvr](https://github.com/guxvr)  |
+| Gustavo Xavier        | [@guxvr](https://github.com/guxvr)  |
 | Hugo Freitas Silva    | [@HugoFreitass](https://github.com/HugoFreitass) |
 | Matheus Lemes         | [@matheuslemesam](https://github.com/matheuslemesam) |
 | Philipe Caetano       | philipe2015amancio@hotmail.com      |

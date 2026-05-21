@@ -13,6 +13,7 @@ pub enum Stmt {
         Box<Stmt>,
         Span,
     ), // For(Init, Cond, Inc, Body, Span)
+    DoWhile(Expr, Box<Stmt>, Span),
     Break(Span),
     Continue(Span),
     ExprStmt(Expr, Span),
@@ -28,6 +29,7 @@ impl Stmt {
             Stmt::If(_, _, _, s) => s.clone(),
             Stmt::While(_, _, s) => s.clone(),
             Stmt::For(_, _, _, _, s) => s.clone(),
+            Stmt::DoWhile(_, _, s) => s.clone(),
             Stmt::Break(s) => s.clone(),
             Stmt::Continue(s) => s.clone(),
             Stmt::ExprStmt(_, s) => s.clone(),

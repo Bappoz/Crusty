@@ -4,7 +4,6 @@ use crate::common::errors::error_data::Span;
 use crate::common::errors::types::{CompilerError, SyntaxError};
 use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
-use crate::parser::rules::declarations;
 use crate::parser::rules::expressions::{infix, postfix, prefix};
 
 // TODO(parser): manter somente o parser de expressoes neste arquivo por enquanto.
@@ -76,18 +75,9 @@ impl Parser {
         Ok(lhs)
     }
 
-    /// Dispatcher do statement: declaracao de variavel ou expression-statement
+    /// Dispatcher de statements: delega para o parser completo de statements.
     pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
-        if declarations::starts_type(self.peek_kind()) {
-            return declarations::parse_var_decl(self);
-        }
-
-        let expr = self.parse_expr(0)?;
-        let semi = self
-            .expect(&TokenKind::Semicolon, "';' ao fim do statement")?
-            .clone();
-        let span = self.join_span(expr.span(), self.span_of(&semi));
-        Ok(Stmt::ExprStmt(expr, span))
+        crate::parser::rules::statements::parse_stmt(self)
     }
 
     /// Retorna o token atual sem avançar a posição.

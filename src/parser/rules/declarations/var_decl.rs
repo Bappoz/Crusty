@@ -29,7 +29,7 @@ pub fn parse_var_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     };
 
     let semi = parser
-        .expect(&TokenKind::Semicolon, "';' ao fim da declaracao")?
+        .expect(&TokenKind::Semicolon, "';' ao fim da declaração")?
         .clone();
     let span = parser.join_span(parser.span_of(&start), parser.span_of(&semi));
 
