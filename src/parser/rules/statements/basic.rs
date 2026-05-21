@@ -2,6 +2,7 @@ use crate::common::ast::stmt::Stmt;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
+use crate::parser::rules::declarations;
 
 /// Dispatcher principal: decide qual parser de statement usar com base no token atual.
 ///
@@ -19,13 +20,12 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         TokenKind::If => parse_if(parser),
         TokenKind::While => parse_while(parser),
         TokenKind::Do => parse_do_while(parser),
-        _ => {
-            if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-                crate::parser::rules::declarations::parse_var_decl(parser)
-            } else {
-                parse_expr_stmt(parser)
-            }
+        TokenKind::For => {
+            let tok = parser.peek().clone();
+            Err(parser.syntax_error(&tok, "statement", "'for' ainda não implementado"))
         }
+        _ if declarations::starts_type(parser.peek_kind()) => declarations::parse_var_decl(parser),
+        _ => parse_expr_stmt(parser),
     }
 }
 
@@ -139,7 +139,7 @@ fn parse_do_while(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         .clone();
 
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
-    Ok(Stmt::DoWhile(Box::new(body), cond, span))
+    Ok(Stmt::DoWhile(cond, Box::new(body), span))
 }
 
 /// Parseia qualquer expressão seguida de `;`.

@@ -13,7 +13,7 @@ pub enum Stmt {
         Box<Stmt>,
         Span,
     ), // For(Init, Cond, Inc, Body, Span)
-    DoWhile(Box<Stmt>, Expr, Span),
+    DoWhile(Expr, Box<Stmt>, Span),
     Break(Span),
     Continue(Span),
     ExprStmt(Expr, Span),
