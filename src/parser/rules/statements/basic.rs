@@ -2,6 +2,7 @@ use crate::common::ast::stmt::{Stmt, SwitchCase, SwitchLabel};
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
+use crate::parser::rules::declarations;
 
 /// Dispatcher principal: decide qual parser de statement usar com base no token atual.
 ///
@@ -28,6 +29,8 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
                 parse_expr_stmt(parser)
             }
         }
+        _ if declarations::starts_type(parser.peek_kind()) => declarations::parse_var_decl(parser),
+        _ => parse_expr_stmt(parser),
     }
 }
 
@@ -141,7 +144,7 @@ fn parse_do_while(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         .clone();
 
     let span = parser.join_span(parser.span_of(&kw), parser.span_of(&semi));
-    Ok(Stmt::DoWhile(Box::new(body), cond, span))
+    Ok(Stmt::DoWhile(cond, Box::new(body), span))
 }
 
 /// Parseia `for ( (decl | expr_stmt | ;) expr? ; expr? ) stmt`.

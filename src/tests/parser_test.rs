@@ -613,7 +613,8 @@ mod tests {
             eof(30),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while válido") else {
+        let stmt = parser.parse_stmt().expect("do-while válido");
+        let Stmt::DoWhile(cond, body, _) = stmt else {
             panic!("esperava Stmt::DoWhile");
         };
         let Stmt::ExprStmt(Expr::Assign(_, _, _), _) = *body else {
@@ -638,8 +639,8 @@ mod tests {
             eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let Stmt::DoWhile(body, cond, _) = parser.parse_stmt().expect("do-while com bloco válido")
-        else {
+        let stmt = parser.parse_stmt().expect("do-while com bloco válido");
+        let Stmt::DoWhile(cond, body, _) = stmt else {
             panic!("esperava Stmt::DoWhile");
         };
         let Stmt::Block(stmts, _) = *body else {
@@ -925,5 +926,45 @@ mod tests {
         assert!(matches!(&cases[0].label, SwitchLabel::Default));
         assert_eq!(cases[0].stmts.len(), 1);
         assert!(matches!(&cases[0].stmts[0], Stmt::Break(_)));
+    fn rejects_if_missing_right_paren() {
+        // if (x { return; }  — falta ')'
+        let tokens = vec![
+            tk(TokenKind::If, 1),
+            tk(TokenKind::LeftParen, 4),
+            ident("x", 5),
+            tk(TokenKind::LeftBrace, 7),
+            eof(8),
+        ];
+        assert!(Parser::new(tokens).parse_stmt().is_err());
+    }
+
+    #[test]
+    fn rejects_while_missing_left_paren() {
+        // while x > 0)  — falta '('
+        let tokens = vec![
+            tk(TokenKind::While, 1),
+            ident("x", 7),
+            tk(TokenKind::Greater, 9),
+            int(0, 11),
+            tk(TokenKind::RightParen, 12),
+            eof(13),
+        ];
+        assert!(Parser::new(tokens).parse_stmt().is_err());
+    }
+
+    #[test]
+    fn rejects_do_while_missing_semicolon() {
+        // do { } while (1)  — falta ';'
+        let tokens = vec![
+            tk(TokenKind::Do, 1),
+            tk(TokenKind::LeftBrace, 4),
+            tk(TokenKind::RightBrace, 5),
+            tk(TokenKind::While, 7),
+            tk(TokenKind::LeftParen, 13),
+            int(1, 14),
+            tk(TokenKind::RightParen, 15),
+            eof(16),
+        ];
+        assert!(Parser::new(tokens).parse_stmt().is_err());
     }
 }

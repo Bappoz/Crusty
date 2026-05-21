@@ -13,8 +13,9 @@ pub enum Stmt {
         Box<Stmt>,
         Span,
     ),
-    DoWhile(Box<Stmt>, Expr, Span),
     Switch(Expr, Vec<SwitchCase>, Span),
+    ), // For(Init, Cond, Inc, Body, Span)
+    DoWhile(Expr, Box<Stmt>, Span),
     Break(Span),
     Continue(Span),
     ExprStmt(Expr, Span),
