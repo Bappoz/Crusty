@@ -6,7 +6,7 @@ use crate::parser::rules::declarations::types::parse_type;
 
 /// Parseia uma declaração de variável local: `tipo ident (= expr)? ;`
 /// Pressupõe que o token atual já foi confirmado como keyword de tipo.
-pub fn parse_val_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+pub fn parse_var_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let start = parser.peek().clone();
 
     let qty = parse_type(parser)?;
