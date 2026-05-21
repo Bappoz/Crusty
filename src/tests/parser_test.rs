@@ -160,8 +160,7 @@ mod tests {
             },
             inner,
             _,
-        ) = expr
-        else {
+        ) = expr else {
             panic!("esperava cast no topo da árvore");
         };
 
