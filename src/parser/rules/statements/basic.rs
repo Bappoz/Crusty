@@ -11,7 +11,7 @@ use crate::parser::parser::Parser;
 ///   keywords de tipo → declaração de variável,
 ///   qualquer outra coisa → statement de expressão.
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
-    match parser.peek_kind().clone() {
+    match parser.peek_kind() {
         TokenKind::LeftBrace => parse_block(parser),
         TokenKind::Return => parse_return(parser),
         TokenKind::Break => parse_break(parser),
