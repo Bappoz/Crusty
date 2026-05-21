@@ -79,7 +79,7 @@ impl Parser {
     /// Dispatcher do statement: declaracao de variavel ou expression-statement
     pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         if declarations::starts_type(self.peek_kind()) {
-            return declarations::parse_val_decl(self);
+            return declarations::parse_var_decl(self);
         }
 
         let expr = self.parse_expr(0)?;
