@@ -85,17 +85,7 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
         return false;
     };
 
-    matches!(
-        next.kind,
-        TokenKind::Const
-            | TokenKind::Unsigned
-            | TokenKind::Int
-            | TokenKind::Char
-            | TokenKind::Float
-            | TokenKind::Double
-            | TokenKind::Void
-            | TokenKind::Struct
-    )
+    crate::parser::rules::declarations::starts_type(&next.kind)
 }
 
 /// Parseia o tipo dentro de um cast, incluindo qualificadores `const`/`unsigned` e ponteiros `*`.
