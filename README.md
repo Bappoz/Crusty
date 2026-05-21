@@ -58,7 +58,7 @@ cargo test
 
 ```bash
 cargo test lexical      # testes do scanner/lexer (21 casos)
-cargo test parser       # testes do parser / AST (8 casos)
+cargo test parser       # testes do parser / AST (12 casos)
 cargo test literals     # testes de literais numéricos (4 casos)
 cargo test token        # testes de tokens individuais (2 casos)
 cargo test source       # testes de SourceFile e spans (12 casos)
