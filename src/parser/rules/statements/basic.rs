@@ -22,13 +22,6 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         TokenKind::Do => parse_do_while(parser),
         TokenKind::For => parse_for(parser),
         TokenKind::Switch => parse_switch(parser),
-        _ => {
-            if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-                crate::parser::rules::declarations::parse_var_decl(parser)
-            } else {
-                parse_expr_stmt(parser)
-            }
-        }
         _ if declarations::starts_type(parser.peek_kind()) => declarations::parse_var_decl(parser),
         _ => parse_expr_stmt(parser),
     }
@@ -155,25 +148,8 @@ fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let init = if parser.check(&TokenKind::Semicolon) {
         parser.advance();
         None
-    } else if crate::parser::rules::declarations::starts_type(parser.peek_kind()) {
-        // Ao parsear uma declaração dentro do init do `for`, capture erros sintáticos
-        // e reemita-os com uma mensagem contextualizada para "init do for". Outros
-        // tipos de erro são propagados sem alteração.
-        match crate::parser::rules::declarations::parse_var_decl(parser) {
-            Ok(decl) => Some(Box::new(decl)),
-            Err(e) => match e {
-                CompilerError::Syntax(syn) => {
-                    return Err(CompilerError::Syntax(
-                        crate::common::errors::types::SyntaxError {
-                            span: syn.span,
-                            expected: "';' após init do for".to_string(),
-                            found: syn.found,
-                        },
-                    ));
-                }
-                other => return Err(other),
-            },
-        }
+    } else if declarations::starts_type(parser.peek_kind()) {
+        Some(Box::new(declarations::parse_var_decl(parser)?))
     } else {
         let expr = parser.parse_expr(0)?;
         let semi = parser
