@@ -200,12 +200,12 @@ fn parse_switch(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         let (label, label_span) = if parser.match_kind(&TokenKind::Case) {
             let case_kw = label_start;
             let case_expr = parser.parse_expr(0)?;
-            let colon = parser.expect(&TokenKind::Colon, "':' após case")?.clone();
+            let colon = parser.expect(&TokenKind::Colon, "':' após case")?;
             let span = parser.join_span(parser.span_of(&case_kw), parser.span_of(&colon));
             (SwitchLabel::Case(case_expr), span)
         } else if parser.match_kind(&TokenKind::Default) {
             let default_kw = label_start;
-            let colon = parser.expect(&TokenKind::Colon, "':' após default")?.clone();
+            let colon = parser.expect(&TokenKind::Colon, "':' após default")?;
             let span = parser.join_span(parser.span_of(&default_kw), parser.span_of(&colon));
             (SwitchLabel::Default, span)
         } else {
