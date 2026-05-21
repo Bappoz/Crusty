@@ -256,6 +256,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_expr_stmt() {
+        // x = 1;
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::Equal, 3),
+            int(1, 5),
+            tk(TokenKind::Semicolon, 6),
+            eof(7),
+        ];
+        let stmt = Parser::new(tokens).parse_stmt().expect("expr stmt válido");
+        let Stmt::ExprStmt(expr, _) = stmt else {
+            panic!("esperava ExprStmt");
+        };
+        let Expr::Assign(lhs, rhs, _) = expr else {
+            panic!("esperava atribuição dentro do ExprStmt");
+        };
+        assert!(matches!(*lhs, Expr::Ident(name, _) if name == "x"));
+        assert!(matches!(*rhs, Expr::Literal(Literal::Int(1), _)));
+    }
+
+    #[test]
     fn parses_const_pointer_var_decl() {
         // const int *p = 0;
         let tokens = vec![
