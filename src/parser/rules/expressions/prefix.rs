@@ -1,9 +1,9 @@
-use crate::common::ast::ast::QualifierType;
 use crate::common::ast::expr::{Expr, Literal, PrefixOp, UnOp};
 use crate::common::errors::error_data::Span;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
+use crate::parser::rules::types::parse_cast_type;
 
 /// Parseia uma expressão prefix: operadores unários, literais, identificadores, agrupamentos e casts.
 /// É o ponto de entrada principal do lado esquerdo no algoritmo Pratt.
@@ -96,70 +96,6 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
             | TokenKind::Void
             | TokenKind::Struct
     )
-}
-
-/// Parseia o tipo dentro de um cast, incluindo qualificadores `const`/`unsigned` e ponteiros `*`.
-pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
-    let mut is_const = false;
-    let mut is_unsigned = false;
-
-    if parser.match_kind(&TokenKind::Const) {
-        is_const = true;
-    }
-
-    if parser.match_kind(&TokenKind::Unsigned) {
-        is_unsigned = true;
-    }
-
-    let base = match parser.peek_kind() {
-        TokenKind::Int => {
-            parser.advance();
-            crate::common::ast::ast::Type::Int
-        }
-        TokenKind::Char => {
-            parser.advance();
-            crate::common::ast::ast::Type::Char
-        }
-        TokenKind::Float => {
-            parser.advance();
-            crate::common::ast::ast::Type::Float
-        }
-        TokenKind::Double => {
-            parser.advance();
-            crate::common::ast::ast::Type::Double
-        }
-        TokenKind::Void => {
-            parser.advance();
-            crate::common::ast::ast::Type::Void
-        }
-        TokenKind::Struct => {
-            parser.advance();
-            let t = parser.advance().clone();
-            let TokenKind::Identifier(name) = t.kind else {
-                return Err(parser.syntax_error(&t, "nome de struct", &format!("{:?}", t.kind)));
-            };
-            crate::common::ast::ast::Type::Struct(name)
-        }
-        _ => {
-            let found = parser.peek().clone();
-            return Err(parser.syntax_error(
-                &found,
-                "tipo para cast",
-                &format!("{:?}", found.kind),
-            ));
-        }
-    };
-
-    let mut ty = base;
-    while parser.match_kind(&TokenKind::Star) {
-        ty = crate::common::ast::ast::Type::Pointer(Box::new(ty));
-    }
-
-    Ok(QualifierType {
-        ty,
-        is_const,
-        is_unsigned,
-    })
 }
 
 /// Constrói o nó de expressão prefix correto para o operador `op` aplicado sobre `rhs`.
