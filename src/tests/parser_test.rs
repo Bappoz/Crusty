@@ -1200,4 +1200,59 @@ mod tests {
         assert_eq!(name, "main");
         assert_eq!(body.len(), 2);
     }
+
+    #[test]
+    fn parses_ternary_expression() {
+        // x > 0 ? x : 0 - x
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::Greater, 3),
+            int(0, 5),
+            tk(TokenKind::Question, 7),
+            ident("x", 9),
+            tk(TokenKind::Colon, 11),
+            int(0, 13),
+            tk(TokenKind::Minus, 15),
+            ident("x", 17),
+            eof(18),
+        ];
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("ternário válido");
+        let Expr::Ternary(cond, then_expr, else_expr, _) = expr else {
+            panic!("esperava Expr::Ternary");
+        };
+        assert!(matches!(*cond, Expr::Binary(_, BinOp::Greater, _, _)));
+        assert!(matches!(*then_expr, Expr::Ident(name, _) if name == "x"));
+        assert!(matches!(*else_expr, Expr::Binary(_, BinOp::Sub, _, _)));
+    }
+
+    #[test]
+    fn parses_nested_ternary_right_assoc() {
+        // a ? b : c ? d : e → a ? b : (c ? d : e)
+        let tokens = vec![
+            ident("a", 1),
+            tk(TokenKind::Question, 3),
+            ident("b", 5),
+            tk(TokenKind::Colon, 7),
+            ident("c", 9),
+            tk(TokenKind::Question, 11),
+            ident("d", 13),
+            tk(TokenKind::Colon, 15),
+            ident("e", 17),
+            eof(18),
+        ];
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("ternário aninhado válido");
+        let Expr::Ternary(outer_cond, outer_then, outer_else, _) = expr else {
+            panic!("esperava Expr::Ternary no nível externo");
+        };
+        assert!(matches!(*outer_cond, Expr::Ident(name, _) if name == "a"));
+        assert!(matches!(*outer_then, Expr::Ident(name, _) if name == "b"));
+        let Expr::Ternary(inner_cond, inner_then, inner_else, _) = *outer_else else {
+            panic!("esperava Expr::Ternary no else (right-assoc)");
+        };
+        assert!(matches!(*inner_cond, Expr::Ident(name, _) if name == "c"));
+        assert!(matches!(*inner_then, Expr::Ident(name, _) if name == "d"));
+        assert!(matches!(*inner_else, Expr::Ident(name, _) if name == "e"));
+    }
 }

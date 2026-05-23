@@ -172,6 +172,7 @@ impl Parser {
                 | TokenKind::Colon
                 | TokenKind::Semicolon
                 | TokenKind::RightBrace
+                | TokenKind::Question
         )
     }
 
