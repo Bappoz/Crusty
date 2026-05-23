@@ -7,7 +7,6 @@ mod tests {
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
-    use crate::parser::rules::statements::parse_stmt;
     use crate::parser::Parser;
 
     fn tk(kind: TokenKind, col: usize) -> Token {
@@ -204,7 +203,7 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        assert!(parse_stmt(&mut parser).is_err());
+        assert!(parser.parse_stmt().is_err());
     }
 
     #[test]
