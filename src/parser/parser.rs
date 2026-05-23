@@ -1,3 +1,4 @@
+use crate::common::ast::ast::Program;
 use crate::common::ast::expr::Expr;
 use crate::common::ast::stmt::Stmt;
 use crate::common::errors::error_data::Span;
@@ -6,10 +7,6 @@ use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::rules::expressions::{infix, postfix, prefix};
 
-// TODO(parser): manter somente o parser de expressoes neste arquivo por enquanto.
-// pub fn parse_program(&mut self) -> Result<Program, Diagnostic> { ... }
-
-// Alias local para refletir a assinatura pedida sem alterar o sistema global de erros.
 type Diagnostic = CompilerError;
 
 // Estrutura mínima pedida: apenas fluxo de tokens para parser de expressões.
@@ -78,6 +75,11 @@ impl Parser {
     /// Dispatcher de statements: delega para o parser completo de statements.
     pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         crate::parser::rules::statements::parse_stmt(self)
+    }
+
+    /// Parseia um programa C completo: declarações globais até EOF.
+    pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
+        crate::parser::rules::declarations::parse_program(self)
     }
 
     /// Retorna o token atual sem avançar a posição.

@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::common::ast::ast::{QualifierType, Type};
+    use crate::common::ast::decl::Decl;
     use crate::common::ast::expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp};
     use crate::common::ast::stmt::{Stmt, SwitchLabel};
     use crate::common::input::span::ByteSpan;
@@ -1004,5 +1005,199 @@ mod tests {
             eof(26),
         ];
         assert!(Parser::new(tokens).parse_stmt().is_err());
+    }
+
+    #[test]
+    fn parses_function_void_params() {
+        // int main(void) { return 0; }
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("main", 5),
+            tk(TokenKind::LeftParen, 9),
+            tk(TokenKind::Void, 10),
+            tk(TokenKind::RightParen, 14),
+            tk(TokenKind::LeftBrace, 16),
+            tk(TokenKind::Return, 18),
+            int(0, 25),
+            tk(TokenKind::Semicolon, 26),
+            tk(TokenKind::RightBrace, 28),
+            eof(29),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::Function(qty, name, params, body, _) = &program.decls[0] else {
+            panic!("esperava Decl::Function");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(name, "main");
+        assert!(params.is_empty());
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn parses_function_with_params() {
+        // int add(int a, int b) { return a + b; }
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("add", 5),
+            tk(TokenKind::LeftParen, 8),
+            tk(TokenKind::Int, 9),
+            ident("a", 13),
+            tk(TokenKind::Comma, 14),
+            tk(TokenKind::Int, 16),
+            ident("b", 20),
+            tk(TokenKind::RightParen, 21),
+            tk(TokenKind::LeftBrace, 23),
+            tk(TokenKind::Return, 25),
+            ident("a", 32),
+            tk(TokenKind::Plus, 34),
+            ident("b", 36),
+            tk(TokenKind::Semicolon, 37),
+            tk(TokenKind::RightBrace, 39),
+            eof(40),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::Function(_, name, params, body, _) = &program.decls[0] else {
+            panic!("esperava Decl::Function");
+        };
+        assert_eq!(name, "add");
+        assert_eq!(params.len(), 2);
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn parses_function_empty_params() {
+        // void noop() {}
+        let tokens = vec![
+            tk(TokenKind::Void, 1),
+            ident("noop", 6),
+            tk(TokenKind::LeftParen, 10),
+            tk(TokenKind::RightParen, 11),
+            tk(TokenKind::LeftBrace, 13),
+            tk(TokenKind::RightBrace, 14),
+            eof(15),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::Function(qty, name, params, body, _) = &program.decls[0] else {
+            panic!("esperava Decl::Function");
+        };
+        assert!(matches!(qty.ty, Type::Void));
+        assert_eq!(name, "noop");
+        assert!(params.is_empty());
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn parses_global_var_with_init() {
+        // int x = 42;
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("x", 5),
+            tk(TokenKind::Equal, 7),
+            int(42, 9),
+            tk(TokenKind::Semicolon, 11),
+            eof(12),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::GlobalVar(qty, name, Some(init), _) = &program.decls[0] else {
+            panic!("esperava Decl::GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(name, "x");
+        assert!(matches!(init, Expr::Literal(Literal::Int(42), _)));
+    }
+
+    #[test]
+    fn parses_global_var_no_init() {
+        // float y;
+        let tokens = vec![
+            tk(TokenKind::Float, 1),
+            ident("y", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::GlobalVar(qty, name, None, _) = &program.decls[0] else {
+            panic!("esperava Decl::GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Float));
+        assert_eq!(name, "y");
+    }
+
+    #[test]
+    fn parses_program_mixed() {
+        // int x; int main() { return x; }
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("x", 5),
+            tk(TokenKind::Semicolon, 6),
+            tk(TokenKind::Int, 8),
+            ident("main", 12),
+            tk(TokenKind::LeftParen, 16),
+            tk(TokenKind::RightParen, 17),
+            tk(TokenKind::LeftBrace, 19),
+            tk(TokenKind::Return, 21),
+            ident("x", 28),
+            tk(TokenKind::Semicolon, 29),
+            tk(TokenKind::RightBrace, 31),
+            eof(32),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 2);
+        assert!(matches!(
+            &program.decls[0],
+            Decl::GlobalVar(_, s, None, _) if s == "x"
+        ));
+        assert!(matches!(
+            &program.decls[1],
+            Decl::Function(_, s, _, _, _) if s == "main"
+        ));
+    }
+
+    #[test]
+    fn parses_hello_world() {
+        // int main() { printf("Hello"); return 0; }
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("main", 5),
+            tk(TokenKind::LeftParen, 9),
+            tk(TokenKind::RightParen, 10),
+            tk(TokenKind::LeftBrace, 12),
+            ident("printf", 14),
+            tk(TokenKind::LeftParen, 20),
+            tk(TokenKind::StringLiteral("Hello".to_string()), 21),
+            tk(TokenKind::RightParen, 28),
+            tk(TokenKind::Semicolon, 29),
+            tk(TokenKind::Return, 31),
+            int(0, 38),
+            tk(TokenKind::Semicolon, 39),
+            tk(TokenKind::RightBrace, 41),
+            eof(42),
+        ];
+        let program = Parser::new(tokens)
+            .parse_program()
+            .expect("programa válido");
+        assert_eq!(program.decls.len(), 1);
+        let Decl::Function(_, name, _, body, _) = &program.decls[0] else {
+            panic!("esperava Decl::Function");
+        };
+        assert_eq!(name, "main");
+        assert_eq!(body.len(), 2);
     }
 }

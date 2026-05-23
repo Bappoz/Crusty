@@ -1,0 +1,121 @@
+use crate::common::ast::ast::{Program, QualifierType};
+use crate::common::ast::decl::Decl;
+use crate::common::ast::stmt::Stmt;
+use crate::common::errors::types::CompilerError;
+use crate::lexer::tokens::token::Token;
+use crate::lexer::tokens::token_kind::TokenKind;
+use crate::parser::parser::Parser;
+use crate::parser::rules::declarations::types::parse_type;
+
+/// Parseia um programa C completo: sequência de declarações globais até EOF.
+pub fn parse_program(parser: &mut Parser) -> Result<Program, CompilerError> {
+    let mut decls = Vec::new();
+    while !parser.is_at_end() {
+        decls.push(parse_global_item(parser)?);
+    }
+    Ok(Program { decls })
+}
+
+/// Dispatcher do escopo global: tipo + lookahead para distinguir função de variável global.
+fn parse_global_item(parser: &mut Parser) -> Result<Decl, CompilerError> {
+    let start = parser.peek().clone();
+    let qty = parse_type(parser)?;
+
+    let name_token = parser.advance().clone();
+    let TokenKind::Identifier(name) = name_token.kind else {
+        return Err(parser.syntax_error(
+            &name_token,
+            "identificador",
+            &format!("{:?}", name_token.kind),
+        ));
+    };
+
+    if parser.check(&TokenKind::LeftParen) {
+        parse_function_decl(parser, qty, name, start)
+    } else {
+        parse_global_var_decl(parser, qty, name, start)
+    }
+}
+
+/// Continua o parsing de uma função após tipo e nome: `( params ) block`.
+pub fn parse_function_decl(
+    parser: &mut Parser,
+    return_type: QualifierType,
+    name: String,
+    start: Token,
+) -> Result<Decl, CompilerError> {
+    parser.expect(&TokenKind::LeftParen, "'(' após nome da função")?;
+
+    let params = parse_params(parser)?;
+
+    parser.expect(&TokenKind::RightParen, "')' após parâmetros")?;
+
+    let block = crate::parser::rules::statements::parse_block(parser)?;
+
+    let span = parser.join_span(parser.span_of(&start), block.span());
+    let Stmt::Block(stmts, _) = block else {
+        return Err(parser.syntax_error_from_span(span, "bloco", "corpo da função"));
+    };
+
+    Ok(Decl::Function(return_type, name, params, stmts, span))
+}
+
+/// Parseia a lista de parâmetros: `void` | `(tipo ident (, tipo ident)*)?`.
+fn parse_params(parser: &mut Parser) -> Result<Vec<(QualifierType, String)>, CompilerError> {
+    if parser.check(&TokenKind::Void)
+        && parser
+            .tokens
+            .get(parser.pos + 1)
+            .is_some_and(|t| t.kind == TokenKind::RightParen)
+    {
+        parser.advance();
+        return Ok(Vec::new());
+    }
+
+    if parser.check(&TokenKind::RightParen) {
+        return Ok(Vec::new());
+    }
+
+    let mut params = Vec::new();
+    params.push(parse_param(parser)?);
+
+    while parser.match_kind(&TokenKind::Comma) {
+        params.push(parse_param(parser)?);
+    }
+
+    Ok(params)
+}
+
+/// Parseia um único parâmetro: `tipo ident`.
+fn parse_param(parser: &mut Parser) -> Result<(QualifierType, String), CompilerError> {
+    let qty = parse_type(parser)?;
+    let name_token = parser.advance().clone();
+    let TokenKind::Identifier(name) = name_token.kind else {
+        return Err(parser.syntax_error(
+            &name_token,
+            "nome do parâmetro",
+            &format!("{:?}", name_token.kind),
+        ));
+    };
+    Ok((qty, name))
+}
+
+/// Continua o parsing de uma variável global após tipo e nome: `(= expr)? ;`.
+pub fn parse_global_var_decl(
+    parser: &mut Parser,
+    qty: QualifierType,
+    name: String,
+    start: Token,
+) -> Result<Decl, CompilerError> {
+    let init = if parser.match_kind(&TokenKind::Equal) {
+        Some(parser.parse_expr(0)?)
+    } else {
+        None
+    };
+
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' ao fim da declaração global")?
+        .clone();
+    let span = parser.join_span(parser.span_of(&start), parser.span_of(&semi));
+    Ok(Decl::GlobalVar(qty, name, init, span))
+}

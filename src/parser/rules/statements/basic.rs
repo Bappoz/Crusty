@@ -28,7 +28,7 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 }
 
 /// Parseia um bloco: `{ stmt* }`.
-pub(super) fn parse_block(parser: &mut Parser) -> Result<Stmt, CompilerError> {
+pub fn parse_block(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let lbrace = parser
         .expect(&TokenKind::LeftBrace, "'{' para iniciar bloco")?
         .clone();
