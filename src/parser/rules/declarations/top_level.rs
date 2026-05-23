@@ -38,7 +38,7 @@ fn parse_global_item(parser: &mut Parser) -> Result<Decl, CompilerError> {
 }
 
 /// Continua o parsing de uma função após tipo e nome: `( params ) block`.
-pub fn parse_function_decl(
+pub(crate) fn parse_function_decl(
     parser: &mut Parser,
     return_type: QualifierType,
     name: String,
@@ -54,7 +54,7 @@ pub fn parse_function_decl(
 
     let span = parser.join_span(parser.span_of(&start), block.span());
     let Stmt::Block(stmts, _) = block else {
-        return Err(parser.syntax_error_from_span(span, "bloco", "corpo da função"));
+        unreachable!("parse_block sempre retorna Stmt::Block");
     };
 
     Ok(Decl::Function(return_type, name, params, stmts, span))
@@ -62,12 +62,7 @@ pub fn parse_function_decl(
 
 /// Parseia a lista de parâmetros: `void` | `(tipo ident (, tipo ident)*)?`.
 fn parse_params(parser: &mut Parser) -> Result<Vec<(QualifierType, String)>, CompilerError> {
-    if parser.check(&TokenKind::Void)
-        && parser
-            .tokens
-            .get(parser.pos + 1)
-            .is_some_and(|t| t.kind == TokenKind::RightParen)
-    {
+    if parser.check(&TokenKind::Void) && parser.peek_next().kind == TokenKind::RightParen {
         parser.advance();
         return Ok(Vec::new());
     }
@@ -101,7 +96,7 @@ fn parse_param(parser: &mut Parser) -> Result<(QualifierType, String), CompilerE
 }
 
 /// Continua o parsing de uma variável global após tipo e nome: `(= expr)? ;`.
-pub fn parse_global_var_decl(
+pub(crate) fn parse_global_var_decl(
     parser: &mut Parser,
     qty: QualifierType,
     name: String,

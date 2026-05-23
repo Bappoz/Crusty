@@ -11,14 +11,19 @@ type Diagnostic = CompilerError;
 
 // Estrutura mínima pedida: apenas fluxo de tokens para parser de expressões.
 pub struct Parser {
-    pub(crate) tokens: Vec<Token>,
-    pub(crate) pos: usize,
+    tokens: Vec<Token>,
+    pos: usize,
 }
 
 impl Parser {
     /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
+    }
+
+    pub(crate) fn peek_next(&self) -> &Token {
+        let next = (self.pos + 1).min(self.tokens.len() - 1);
+        &self.tokens[next]
     }
 
     /// Parseia uma expressão com precedência mínima `min_bp` usando o algoritmo Pratt (top-down operator precedence).
