@@ -1255,4 +1255,27 @@ mod tests {
         assert!(matches!(*inner_then, Expr::Ident(name, _) if name == "d"));
         assert!(matches!(*inner_else, Expr::Ident(name, _) if name == "e"));
     }
+
+    #[test]
+    fn parses_ternary_with_or_precedence() {
+        // a || b ? c : d  -> (a || b) ? c : d
+        let tokens = vec![
+            ident("a", 1),
+            tk(TokenKind::OrOr, 3),
+            ident("b", 5),
+            tk(TokenKind::Question, 7),
+            ident("c", 9),
+            tk(TokenKind::Colon, 11),
+            ident("d", 13),
+            eof(14),
+        ];
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("ternário com || válido");
+        let Expr::Ternary(cond, then_expr, else_expr, _) = expr else {
+            panic!("esperava Expr::Ternary");
+        };
+        assert!(matches!(*cond, Expr::Binary(_, BinOp::Or, _, _)));
+        assert!(matches!(*then_expr, Expr::Ident(name, _) if name == "c"));
+        assert!(matches!(*else_expr, Expr::Ident(name, _) if name == "d"));
+    }
 }
