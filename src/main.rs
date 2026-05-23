@@ -1,6 +1,7 @@
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
+use crusty::parser::Parser;
 use std::env;
 use std::path::PathBuf;
 use std::process::exit;
@@ -44,7 +45,7 @@ fn run_prompt() -> Result<(), Box<dyn ToReport>> {
     todo!()
 }
 
-/// Executa o scanner sobre o `SourceFile` e imprime os tokens produzidos e eventuais diagnósticos.
+/// Executa o scanner e parser sobre o `SourceFile`, imprime tokens e AST.
 fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
     scanner.scan();
@@ -64,17 +65,7 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     if diag_count > 0 {
         eprintln!("\n=== Diagnostics ({diag_count}) ===");
         for diagnostic in &scanner.diagnostics {
-            let report = diagnostic.to_report();
-            eprintln!("  error: {}", report.message);
-            if let Some(span) = &report.span {
-                eprintln!("    --> {}:{}", span.line, span.column_start);
-            }
-            for label in &report.labels {
-                eprintln!("    | {}", label.message);
-            }
-            if let Some(help) = &report.help {
-                eprintln!("    = help: {}", help);
-            }
+            print_report(&diagnostic.to_report());
         }
     } else {
         println!("\n=== Diagnostics (0) ===");
@@ -84,7 +75,34 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
         return Err(Box::new(DiagnosticError { count: diag_count }));
     }
 
+    let mut parser = Parser::new(scanner.tokens);
+    match parser.parse_program() {
+        Ok(program) => {
+            println!("\n=== AST ({}) ===", program.decls.len());
+            for decl in &program.decls {
+                println!("{:#?}", decl);
+            }
+        }
+        Err(e) => {
+            print_report(&e.to_report());
+            return Err(Box::new(DiagnosticError { count: 1 }));
+        }
+    }
+
     Ok(())
+}
+
+fn print_report(report: &Report) {
+    eprintln!("  error: {}", report.message);
+    if let Some(span) = &report.span {
+        eprintln!("    --> {}:{}", span.line, span.column_start);
+    }
+    for label in &report.labels {
+        eprintln!("    | {}", label.message);
+    }
+    if let Some(help) = &report.help {
+        eprintln!("    = help: {}", help);
+    }
 }
 
 /// Lê o arquivo no caminho informado e delega a execução para `run`.

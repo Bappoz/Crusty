@@ -81,10 +81,7 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
         return false;
     }
 
-    let Some(next) = parser.tokens.get(parser.pos + 1) else {
-        return false;
-    };
-
+    let next = parser.peek_next();
     crate::parser::rules::declarations::starts_type(&next.kind)
 }
 
