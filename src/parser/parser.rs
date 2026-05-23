@@ -63,15 +63,6 @@ impl Parser {
             }
         }
 
-        if !self.is_expression_terminator(self.peek_kind()) {
-            let found = self.peek().clone();
-            return Err(self.syntax_error(
-                &found,
-                "fim de expressão",
-                &format!("{:?}", found.kind),
-            ));
-        }
-
         Ok(lhs)
     }
 
@@ -152,20 +143,6 @@ impl Parser {
             column_start: start.column_start,
             column_end: end.column_end,
         }
-    }
-
-    /// Retorna `true` se o token indica um terminador de expressão válido (`;`, `)`, `]`, etc.).
-    fn is_expression_terminator(&self, kind: &TokenKind) -> bool {
-        matches!(
-            kind,
-            TokenKind::Eof
-                | TokenKind::Comma
-                | TokenKind::RightParen
-                | TokenKind::RightBracket
-                | TokenKind::Colon
-                | TokenKind::Semicolon
-                | TokenKind::RightBrace
-        )
     }
 
     /// Constrói um `CompilerError::Syntax` com o span do token, o que era esperado e o que foi encontrado.
