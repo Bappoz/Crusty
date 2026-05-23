@@ -6,22 +6,23 @@ use crate::lexer::tokens::token_kind::TokenKind;
 
 /// Retorna `(lbp, rbp, is_ternary)` para operadores infix; `None` se o token não for infix.
 /// `lbp` é o poder de ligação à esquerda e `rbp` à direita, seguindo a tabela de precedência do C.
+/// Referência: docs/c_operator_precedence.md
 pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
     let bp = match op {
         TokenKind::Equal => (1, 1, false),
-        TokenKind::OrOr => (2, 3, false),
-        TokenKind::AndAnd => (4, 5, false),
-        TokenKind::Pipe => (6, 7, false),
-        TokenKind::Caret => (8, 9, false),
-        TokenKind::Ampersand => (10, 11, false),
-        TokenKind::EqualEqual | TokenKind::BangEqual => (12, 13, false),
+        TokenKind::Question => (2, 2, true),
+        TokenKind::OrOr => (4, 5, false),
+        TokenKind::AndAnd => (6, 7, false),
+        TokenKind::Pipe => (8, 9, false),
+        TokenKind::Caret => (10, 11, false),
+        TokenKind::Ampersand => (12, 13, false),
+        TokenKind::EqualEqual | TokenKind::BangEqual => (14, 15, false),
         TokenKind::Less | TokenKind::Greater | TokenKind::LessEqual | TokenKind::GreaterEqual => {
-            (14, 15, false)
+            (16, 17, false)
         }
-        TokenKind::LessLess | TokenKind::GreaterGreater => (16, 17, false),
-        TokenKind::Plus | TokenKind::Minus => (18, 19, false),
-        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => (20, 21, false),
-        TokenKind::Question => (1, 1, true),
+        TokenKind::LessLess | TokenKind::GreaterGreater => (18, 19, false),
+        TokenKind::Plus | TokenKind::Minus => (20, 21, false),
+        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => (22, 23, false),
         _ => return None,
     };
     Some(bp)

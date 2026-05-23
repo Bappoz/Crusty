@@ -36,8 +36,9 @@ pub fn token_to_bin_op(
 }
 
 /// Parseia o operador ternário `? then : else` após o `?` já ter sido consumido.
+/// O then aceita qualquer expressão (min_bp=0); o else é right-assoc com rbp do `?`.
 pub fn parse_ternary(parser: &mut Parser, lhs: Expr, rbp: u8) -> Result<Expr, CompilerError> {
-    let then_expr = parser.parse_expr(rbp)?;
+    let then_expr = parser.parse_expr(0)?;
     parser.expect(&TokenKind::Colon, "':' após expressão do braço true em ?:")?;
     let else_expr = parser.parse_expr(rbp)?;
 
