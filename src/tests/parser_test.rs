@@ -7,6 +7,7 @@ mod tests {
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
     use crate::lexer::tokens::token_kind::TokenKind;
+    use crate::parser::rules::statements::parse_stmt;
     use crate::parser::Parser;
 
     fn tk(kind: TokenKind, col: usize) -> Token {
@@ -194,10 +195,16 @@ mod tests {
 
     #[test]
     fn rejects_invalid_operator_tokens() {
-        let tokens = vec![int(1, 1), tk(TokenKind::Unknown('?'), 2), int(2, 3), eof(4)];
+        let tokens = vec![
+            int(1, 1),
+            tk(TokenKind::Unknown('?'), 2),
+            int(2, 3),
+            tk(TokenKind::Semicolon, 4),
+            eof(5),
+        ];
 
         let mut parser = Parser::new(tokens);
-        assert!(parser.parse_expr(0).is_err());
+        assert!(parse_stmt(&mut parser).is_err());
     }
 
     #[test]
@@ -212,6 +219,70 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         assert!(parser.parse_expr(0).is_err());
+    }
+
+    #[test]
+    fn cast_followed_by_binop_parses_correctly() {
+        // (int)a + b → Binary(Cast(int, a), +, b)
+
+        let tokens = vec![
+            tk(TokenKind::LeftParen, 1),
+            tk(TokenKind::Int, 2),
+            tk(TokenKind::RightParen, 3),
+            ident("a", 4),
+            tk(TokenKind::Plus, 5),
+            ident("b", 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        //inicia a chamada recursiva do Pratt Parser
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "O parsing façhpu: {:?}", result);
+
+        // salva a árvore completa gerada do Pratt Parser
+        let ast = result.unwrap();
+
+        // se ast for do tipo binário salva o bagulho da esq, operador, e o bagulho da direita
+        if let Expr::Binary(lhs, op, _rhs, _) = ast {
+            assert_eq!(op, BinOp::Add); // verifica se o op é "+"
+
+            assert!(matches!(*lhs, Expr::Cast(_, _, _))); //
+        } else {
+            panic!("Esperado Expr::BInary na raiz, mas veio: {:?}", ast);
+        }
+    }
+
+    #[test]
+    fn sizeof_followed_by_binop_parses_correctly() {
+        // sizeof x + 1 → Binary(Sizeof(x), +, 1)
+
+        let tokens = vec![
+            tk(TokenKind::Sizeof, 1),
+            ident("x", 2),
+            tk(TokenKind::Plus, 3),
+            int(1, 4),
+            eof(5),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "O parsing do sizeof falhou: {:?}", result);
+
+        let ast = result.unwrap();
+
+        if let Expr::Binary(lhs, op, _rhs, _) = ast {
+            assert_eq!(op, BinOp::Add);
+
+            assert!(matches!(*lhs, Expr::Sizeof(_, _)));
+        } else {
+            panic!(
+                "Esperado Expr::Binary na raiz para o sizeof, mas veio {:?}",
+                ast
+            );
+        }
     }
 
     #[test]
