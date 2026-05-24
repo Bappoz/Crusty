@@ -4,12 +4,38 @@ use crate::common::errors::error_data::Span;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
+use crate::parser::rules::declarations::{parse_type, starts_type};
 
 /// Parseia uma expressão prefix: operadores unários, literais, identificadores, agrupamentos e casts.
 /// É o ponto de entrada principal do lado esquerdo no algoritmo Pratt.
 pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let token = parser.peek().clone();
     let kind = parser.peek_kind().clone();
+
+    if kind == TokenKind::Sizeof{
+        let sizeof_token = parser.advance().clone();
+
+        if parser.check(&TokenKind::LeftParen) && starts_type(&parser.peek_next().kind){
+            parser.expect(&TokenKind::LeftParen, "'(' após sizeof")?; // verifica se é um ( se for consome e passa pro próximo token
+
+            let ty = parse_type(parser)?; // vai guardar tudo que faz parte do entendimento do tipo (*int), (unsiged int),...
+
+            let rpar = parser.expect(&TokenKind::RightParen, "')' após tipo do siezeof")?.clone();
+            let span = parser.join_span(parser.span_of(&sizeof_token), parser.span_of(&rpar)); // pega a localização da posção do siezof até o parêntese da direita
+
+            return Ok(Expr::SizeofType(ty, span));
+        } else{
+            let bp = crate::parser::precedence::prefix_binding_power(&sizeof_token.kind).ok_or_else(|| {
+                parser.syntax_error(&sizeof_token, "operador fixo", &format!("{:?}", sizeof_token.kind))
+            })?;
+
+            let rhs = parser.parse_expr(bp)?; // chamada recuriva pros bagulhos da direita
+            let span = parser.join_span(parser.span_of(&sizeof_token), rhs.span());
+
+            return Ok(Expr::Sizeof(Box::new(rhs), span));
+        }
+
+    }
 
     if looks_like_cast(parser) {
         return parse_cast_expr(parser);
@@ -22,8 +48,7 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
         | TokenKind::PlusPlus
         | TokenKind::MinusMinus
         | TokenKind::Star
-        | TokenKind::Ampersand
-        | TokenKind::Sizeof => {
+        | TokenKind::Ampersand => {
             let op = parser.advance().clone();
             let bp =
                 crate::parser::precedence::prefix_binding_power(&op.kind).ok_or_else(|| {

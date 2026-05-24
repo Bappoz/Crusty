@@ -1200,4 +1200,48 @@ mod tests {
         assert_eq!(name, "main");
         assert_eq!(body.len(), 2);
     }
+
+    #[test]
+    fn sizeof_type_parses_correctly(){
+        let tokens = vec! [
+            tk(TokenKind::Sizeof, 1),
+            tk(TokenKind::LeftParen, 2),
+            tk(TokenKind::Int, 3),
+            tk(TokenKind::RightParen, 4),
+            eof(5),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "Falhou ao parsear sizeof(type): {:?}", result);
+        let ast = result.unwrap();
+
+        assert!(matches!(ast, Expr::SizeofType(_, _)));
+    }
+
+    #[test]
+    fn sizeof_expr_with_parens_still_works(){
+        let tokens = vec![
+            tk(TokenKind::Sizeof, 1),
+            tk(TokenKind::LeftParen, 2),
+            ident("x", 3),
+            tk(TokenKind::Plus, 4),
+            int(1, 5),
+            tk(TokenKind::RightParen, 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "Falhou ao parser sizeof(expr) com parèntese: {:?}", result);
+        let ast = result.unwrap();
+
+        if let Expr::Sizeof(inner_expr, _) = ast {
+            assert!(matches!(*inner_expr, Expr::Binary(_, BinOp::Add, _, _)));
+        }else{
+            panic!("Esperado Expr::Sizeof para expressão com parêntese, mas veio {:?}", ast);
+        }
+    }
 }
