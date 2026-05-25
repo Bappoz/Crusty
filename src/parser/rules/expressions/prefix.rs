@@ -12,6 +12,7 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let token = parser.peek().clone();
     let kind = parser.peek_kind().clone();
 
+    // Tratamento necessário de lookahead do Token Sizeof impedindo colisão com type cast Ex: sizeof(int)
     if kind == TokenKind::Sizeof {
         let sizeof_token = parser.advance().clone();
 

@@ -71,7 +71,10 @@ pub enum Expr {
     Index(Box<Expr>, Box<Expr>, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
     Sizeof(Box<Expr>, Span),
+
+    // Variante criada para isolar a representação semântica de tamanhos de TIPOS
     SizeofType(QualifierType, Span),
+
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Member(Box<Expr>, MemberAccess, String, Span),
 }
