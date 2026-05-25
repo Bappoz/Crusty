@@ -4,4 +4,5 @@ mod lexical_test;
 mod literals_test;
 mod parser_test;
 mod source_test;
+mod symbol_test;
 mod token_test;
