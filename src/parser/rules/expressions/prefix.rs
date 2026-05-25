@@ -12,29 +12,35 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let token = parser.peek().clone();
     let kind = parser.peek_kind().clone();
 
-    if kind == TokenKind::Sizeof{
+    if kind == TokenKind::Sizeof {
         let sizeof_token = parser.advance().clone();
 
-        if parser.check(&TokenKind::LeftParen) && starts_type(&parser.peek_next().kind){
+        if parser.check(&TokenKind::LeftParen) && starts_type(&parser.peek_next().kind) {
             parser.expect(&TokenKind::LeftParen, "'(' após sizeof")?; // verifica se é um ( se for consome e passa pro próximo token
 
             let ty = parse_type(parser)?; // vai guardar tudo que faz parte do entendimento do tipo (*int), (unsiged int),...
 
-            let rpar = parser.expect(&TokenKind::RightParen, "')' após tipo do siezeof")?.clone();
+            let rpar = parser
+                .expect(&TokenKind::RightParen, "')' após tipo do siezeof")?
+                .clone();
             let span = parser.join_span(parser.span_of(&sizeof_token), parser.span_of(&rpar)); // pega a localização da posção do siezof até o parêntese da direita
 
             return Ok(Expr::SizeofType(ty, span));
-        } else{
-            let bp = crate::parser::precedence::prefix_binding_power(&sizeof_token.kind).ok_or_else(|| {
-                parser.syntax_error(&sizeof_token, "operador fixo", &format!("{:?}", sizeof_token.kind))
-            })?;
+        } else {
+            let bp = crate::parser::precedence::prefix_binding_power(&sizeof_token.kind)
+                .ok_or_else(|| {
+                    parser.syntax_error(
+                        &sizeof_token,
+                        "operador fixo",
+                        &format!("{:?}", sizeof_token.kind),
+                    )
+                })?;
 
             let rhs = parser.parse_expr(bp)?; // chamada recuriva pros bagulhos da direita
             let span = parser.join_span(parser.span_of(&sizeof_token), rhs.span());
 
             return Ok(Expr::Sizeof(Box::new(rhs), span));
         }
-
     }
 
     if looks_like_cast(parser) {

@@ -91,7 +91,7 @@ impl Expr {
             Expr::Index(_, _, s) => s.clone(),
             Expr::Assign(_, _, s) => s.clone(),
             Expr::Sizeof(_, s) => s.clone(),
-            Expr::SizeofType(_, s)=>s.clone(),
+            Expr::SizeofType(_, s) => s.clone(),
             Expr::Ternary(_, _, _, s) => s.clone(),
             Expr::Member(_, _, _, s) => s.clone(),
         }
