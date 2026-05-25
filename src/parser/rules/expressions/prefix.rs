@@ -1,4 +1,3 @@
-use crate::common::ast::ast::QualifierType;
 use crate::common::ast::expr::{Expr, Literal, PrefixOp, UnOp};
 use crate::common::errors::error_data::Span;
 use crate::common::errors::types::CompilerError;
@@ -100,7 +99,7 @@ pub fn parse_cast_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let lpar = parser
         .expect(&TokenKind::LeftParen, "'(' para iniciar cast")?
         .clone();
-    let ty = parse_cast_type(parser)?;
+    let ty = parse_type(parser)?;
     parser.expect(&TokenKind::RightParen, "')' após tipo no cast")?;
     let expr = parser.parse_expr(30)?;
     let span = parser.join_span(parser.span_of(&lpar), expr.span());
@@ -115,11 +114,6 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
 
     let next = parser.peek_next();
     crate::parser::rules::declarations::starts_type(&next.kind)
-}
-
-/// Parseia o tipo dentro de um cast, incluindo qualificadores `const`/`unsigned` e ponteiros `*`.
-pub fn parse_cast_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
-    crate::parser::rules::declarations::parse_type(parser)
 }
 
 /// Constrói o nó de expressão prefix correto para o operador `op` aplicado sobre `rhs`.
