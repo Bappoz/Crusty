@@ -71,6 +71,10 @@ pub enum Expr {
     Index(Box<Expr>, Box<Expr>, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
     Sizeof(Box<Expr>, Span),
+
+    // Variante criada para isolar a representação semântica de tamanhos de TIPOS
+    SizeofType(QualifierType, Span),
+
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Member(Box<Expr>, MemberAccess, String, Span),
 }
@@ -90,6 +94,7 @@ impl Expr {
             Expr::Index(_, _, s) => s.clone(),
             Expr::Assign(_, _, s) => s.clone(),
             Expr::Sizeof(_, s) => s.clone(),
+            Expr::SizeofType(_, s) => s.clone(),
             Expr::Ternary(_, _, _, s) => s.clone(),
             Expr::Member(_, _, _, s) => s.clone(),
         }
