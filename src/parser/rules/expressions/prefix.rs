@@ -3,7 +3,7 @@ use crate::common::errors::error_data::Span;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
-use crate::parser::rules::types::parse_cast_type;
+use crate::parser::rules::declarations::parse_type;
 
 /// Parseia uma expressão prefix: operadores unários, literais, identificadores, agrupamentos e casts.
 /// É o ponto de entrada principal do lado esquerdo no algoritmo Pratt.
@@ -68,7 +68,7 @@ pub fn parse_cast_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     let lpar = parser
         .expect(&TokenKind::LeftParen, "'(' para iniciar cast")?
         .clone();
-    let ty = parse_cast_type(parser)?;
+    let ty = parse_type(parser)?;
     parser.expect(&TokenKind::RightParen, "')' após tipo no cast")?;
     let expr = parser.parse_expr(30)?;
     let span = parser.join_span(parser.span_of(&lpar), expr.span());
