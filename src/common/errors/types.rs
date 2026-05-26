@@ -117,6 +117,7 @@ pub enum SemanticErrorKind {
     UndefinedVariable(String),
     Redeclaration(String),
     TypeMismatch { expected: String, found: String },
+    AssignToConst(String),
 }
 
 #[derive(Debug)]
@@ -146,6 +147,10 @@ impl ToReport for SemanticError {
                     self.span.clone(),
                     format!("esperado: '{}', encontrado: '{}'", expected, found),
                 ),
+            SemanticErrorKind::AssignToConst(name) => Report::new("assignment to const")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' é const e não pode ser reatribuído", name))
+                .with_help("remova o qualificador const ou use uma variável mutável"),
         }
     }
 }
