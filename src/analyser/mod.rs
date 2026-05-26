@@ -147,20 +147,22 @@ impl Analyser {
         match expr {
             Expr::Ident(name, span) => {
                 if self.symbols.lookup(name).is_none() {
-                    self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                        span: span.clone(),
-                        kind: SemanticErrorKind::UndefinedVariable(name.clone()),
-                    }));
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::UndefinedVariable(name.clone()),
+                        }));
                 }
             }
             Expr::Assign(lhs, rhs, span) => {
                 if let Expr::Ident(name, _) = lhs.as_ref() {
                     if let Some(sym) = self.symbols.lookup(name) {
                         if !sym.mutable {
-                            self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                                span: span.clone(),
-                                kind: SemanticErrorKind::AssignToConst(name.clone()),
-                            }));
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::AssignToConst(name.clone()),
+                                }));
                         }
                     }
                 }

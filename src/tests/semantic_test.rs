@@ -9,15 +9,28 @@ mod tests {
     use crate::common::errors::types::SemanticErrorKind;
 
     fn span() -> Span {
-        Span { line: 1, end_line: 1, column_start: 1, column_end: 2 }
+        Span {
+            line: 1,
+            end_line: 1,
+            column_start: 1,
+            column_end: 2,
+        }
     }
 
     fn qty(ty: Type) -> QualifierType {
-        QualifierType { ty, is_const: false, is_unsigned: false }
+        QualifierType {
+            ty,
+            is_const: false,
+            is_unsigned: false,
+        }
     }
 
     fn qty_const(ty: Type) -> QualifierType {
-        QualifierType { ty, is_const: true, is_unsigned: false }
+        QualifierType {
+            ty,
+            is_const: true,
+            is_unsigned: false,
+        }
     }
 
     fn int_lit(v: i64) -> Expr {
