@@ -9,16 +9,15 @@ use crate::parser::rules::expressions::{infix, postfix, prefix};
 
 type Diagnostic = CompilerError;
 
-// Estrutura mínima pedida: apenas fluxo de tokens para parser de expressões.
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    pub(crate) diagnostics: Vec<CompilerError>,
 }
 
 impl Parser {
-    /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self { tokens, pos: 0, diagnostics: Vec::new() }
     }
 
     pub(crate) fn peek_next(&self) -> &Token {
@@ -74,8 +73,24 @@ impl Parser {
     }
 
     /// Parseia um programa C completo: declarações globais até EOF.
-    pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
+    /// Retorna `Ok(Program)` se sem erros, ou `Err(Vec<CompilerError>)` com todos os erros acumulados.
+    pub fn parse_program(&mut self) -> Result<Program, Vec<CompilerError>> {
         crate::parser::rules::declarations::parse_program(self)
+    }
+
+    /// Avança tokens até o próximo ponto de sincronização (`;`, `}` ou EOF), consumindo o delimitador.
+    pub(crate) fn synchronize(&mut self) {
+        while !self.is_at_end() {
+            match self.peek_kind() {
+                TokenKind::Semicolon | TokenKind::RightBrace => {
+                    self.advance();
+                    return;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
     }
 
     /// Retorna o token atual sem avançar a posição.

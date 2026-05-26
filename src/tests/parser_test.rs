@@ -1240,6 +1240,78 @@ mod tests {
         ));
     }
 
+    // ── Testes de recuperação de erros (panic mode) ──────────────────────────
+
+    #[test]
+    fn reports_single_syntax_error_in_program() {
+        // int 42;  →  esperado identificador, encontrado IntLiteral
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            eof(8),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria falhar com erro de sintaxe");
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn reports_multiple_syntax_errors_in_program() {
+        // int 42;   float 99;  →  dois erros, ambos reportados
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            tk(TokenKind::Float, 9),
+            int(99, 15),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria acumular erros");
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn continues_parsing_valid_decl_after_error() {
+        // int 42;  float z;  →  1 erro + 1 decl válida (float z)
+        // parse_program retorna Err porque há erros, mas o count é 1
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            tk(TokenKind::Float, 9),
+            ident("z", 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria ter 1 erro");
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn recovers_after_unclosed_function_body() {
+        // int bad(void) { return   ← erro por EOF dentro do bloco
+        // int ok;                  ← decl separada (não chega a ser parseada pois sync vai ao EOF)
+        // Apenas verifica que parse_program não entra em loop infinito e retorna erros.
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("bad", 5),
+            tk(TokenKind::LeftParen, 8),
+            tk(TokenKind::Void, 9),
+            tk(TokenKind::RightParen, 13),
+            tk(TokenKind::LeftBrace, 15),
+            tk(TokenKind::Return, 17),
+            eof(23),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        assert!(result.is_err(), "deveria reportar erro de sintaxe");
+    }
+
+    // ── fim dos testes de recuperação ─────────────────────────────────────────
+
     #[test]
     fn parses_hello_world() {
         // int main() { printf("Hello"); return 0; }
