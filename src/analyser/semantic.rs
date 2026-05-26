@@ -5,6 +5,7 @@ use crate::common::ast::expr::{Expr, Literal};
 use crate::common::ast::stmt::Stmt;
 use crate::common::errors::types::{CompilerError, SemanticError, SemanticErrorKind};
 
+#[derive(Default, Debug)]
 pub struct SemanticAnalyser {
     pub sym: SymbolTable,
     /// Tipo de retorno da função sendo analisada no momento; `None` fora de funções.
