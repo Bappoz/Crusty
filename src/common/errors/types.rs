@@ -115,6 +115,7 @@ impl ToReport for SyntaxError {
 #[derive(Debug)]
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
+    Redeclaration(String),
     TypeMismatch { expected: String, found: String },
 }
 
@@ -132,6 +133,13 @@ impl ToReport for SemanticError {
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("'{}' nao existe", var))
                 .with_help("declare a variavel antes de usar"),
+            SemanticErrorKind::Redeclaration(name) => Report::new("Redeclaration error")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("'{}' já foi declarado neste escopo", name),
+                )
+                .with_help("use um nome diferente ou remova a declaração duplicada"),
             SemanticErrorKind::TypeMismatch { expected, found } => Report::new("type error")
                 .with_span(self.span.clone())
                 .with_label(
