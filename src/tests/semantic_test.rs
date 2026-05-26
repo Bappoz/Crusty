@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::analyser::Analyser;
+    use crate::analyser::SemanticAnalyser;
     use crate::common::ast::ast::{Program, QualifierType, Type};
     use crate::common::ast::decl::Decl;
     use crate::common::ast::expr::{Expr, Literal};
@@ -9,28 +9,15 @@ mod tests {
     use crate::common::errors::types::SemanticErrorKind;
 
     fn span() -> Span {
-        Span {
-            line: 1,
-            end_line: 1,
-            column_start: 1,
-            column_end: 2,
-        }
+        Span { line: 1, end_line: 1, column_start: 1, column_end: 2 }
     }
 
     fn qty(ty: Type) -> QualifierType {
-        QualifierType {
-            ty,
-            is_const: false,
-            is_unsigned: false,
-        }
+        QualifierType { ty, is_const: false, is_unsigned: false }
     }
 
     fn qty_const(ty: Type) -> QualifierType {
-        QualifierType {
-            ty,
-            is_const: true,
-            is_unsigned: false,
-        }
+        QualifierType { ty, is_const: true, is_unsigned: false }
     }
 
     fn int_lit(v: i64) -> Expr {
@@ -53,6 +40,10 @@ mod tests {
         }
     }
 
+    fn analyse(prog: &Program) -> Vec<crate::common::errors::types::CompilerError> {
+        crate::analyser::analyse(prog)
+    }
+
     // ── VarDecl ───────────────────────────────────────────────────────────────
 
     #[test]
@@ -61,13 +52,13 @@ mod tests {
             Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(0)), span()),
             Stmt::ExprStmt(ident("x"), span()),
         ]);
-        assert!(Analyser::new().analyse_program(&prog).is_ok());
+        assert!(analyse(&prog).is_empty());
     }
 
     #[test]
     fn undeclared_variable_emits_error() {
         let prog = program(vec![Stmt::ExprStmt(ident("x"), span())]);
-        let errors = Analyser::new().analyse_program(&prog).unwrap_err();
+        let errors = analyse(&prog);
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -82,7 +73,7 @@ mod tests {
             Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
             Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
         ]);
-        let errors = Analyser::new().analyse_program(&prog).unwrap_err();
+        let errors = analyse(&prog);
         assert!(errors.iter().any(|e| matches!(
             e,
             crate::common::errors::types::CompilerError::Semantic(se)
@@ -99,7 +90,7 @@ mod tests {
                 span(),
             ),
         ]);
-        assert!(Analyser::new().analyse_program(&prog).is_ok());
+        assert!(analyse(&prog).is_empty());
     }
 
     // ── AssignToConst ─────────────────────────────────────────────────────────
@@ -113,7 +104,7 @@ mod tests {
                 span(),
             ),
         ]);
-        let errors = Analyser::new().analyse_program(&prog).unwrap_err();
+        let errors = analyse(&prog);
         assert!(errors.iter().any(|e| matches!(
             e,
             crate::common::errors::types::CompilerError::Semantic(se)
@@ -130,19 +121,50 @@ mod tests {
                 span(),
             ),
         ]);
-        assert!(Analyser::new().analyse_program(&prog).is_ok());
+        assert!(analyse(&prog).is_empty());
     }
 
     // ── múltiplos erros acumulados ────────────────────────────────────────────
 
     #[test]
     fn accumulates_multiple_errors() {
-        // dois identificadores não declarados no mesmo programa
         let prog = program(vec![
             Stmt::ExprStmt(ident("a"), span()),
             Stmt::ExprStmt(ident("b"), span()),
         ]);
-        let errors = Analyser::new().analyse_program(&prog).unwrap_err();
+        let errors = analyse(&prog);
         assert_eq!(errors.len(), 2);
+    }
+
+    // ── inferência de tipo básica ─────────────────────────────────────────────
+
+    #[test]
+    fn analyse_expr_infers_int_literal_type() {
+        let _prog = program(vec![]);
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let ty = analyser.analyse_expr(&int_lit(42));
+        assert!(matches!(ty.ty, crate::common::ast::ast::Type::Int));
+    }
+
+    #[test]
+    fn analyse_expr_infers_ident_type_from_scope() {
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Float), "f".into(), None, span()),
+        ]);
+        let mut analyser = SemanticAnalyser::new();
+        analyser.analyse_program(&prog);
+
+        // após analyse_program o escopo global foi fechado;
+        // abre escopo manual para simular lookup dentro de função
+        analyser.sym.enter_scope();
+        analyser.sym.declare(crate::analyser::symbol_table::Symbol {
+            name: "f".into(),
+            ty: qty(Type::Float),
+            mutable: true,
+            decl_span: span(),
+        }).unwrap();
+        let ty = analyser.analyse_expr(&ident("f"));
+        assert!(matches!(ty.ty, crate::common::ast::ast::Type::Float));
     }
 }
