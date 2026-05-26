@@ -155,10 +155,11 @@ impl SemanticAnalyser {
             Expr::Ident(name, span) => match self.sym.lookup(name) {
                 Some(sym) => sym.ty.clone(),
                 None => {
-                    self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                        span: span.clone(),
-                        kind: SemanticErrorKind::UndefinedVariable(name.clone()),
-                    }));
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::UndefinedVariable(name.clone()),
+                        }));
                     unknown_type()
                 }
             },
@@ -166,10 +167,11 @@ impl SemanticAnalyser {
                 if let Expr::Ident(name, _) = lhs.as_ref() {
                     if let Some(sym) = self.sym.lookup(name) {
                         if !sym.mutable {
-                            self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                                span: span.clone(),
-                                kind: SemanticErrorKind::AssignToConst(name.clone()),
-                            }));
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::AssignToConst(name.clone()),
+                                }));
                         }
                     }
                 }
@@ -246,13 +248,25 @@ fn infer_literal_type(lit: &Literal) -> QualifierType {
         Literal::Char(_) => Type::Char,
         Literal::String(_) => Type::Pointer(Box::new(Type::Char)),
     };
-    QualifierType { ty, is_const: false, is_unsigned: false }
+    QualifierType {
+        ty,
+        is_const: false,
+        is_unsigned: false,
+    }
 }
 
 fn unknown_type() -> QualifierType {
-    QualifierType { ty: Type::Void, is_const: false, is_unsigned: false }
+    QualifierType {
+        ty: Type::Void,
+        is_const: false,
+        is_unsigned: false,
+    }
 }
 
 fn uint_type() -> QualifierType {
-    QualifierType { ty: Type::Int, is_const: false, is_unsigned: true }
+    QualifierType {
+        ty: Type::Int,
+        is_const: false,
+        is_unsigned: true,
+    }
 }

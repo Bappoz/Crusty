@@ -9,15 +9,28 @@ mod tests {
     use crate::common::errors::types::SemanticErrorKind;
 
     fn span() -> Span {
-        Span { line: 1, end_line: 1, column_start: 1, column_end: 2 }
+        Span {
+            line: 1,
+            end_line: 1,
+            column_start: 1,
+            column_end: 2,
+        }
     }
 
     fn qty(ty: Type) -> QualifierType {
-        QualifierType { ty, is_const: false, is_unsigned: false }
+        QualifierType {
+            ty,
+            is_const: false,
+            is_unsigned: false,
+        }
     }
 
     fn qty_const(ty: Type) -> QualifierType {
-        QualifierType { ty, is_const: true, is_unsigned: false }
+        QualifierType {
+            ty,
+            is_const: true,
+            is_unsigned: false,
+        }
     }
 
     fn int_lit(v: i64) -> Expr {
@@ -149,21 +162,27 @@ mod tests {
 
     #[test]
     fn analyse_expr_infers_ident_type_from_scope() {
-        let prog = program(vec![
-            Stmt::VarDecl(qty(Type::Float), "f".into(), None, span()),
-        ]);
+        let prog = program(vec![Stmt::VarDecl(
+            qty(Type::Float),
+            "f".into(),
+            None,
+            span(),
+        )]);
         let mut analyser = SemanticAnalyser::new();
         analyser.analyse_program(&prog);
 
         // após analyse_program o escopo global foi fechado;
         // abre escopo manual para simular lookup dentro de função
         analyser.sym.enter_scope();
-        analyser.sym.declare(crate::analyser::symbol_table::Symbol {
-            name: "f".into(),
-            ty: qty(Type::Float),
-            mutable: true,
-            decl_span: span(),
-        }).unwrap();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "f".into(),
+                ty: qty(Type::Float),
+                mutable: true,
+                decl_span: span(),
+            })
+            .unwrap();
         let ty = analyser.analyse_expr(&ident("f"));
         assert!(matches!(ty.ty, crate::common::ast::ast::Type::Float));
     }
