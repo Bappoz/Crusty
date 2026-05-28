@@ -16,6 +16,8 @@ pub struct Symbol {
 #[derive(Debug, Default)]
 pub struct SymbolTable {
     scopes: Vec<HashMap<String, Symbol>>,
+
+    pub struct_table: HashMap<String, Vec<(QualifierType, String)>>,
 }
 
 impl SymbolTable {
@@ -52,5 +54,15 @@ impl SymbolTable {
     /// Busca apenas o escopo atual
     pub fn lookup_current_scope(&self, name: &str) -> Option<&Symbol> {
         self.scopes.last()?.get(name)
+    }
+
+    // Função de registro de struct na struct_table
+    pub fn register_struct(&mut self, name: String, fields: Vec<(QualifierType, String)>){
+        self.struct_table.insert(name, fields); // insere o par no hashMap
+    }
+
+    // Função de busca de campos de uma struct pelo nome
+    pub fn lookup_struct(&self, name: &str) -> Option<&Vec<(QualifierType, String)>> {
+        self.struct_table.get(name)
     }
 }

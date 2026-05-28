@@ -6,3 +6,4 @@ mod parser_test;
 mod source_test;
 mod symbol_test;
 mod token_test;
+mod analyzer_test;
