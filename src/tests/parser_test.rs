@@ -1093,9 +1093,8 @@ mod tests {
             tk(TokenKind::RightBrace, 28),
             eof(29),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::Function(qty, name, params, body, _) = &program.decls[0] else {
             panic!("esperava Decl::Function");
@@ -1128,9 +1127,8 @@ mod tests {
             tk(TokenKind::RightBrace, 39),
             eof(40),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::Function(_, name, params, body, _) = &program.decls[0] else {
             panic!("esperava Decl::Function");
@@ -1152,9 +1150,8 @@ mod tests {
             tk(TokenKind::RightBrace, 14),
             eof(15),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::Function(qty, name, params, body, _) = &program.decls[0] else {
             panic!("esperava Decl::Function");
@@ -1176,9 +1173,8 @@ mod tests {
             tk(TokenKind::Semicolon, 11),
             eof(12),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::GlobalVar(qty, name, Some(init), _) = &program.decls[0] else {
             panic!("esperava Decl::GlobalVar");
@@ -1197,9 +1193,8 @@ mod tests {
             tk(TokenKind::Semicolon, 8),
             eof(9),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::GlobalVar(qty, name, None, _) = &program.decls[0] else {
             panic!("esperava Decl::GlobalVar");
@@ -1226,9 +1221,8 @@ mod tests {
             tk(TokenKind::RightBrace, 31),
             eof(32),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 2);
         assert!(matches!(
             &program.decls[0],
@@ -1260,9 +1254,8 @@ mod tests {
             tk(TokenKind::RightBrace, 41),
             eof(42),
         ];
-        let program = Parser::new(tokens)
-            .parse_program()
-            .expect("programa válido");
+        let program = Parser::new(tokens).parse_program();
+        assert!(program.errors.is_empty(), "erros inesperados: {:?}", program.errors);
         assert_eq!(program.decls.len(), 1);
         let Decl::Function(_, name, _, body, _) = &program.decls[0] else {
             panic!("esperava Decl::Function");
@@ -1324,5 +1317,81 @@ mod tests {
                 ast
             );
         }
+    }
+    /// Múltiplas declarações inválidas devem produzir >= 2 diagnósticos.
+    #[test]
+    fn recovery_reports_multiple_errors() {
+        // Dois identificadores soltos no escopo global: cada um gera um erro
+        // int ??? int ???
+        let tokens = vec![
+            // primeira declão inválida: "int @ ;"
+            tk(TokenKind::Int, 1),
+            tk(TokenKind::Unknown('@'), 5),
+            tk(TokenKind::Semicolon, 6),
+            // segunda declaração inválida: "int @ ;"
+            tk(TokenKind::Int, 8),
+            tk(TokenKind::Unknown('@'), 12),
+            tk(TokenKind::Semicolon, 13),
+            eof(15),
+        ];
+        let program = Parser::new(tokens).parse_program();
+        assert!(
+            program.errors.len() >= 2,
+            "esperava pelo menos 2 erros, obteve {}: {:?}",
+            program.errors.len(),
+            program.errors
+        );
+    }
+
+    /// Após um erro, uma declaração válida deve ser parseada normalmente.
+    #[test]
+    fn recovery_valid_decl_after_error() {
+        // "int @ ;" seguido de "int x;" válido
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            tk(TokenKind::Unknown('@'), 5),
+            tk(TokenKind::Semicolon, 6),
+            tk(TokenKind::Int, 8),
+            ident("x", 12),
+            tk(TokenKind::Semicolon, 13),
+            eof(14),
+        ];
+        let program = Parser::new(tokens).parse_program();
+        assert_eq!(program.errors.len(), 1, "esperava exatamente 1 erro");
+        assert_eq!(program.decls.len(), 1, "esperava 1 declaração válida após a recovery");
+    }
+
+    /// Um erro dentro de um bloco deve ser coletado e a função deve continuar sendo parseada.
+    #[test]
+    fn recovery_on_missing_semicolon_in_block() {
+        // int f() { int x = 1   return 0; }   <- falta ';' após x = 1
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("f", 5),
+            tk(TokenKind::LeftParen, 6),
+            tk(TokenKind::RightParen, 7),
+            tk(TokenKind::LeftBrace, 9),
+            // int x = 1   <- sem ';'
+            tk(TokenKind::Int, 11),
+            ident("x", 15),
+            tk(TokenKind::Equal, 17),
+            int(1, 19),
+            // return 0;
+            tk(TokenKind::Return, 21),
+            int(0, 28),
+            tk(TokenKind::Semicolon, 29),
+            tk(TokenKind::RightBrace, 31),
+            eof(32),
+        ];
+        let program = Parser::new(tokens).parse_program();
+        assert!(
+            !program.errors.is_empty(),
+            "esperava pelo menos 1 erro (';' ausente)"
+        );
+        assert_eq!(
+            program.decls.len(),
+            1,
+            "a função deve ter sido parseada mesmo com o erro no bloco"
+        );
     }
 }
