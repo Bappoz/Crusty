@@ -1481,4 +1481,104 @@ mod tests {
             assert_eq!(op, expected_op, "BinOp errado para {:?}", token_kind);
         }
     }
+
+    // ── arrays ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_global_array_declaration() {
+        // int arr[10];
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("arr", 5),
+            tk(TokenKind::LeftBracket, 8),
+            tk(TokenKind::IntLiteral(10), 9),
+            tk(TokenKind::RightBracket, 11),
+            tk(TokenKind::Semicolon, 12),
+            eof(13),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear array global");
+        let Decl::GlobalVar(qty, name, None, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert_eq!(name, "arr");
+        assert!(matches!(qty.ty, Type::Array(_)));
+    }
+
+    #[test]
+    fn parses_local_array_declaration() {
+        // void f() { int arr[5]; }
+        let tokens = vec![
+            tk(TokenKind::Void, 1),
+            ident("f", 6),
+            tk(TokenKind::LeftParen, 7),
+            tk(TokenKind::RightParen, 8),
+            tk(TokenKind::LeftBrace, 10),
+            tk(TokenKind::Int, 12),
+            ident("arr", 16),
+            tk(TokenKind::LeftBracket, 19),
+            tk(TokenKind::IntLiteral(5), 20),
+            tk(TokenKind::RightBracket, 21),
+            tk(TokenKind::Semicolon, 22),
+            tk(TokenKind::RightBrace, 24),
+            eof(25),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear array local");
+        let Decl::Function(_, _, _, body, _) = &prog.decls[0] else {
+            panic!("esperava Function");
+        };
+        let Stmt::VarDecl(qty, name, None, _) = &body[0] else {
+            panic!("esperava VarDecl");
+        };
+        assert_eq!(name, "arr");
+        assert!(matches!(qty.ty, Type::Array(_)));
+    }
+
+    #[test]
+    fn parses_multidimensional_array() {
+        // int matrix[3][4];
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("matrix", 5),
+            tk(TokenKind::LeftBracket, 11),
+            tk(TokenKind::IntLiteral(3), 12),
+            tk(TokenKind::RightBracket, 13),
+            tk(TokenKind::LeftBracket, 14),
+            tk(TokenKind::IntLiteral(4), 15),
+            tk(TokenKind::RightBracket, 16),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear array 2D");
+        let Decl::GlobalVar(qty, _, None, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        let Type::Array(inner) = &qty.ty else {
+            panic!("esperava Array externo");
+        };
+        assert!(matches!(**inner, Type::Array(_)));
+    }
+
+    #[test]
+    fn parses_array_without_size() {
+        // int arr[];
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("arr", 5),
+            tk(TokenKind::LeftBracket, 8),
+            tk(TokenKind::RightBracket, 9),
+            tk(TokenKind::Semicolon, 10),
+            eof(11),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear array sem tamanho");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Array(_)));
+    }
 }
