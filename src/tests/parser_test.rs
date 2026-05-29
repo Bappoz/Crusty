@@ -1325,4 +1325,88 @@ mod tests {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Testes: operadores de atribuição composta
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compound_assign_plus_parses_correctly() {
+        // a += b  →  CompoundAssign(Add, Ident("a"), Ident("b"))
+        let tokens = vec![
+            ident("a", 1),
+            tk(TokenKind::PlusEqual, 3),
+            ident("b", 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("compound assign += válido");
+
+        let Expr::CompoundAssign(op, lhs, rhs, _) = expr else {
+            panic!("esperava Expr::CompoundAssign para +=");
+        };
+        assert_eq!(op, BinOp::Add);
+        assert!(matches!(*lhs, Expr::Ident(ref s, _) if s == "a"));
+        assert!(matches!(*rhs, Expr::Ident(ref s, _) if s == "b"));
+    }
+
+    #[test]
+    fn compound_assign_shift_right_parses_correctly() {
+        // x >>= 2  →  CompoundAssign(Shr, Ident("x"), Literal(2))
+        let tokens = vec![
+            ident("x", 1),
+            tk(TokenKind::GreaterGreaterEqual, 3),
+            int(2, 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("compound assign >>= válido");
+
+        let Expr::CompoundAssign(op, lhs, rhs, _) = expr else {
+            panic!("esperava Expr::CompoundAssign para >>=");
+        };
+        assert_eq!(op, BinOp::Shr);
+        assert!(matches!(*lhs, Expr::Ident(ref s, _) if s == "x"));
+        assert!(matches!(
+            *rhs,
+            Expr::Literal(crate::common::ast::expr::Literal::Int(2), _)
+        ));
+    }
+
+    #[test]
+    fn compound_assign_all_operators_parse() {
+        // Verifica que todos os 10 tokens de compound-assign são reconhecidos pelo parser
+        // e produzem o BinOp correto.
+        let cases: Vec<(TokenKind, BinOp)> = vec![
+            (TokenKind::PlusEqual, BinOp::Add),
+            (TokenKind::MinusEqual, BinOp::Sub),
+            (TokenKind::StarEqual, BinOp::Mul),
+            (TokenKind::SlashEqual, BinOp::Div),
+            (TokenKind::PercentEqual, BinOp::Mod),
+            (TokenKind::AmpersandEqual, BinOp::BitAnd),
+            (TokenKind::PipeEqual, BinOp::BitOr),
+            (TokenKind::CaretEqual, BinOp::BitXor),
+            (TokenKind::LessLessEqual, BinOp::Shl),
+            (TokenKind::GreaterGreaterEqual, BinOp::Shr),
+        ];
+
+        for (token_kind, expected_op) in cases {
+            let tokens = vec![ident("a", 1), tk(token_kind.clone(), 3), int(1, 6), eof(7)];
+
+            let mut parser = Parser::new(tokens);
+            let expr = parser
+                .parse_expr(0)
+                .unwrap_or_else(|e| panic!("compound assign {:?} falhou: {:?}", token_kind, e));
+
+            let Expr::CompoundAssign(op, _, _, _) = expr else {
+                panic!(
+                    "esperava Expr::CompoundAssign para {:?}, mas veio algo diferente",
+                    token_kind
+                );
+            };
+            assert_eq!(op, expected_op, "BinOp errado para {:?}", token_kind);
+        }
+    }
 }

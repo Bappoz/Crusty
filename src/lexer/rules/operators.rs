@@ -64,6 +64,16 @@ impl OperatorRules for Scanner {
             },
 
             // -------------------------------------------------------
+            // % : %= | %
+            '%' => match self.src.peek() {
+                Some('=') => {
+                    self.src.advance();
+                    self.emit_at(TokenKind::PercentEqual, line, col);
+                }
+                _ => self.emit_at(TokenKind::Percent, line, col),
+            },
+
+            // -------------------------------------------------------
             // = : == | =
             '=' => match self.src.peek() {
                 Some('=') => {
@@ -122,23 +132,41 @@ impl OperatorRules for Scanner {
             },
 
             // -------------------------------------------------------
-            // & : && | &
+            // & : && | &= | &
             '&' => match self.src.peek() {
                 Some('&') => {
                     self.src.advance();
                     self.emit_at(TokenKind::AndAnd, line, col);
                 }
+                Some('=') => {
+                    self.src.advance();
+                    self.emit_at(TokenKind::AmpersandEqual, line, col);
+                }
                 _ => self.emit_at(TokenKind::Ampersand, line, col),
             },
 
             // -------------------------------------------------------
-            // | : || | |
+            // | : || | |= | |
             '|' => match self.src.peek() {
                 Some('|') => {
                     self.src.advance();
                     self.emit_at(TokenKind::OrOr, line, col);
                 }
+                Some('=') => {
+                    self.src.advance();
+                    self.emit_at(TokenKind::PipeEqual, line, col);
+                }
                 _ => self.emit_at(TokenKind::Pipe, line, col),
+            },
+
+            // -------------------------------------------------------
+            // ^ : ^= | ^
+            '^' => match self.src.peek() {
+                Some('=') => {
+                    self.src.advance();
+                    self.emit_at(TokenKind::CaretEqual, line, col);
+                }
+                _ => self.emit_at(TokenKind::Caret, line, col),
             },
 
             // Qualquer outro char cai aqui como desconhecido

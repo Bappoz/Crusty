@@ -42,18 +42,22 @@ pub enum TokenKind {
     Dot,   // .
 
     // Operadores aritméticos
-    Plus,       // +
-    Minus,      // -
-    Star,       // *
-    Slash,      // /
-    Percent,    // %
-    Caret,      // ^
-    PlusPlus,   // ++
-    MinusMinus, // --
-    PlusEqual,  // +=
-    MinusEqual, // -=
-    StarEqual,  // *=
-    SlashEqual, // /=
+    Plus,           // +
+    Minus,          // -
+    Star,           // *
+    Slash,          // /
+    Percent,        // %
+    Caret,          // ^
+    PlusPlus,       // ++
+    MinusMinus,     // --
+    PlusEqual,      // +=
+    MinusEqual,     // -=
+    StarEqual,      // *=
+    SlashEqual,     // /=
+    PercentEqual,   // %=
+    AmpersandEqual, // &=
+    PipeEqual,      // |=
+    CaretEqual,     // ^=
 
     // Operadores relacionais / igualdade
     EqualEqual,   // ==
