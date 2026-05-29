@@ -1571,14 +1571,15 @@ mod tests {
             tk(TokenKind::RightBracket, 9),
             tk(TokenKind::Semicolon, 10),
             eof(11),
-          ];
+        ];
         let mut parser = Parser::new(tokens);
         let prog = parser
             .parse_program()
-            .expect("deve parsear definição seguida de uso de struct");
-        assert_eq!(prog.decls.len(), 2);
-        assert!(matches!(prog.decls[0], Decl::StructDecl(_, _, _)));
-        assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
+            .expect("deve parsear array sem tamanho");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Array(_)));
     }
     // ── struct ────────────────────────────────────────────────────────────────
 
@@ -1683,10 +1684,13 @@ mod tests {
             ident("p", 39),
             tk(TokenKind::Semicolon, 40),
             eof(41),
-            .expect("deve parsear array sem tamanho");
-        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
-            panic!("esperava GlobalVar");
-        };
-        assert!(matches!(qty.ty, Type::Array(_)));
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear definição seguida de uso de struct");
+        assert_eq!(prog.decls.len(), 2);
+        assert!(matches!(prog.decls[0], Decl::StructDecl(_, _, _)));
+        assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
     }
 }
