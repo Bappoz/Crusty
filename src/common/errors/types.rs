@@ -116,9 +116,15 @@ impl ToReport for SyntaxError {
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
     Redeclaration(String),
-    TypeMismatch { expected: String, found: String },
+    TypeMismatch {
+        expected: String,
+        found: String,
+    },
     UndefinedStruct(String),
-    FieldNotFound { struct_name: String, field_name: String },
+    FieldNotFound {
+        struct_name: String,
+        field_name: String,
+    },
 }
 
 #[derive(Debug)]
@@ -150,16 +156,20 @@ impl ToReport for SemanticError {
                 ),
             SemanticErrorKind::UndefinedStruct(name) => Report::new("undefined struct")
                 .with_span(self.span.clone())
-                .with_label(self.span.clone(), format!("struct '{}' nao foi declarada", name))
+                .with_label(
+                    self.span.clone(),
+                    format!("struct '{}' nao foi declarada", name),
+                )
                 .with_help("declare a struct antes de usar"),
-            SemanticErrorKind::FieldNotFound { struct_name, field_name } => {
-                Report::new("field not found")
-                    .with_span(self.span.clone())
-                    .with_label(
-                        self.span.clone(),
-                        format!("campo '{}' nao existe em '{}'", field_name, struct_name),
-                    )
-            }
+            SemanticErrorKind::FieldNotFound {
+                struct_name,
+                field_name,
+            } => Report::new("field not found")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("campo '{}' nao existe em '{}'", field_name, struct_name),
+                ),
         }
     }
 }

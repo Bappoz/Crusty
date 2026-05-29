@@ -26,7 +26,10 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.register_struct("Pointer".to_string(), vec![(field_type, "nome".to_string())]);
+        analyzer.symbols.register_struct(
+            "Pointer".to_string(),
+            vec![(field_type, "nome".to_string())],
+        );
 
         let struct_call = QualifierType {
             ty: Type::Struct("Pointer".to_string()),
@@ -34,12 +37,15 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.declare(Symbol {
-            name: "meu_ponto".to_string(),
-            ty: struct_call,
-            mutable: true,
-            decl_span: dummy_span(),
-        }).unwrap();
+        analyzer
+            .symbols
+            .declare(Symbol {
+                name: "meu_ponto".to_string(),
+                ty: struct_call,
+                mutable: true,
+                decl_span: dummy_span(),
+            })
+            .unwrap();
 
         let span = dummy_span();
         let expr = Expr::Member(
@@ -50,7 +56,10 @@ mod test {
         );
 
         let result = analyzer.check_expr(&expr);
-        assert!(result.is_ok(), "deveria aceitar acesso direto a campo existente");
+        assert!(
+            result.is_ok(),
+            "deveria aceitar acesso direto a campo existente"
+        );
         assert_eq!(result.unwrap().ty, Type::Int);
     }
 
@@ -65,7 +74,10 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.register_struct("Pointer".to_string(), vec![(field_type, "nome".to_string())]);
+        analyzer.symbols.register_struct(
+            "Pointer".to_string(),
+            vec![(field_type, "nome".to_string())],
+        );
 
         let struct_call = QualifierType {
             ty: Type::Struct("Pointer".to_string()),
@@ -73,12 +85,15 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.declare(Symbol {
-            name: "meu_ponto".to_string(),
-            ty: struct_call,
-            mutable: true,
-            decl_span: dummy_span(),
-        }).unwrap();
+        analyzer
+            .symbols
+            .declare(Symbol {
+                name: "meu_ponto".to_string(),
+                ty: struct_call,
+                mutable: true,
+                decl_span: dummy_span(),
+            })
+            .unwrap();
 
         let span = dummy_span();
         let expr = Expr::Member(
@@ -103,7 +118,10 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.register_struct("Pointer".to_string(), vec![(field_type, "nome".to_string())]);
+        analyzer.symbols.register_struct(
+            "Pointer".to_string(),
+            vec![(field_type, "nome".to_string())],
+        );
 
         let struct_pointer_call = QualifierType {
             ty: Type::Pointer(Box::new(Type::Struct("Pointer".to_string()))),
@@ -111,12 +129,15 @@ mod test {
             is_unsigned: false,
         };
 
-        analyzer.symbols.declare(Symbol {
-            name: "ponteiro_ponto".to_string(),
-            ty: struct_pointer_call,
-            mutable: true,
-            decl_span: dummy_span(),
-        }).unwrap();
+        analyzer
+            .symbols
+            .declare(Symbol {
+                name: "ponteiro_ponto".to_string(),
+                ty: struct_pointer_call,
+                mutable: true,
+                decl_span: dummy_span(),
+            })
+            .unwrap();
 
         let span = dummy_span();
         let expr = Expr::Member(

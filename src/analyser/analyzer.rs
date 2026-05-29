@@ -1,7 +1,7 @@
+use crate::analyser::symbol_table::SymbolTable;
 use crate::common::ast::ast::{QualifierType, Type};
 use crate::common::ast::expr::{Expr, MemberAccess};
 use crate::common::errors::types::{CompilerError, SemanticError, SemanticErrorKind};
-use crate::analyser::symbol_table::SymbolTable;
 
 pub struct Analyser {
     pub symbols: SymbolTable,
@@ -16,17 +16,16 @@ impl Analyser {
 
     pub fn check_expr(&mut self, expr: &Expr) -> Result<QualifierType, CompilerError> {
         match expr {
-            Expr::Ident(name, span) => {
-                self.symbols
-                    .lookup(name)
-                    .map(|symbol| symbol.ty.clone())
-                    .ok_or_else(|| {
-                        CompilerError::Semantic(SemanticError {
-                            span: span.clone(),
-                            kind: SemanticErrorKind::UndefinedVariable(name.clone()),
-                        })
+            Expr::Ident(name, span) => self
+                .symbols
+                .lookup(name)
+                .map(|symbol| symbol.ty.clone())
+                .ok_or_else(|| {
+                    CompilerError::Semantic(SemanticError {
+                        span: span.clone(),
+                        kind: SemanticErrorKind::UndefinedVariable(name.clone()),
                     })
-            }
+                }),
             Expr::Member(left_expr, access_kind, field_name, span) => {
                 let left_type = self.check_expr(left_expr)?;
 

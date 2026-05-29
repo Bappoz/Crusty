@@ -1,2 +1,2 @@
-pub mod symbol_table;
 pub mod analyzer;
+pub mod symbol_table;
