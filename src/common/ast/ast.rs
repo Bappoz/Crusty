@@ -1,4 +1,5 @@
 use crate::common::ast::decl::Decl;
+use crate::common::errors::types::CompilerError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -20,7 +21,10 @@ pub struct QualifierType {
     pub is_unsigned: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// AST do programa, incluindo declarações parseadas e erros coletados durante o parse.
+/// Mesmo com erros, `decls` contém as declarações que foram parseadas com sucesso.
+#[derive(Debug)]
 pub struct Program {
     pub decls: Vec<Decl>,
+    pub errors: Vec<CompilerError>,
 }

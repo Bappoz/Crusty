@@ -35,7 +35,13 @@ pub fn parse_block(parser: &mut Parser) -> Result<Stmt, CompilerError> {
 
     let mut stmts = Vec::new();
     while !parser.check(&TokenKind::RightBrace) && !parser.is_at_end() {
-        stmts.push(parse_stmt(parser)?);
+        match parse_stmt(parser) {
+            Ok(stmt) => stmts.push(stmt),
+            Err(e) => {
+                parser.errors.push(e);
+                parser.synchronize_block();  // avança até próximo statement ou '}'
+            }
+        }
     }
 
     let rbrace = parser

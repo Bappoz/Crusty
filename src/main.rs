@@ -76,17 +76,19 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     }
 
     let mut parser = Parser::new(scanner.tokens);
-    match parser.parse_program() {
-        Ok(program) => {
-            println!("\n=== AST ({}) ===", program.decls.len());
-            for decl in &program.decls {
-                println!("{:#?}", decl);
-            }
-        }
-        Err(e) => {
+    let program = parser.parse_program();
+
+    if !program.errors.is_empty() {
+        eprintln!("\n=== Parse Errors ({}) ===", program.errors.len());
+        for e in &program.errors {
             print_report(&e.to_report());
-            return Err(Box::new(DiagnosticError { count: 1 }));
         }
+        return Err(Box::new(DiagnosticError { count: program.errors.len() }));
+    }
+
+    println!("\n=== AST ({}) ===", program.decls.len());
+    for decl in &program.decls {
+        println!("{:#?}", decl);
     }
 
     Ok(())

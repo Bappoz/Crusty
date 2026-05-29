@@ -13,12 +13,14 @@ type Diagnostic = CompilerError;
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// Erros coletados durante o parse; transferidos para `Program::errors` ao final.
+    pub errors: Vec<CompilerError>,
 }
 
 impl Parser {
     /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self { tokens, pos: 0, errors: Vec::new() }
     }
 
     pub(crate) fn peek_next(&self) -> &Token {
@@ -74,8 +76,37 @@ impl Parser {
     }
 
     /// Parseia um programa C completo: declarações globais até EOF.
-    pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
+    /// Nunca falha — erros ficam dentro do `Program` retornado.
+    pub fn parse_program(&mut self) -> Program {
         crate::parser::rules::declarations::parse_program(self)
+    }
+
+    /// Recovery para o nível global: avança até ';' ou início de nova declaração de tipo.
+    pub(crate) fn synchronize(&mut self) {
+        while !self.is_at_end() {
+            match self.peek_kind() {
+                TokenKind::Semicolon => { self.advance(); return; }
+                TokenKind::Int | TokenKind::Char | TokenKind::Float
+                | TokenKind::Double | TokenKind::Void
+                | TokenKind::Struct | TokenKind::Const => return,
+                _ => { self.advance(); }
+            }
+        }
+    }
+
+    /// Recovery para o interior de um bloco: avança até ';' ou início de novo statement.
+    pub(crate) fn synchronize_block(&mut self) {
+        while !self.is_at_end() {
+            match self.peek_kind() {
+                TokenKind::Semicolon => { self.advance(); return; }
+                TokenKind::RightBrace | TokenKind::If | TokenKind::While
+                | TokenKind::For | TokenKind::Do | TokenKind::Return
+                | TokenKind::Break | TokenKind::Continue
+                | TokenKind::Int | TokenKind::Char | TokenKind::Float
+                | TokenKind::Double | TokenKind::Void | TokenKind::Const => return,
+                _ => { self.advance(); }
+            }
+        }
     }
 
     /// Retorna o token atual sem avançar a posição.
