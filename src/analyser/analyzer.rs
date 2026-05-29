@@ -3,6 +3,7 @@ use crate::common::ast::ast::{QualifierType, Type};
 use crate::common::ast::expr::{Expr, MemberAccess};
 use crate::common::errors::types::{CompilerError, SemanticError, SemanticErrorKind};
 
+#[derive(Default, Debug)]
 pub struct Analyser {
     pub symbols: SymbolTable,
 }
