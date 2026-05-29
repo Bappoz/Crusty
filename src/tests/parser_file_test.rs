@@ -77,7 +77,9 @@ mod tests {
         });
         assert!(has_printf_call, "esperava chamada printf no corpo de main");
 
-        let has_return = body.iter().any(|stmt| matches!(stmt, Stmt::Return(Some(_), _)));
+        let has_return = body
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Return(Some(_), _)));
         assert!(has_return, "esperava return com valor no corpo de main");
     }
 
@@ -106,6 +108,9 @@ mod tests {
             );
         });
 
-        assert!(result.is_ok(), "pipeline não deve panicar em erro sintático");
+        assert!(
+            result.is_ok(),
+            "pipeline não deve panicar em erro sintático"
+        );
     }
 }
