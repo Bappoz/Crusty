@@ -50,10 +50,14 @@ pub enum TokenKind {
     Caret,      // ^
     PlusPlus,   // ++
     MinusMinus, // --
-    PlusEqual,  // +=
-    MinusEqual, // -=
-    StarEqual,  // *=
-    SlashEqual, // /=
+    PlusEqual,       // +=
+    MinusEqual,      // -=
+    StarEqual,       // *=
+    SlashEqual,      // /=
+    PercentEqual,    // %=
+    AmpersandEqual,  // &=
+    PipeEqual,       // |=
+    CaretEqual,      // ^=
 
     // Operadores relacionais / igualdade
     EqualEqual,   // ==
