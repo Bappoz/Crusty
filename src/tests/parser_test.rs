@@ -1693,4 +1693,80 @@ mod tests {
         assert!(matches!(prog.decls[0], Decl::StructDecl(_, _, _)));
         assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
     }
+
+    // ── long / short ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_long_variable() {
+        // long x;
+        let tokens = vec![
+            tk(TokenKind::Long, 1),
+            ident("x", 6),
+            tk(TokenKind::Semicolon, 7),
+            eof(8),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear long");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Long));
+    }
+
+    #[test]
+    fn parses_short_variable() {
+        // short y;
+        let tokens = vec![
+            tk(TokenKind::Short, 1),
+            ident("y", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear short");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Short));
+    }
+
+    #[test]
+    fn parses_unsigned_long_variable() {
+        // unsigned long z;
+        let tokens = vec![
+            tk(TokenKind::Unsigned, 1),
+            tk(TokenKind::Long, 10),
+            ident("z", 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear unsigned long");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Long));
+        assert!(qty.is_unsigned);
+    }
+
+    #[test]
+    fn parses_long_pointer() {
+        // long *p;
+        let tokens = vec![
+            tk(TokenKind::Long, 1),
+            tk(TokenKind::Star, 6),
+            ident("p", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear long*");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        let Type::Pointer(inner) = &qty.ty else {
+            panic!("esperava Pointer");
+        };
+        assert!(matches!(**inner, Type::Long));
+    }
 }
