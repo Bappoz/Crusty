@@ -59,6 +59,21 @@ impl Parser {
 
             if op == TokenKind::Equal {
                 lhs = Expr::Assign(Box::new(lhs), Box::new(rhs), span);
+            } else if matches!(
+                op,
+                TokenKind::PlusEqual
+                    | TokenKind::MinusEqual
+                    | TokenKind::StarEqual
+                    | TokenKind::SlashEqual
+                    | TokenKind::PercentEqual
+                    | TokenKind::AmpersandEqual
+                    | TokenKind::PipeEqual
+                    | TokenKind::CaretEqual
+                    | TokenKind::LessLessEqual
+                    | TokenKind::GreaterGreaterEqual
+            ) {
+                let bin_op = infix::token_to_compound_bin_op(self, &op, &op_token)?;
+                lhs = Expr::CompoundAssign(bin_op, Box::new(lhs), Box::new(rhs), span);
             } else {
                 let bin = infix::token_to_bin_op(self, &op, &op_token)?;
                 lhs = Expr::Binary(Box::new(lhs), bin, Box::new(rhs), span);
