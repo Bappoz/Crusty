@@ -30,6 +30,14 @@ pub fn parse_program(parser: &mut Parser) -> Result<Program, Vec<CompilerError>>
 /// Dispatcher do escopo global: tipo + lookahead para distinguir função de variável global.
 fn parse_global_item(parser: &mut Parser) -> Result<Decl, CompilerError> {
     let start = parser.peek().clone();
+
+    if parser.check(&TokenKind::Struct)
+        && matches!(parser.peek_at(1).kind, TokenKind::Identifier(_))
+        && parser.peek_at(2).kind == TokenKind::LeftBrace
+    {
+        return parse_struct_decl(parser);
+    }
+
     let qty = parse_type(parser)?;
 
     let name_token = parser.advance().clone();
@@ -104,6 +112,45 @@ fn parse_param(parser: &mut Parser) -> Result<(QualifierType, String), CompilerE
         ));
     };
     Ok((qty, name))
+}
+
+/// Parseia uma definição de struct: `struct Name { type field; ... };`
+fn parse_struct_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
+    let start = parser.advance().clone(); // consome 'struct'
+
+    let name_token = parser.advance().clone();
+    let TokenKind::Identifier(name) = name_token.kind else {
+        return Err(parser.syntax_error(
+            &name_token,
+            "nome da struct",
+            &format!("{:?}", name_token.kind),
+        ));
+    };
+
+    parser.expect(&TokenKind::LeftBrace, "'{' após nome da struct")?;
+
+    let mut fields = Vec::new();
+    while !parser.check(&TokenKind::RightBrace) && !parser.is_at_end() {
+        let field_type = parse_type(parser)?;
+        let field_name_token = parser.advance().clone();
+        let TokenKind::Identifier(field_name) = field_name_token.kind else {
+            return Err(parser.syntax_error(
+                &field_name_token,
+                "nome do campo",
+                &format!("{:?}", field_name_token.kind),
+            ));
+        };
+        parser.expect(&TokenKind::Semicolon, "';' após campo da struct")?;
+        fields.push((field_type, field_name));
+    }
+
+    let end = parser
+        .expect(&TokenKind::RightBrace, "'}' ao fim da struct")?
+        .clone();
+    parser.expect(&TokenKind::Semicolon, "';' após definição de struct")?;
+
+    let span = parser.join_span(parser.span_of(&start), parser.span_of(&end));
+    Ok(Decl::StructDecl(name, fields, span))
 }
 
 /// Continua o parsing de uma variável global após tipo e nome: `([N])? (= expr)? ;`.

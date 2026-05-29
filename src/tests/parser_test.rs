@@ -1571,10 +1571,118 @@ mod tests {
             tk(TokenKind::RightBracket, 9),
             tk(TokenKind::Semicolon, 10),
             eof(11),
+          ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear definição seguida de uso de struct");
+        assert_eq!(prog.decls.len(), 2);
+        assert!(matches!(prog.decls[0], Decl::StructDecl(_, _, _)));
+        assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
+    }
+    // ── struct ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_struct_decl_with_fields() {
+        // struct Point { int x; int y; };
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Point", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::Int, 16),
+            ident("x", 20),
+            tk(TokenKind::Semicolon, 21),
+            tk(TokenKind::Int, 23),
+            ident("y", 27),
+            tk(TokenKind::Semicolon, 28),
+            tk(TokenKind::RightBrace, 30),
+            tk(TokenKind::Semicolon, 31),
+            eof(32),
         ];
         let mut parser = Parser::new(tokens);
         let prog = parser
             .parse_program()
+            .expect("deve parsear struct com campos");
+        assert_eq!(prog.decls.len(), 1);
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Point");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].1, "x");
+        assert_eq!(fields[0].0.ty, Type::Int);
+        assert_eq!(fields[1].1, "y");
+        assert_eq!(fields[1].0.ty, Type::Int);
+    }
+
+    #[test]
+    fn parses_struct_decl_empty_body() {
+        // struct Empty {};
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Empty", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::RightBrace, 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear struct vazia");
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Empty");
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn parses_struct_decl_with_pointer_field() {
+        // struct Node { int val; struct Node *next; };
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Node", 8),
+            tk(TokenKind::LeftBrace, 13),
+            tk(TokenKind::Int, 15),
+            ident("val", 19),
+            tk(TokenKind::Semicolon, 22),
+            tk(TokenKind::Struct, 24),
+            ident("Node", 31),
+            tk(TokenKind::Star, 36),
+            ident("next", 37),
+            tk(TokenKind::Semicolon, 41),
+            tk(TokenKind::RightBrace, 43),
+            tk(TokenKind::Semicolon, 44),
+            eof(45),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear struct com campo ponteiro");
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Node");
+        assert_eq!(fields.len(), 2);
+        assert!(matches!(fields[1].0.ty, Type::Pointer(_)));
+    }
+
+    #[test]
+    fn parses_struct_use_as_type_after_definition() {
+        // struct Point { int x; }; struct Point p;
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Point", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::Int, 16),
+            ident("x", 20),
+            tk(TokenKind::Semicolon, 21),
+            tk(TokenKind::RightBrace, 23),
+            tk(TokenKind::Semicolon, 24),
+            tk(TokenKind::Struct, 26),
+            ident("Point", 33),
+            ident("p", 39),
+            tk(TokenKind::Semicolon, 40),
+            eof(41),
             .expect("deve parsear array sem tamanho");
         let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
             panic!("esperava GlobalVar");
