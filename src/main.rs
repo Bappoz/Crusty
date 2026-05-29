@@ -85,9 +85,13 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
             }
             p
         }
-        Err(e) => {
-            print_report(&e.to_report());
-            return Err(Box::new(DiagnosticError { count: 1 }));
+        Err(errors) => {
+            let count = errors.len();
+            eprintln!("\n=== Syntax Errors ({count}) ===");
+            for e in &errors {
+                print_report(&e.to_report());
+            }
+            return Err(Box::new(DiagnosticError { count }));
         }
     };
 

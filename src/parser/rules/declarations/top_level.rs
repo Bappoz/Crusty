@@ -8,12 +8,23 @@ use crate::parser::parser::Parser;
 use crate::parser::rules::declarations::types::parse_type;
 
 /// Parseia um programa C completo: sequência de declarações globais até EOF.
-pub fn parse_program(parser: &mut Parser) -> Result<Program, CompilerError> {
+/// Ao encontrar erro, sincroniza no próximo `;` ou `}` e continua, acumulando todos os erros.
+pub fn parse_program(parser: &mut Parser) -> Result<Program, Vec<CompilerError>> {
     let mut decls = Vec::new();
     while !parser.is_at_end() {
-        decls.push(parse_global_item(parser)?);
+        match parse_global_item(parser) {
+            Ok(decl) => decls.push(decl),
+            Err(e) => {
+                parser.diagnostics.push(e);
+                parser.synchronize();
+            }
+        }
     }
-    Ok(Program { decls })
+    if parser.diagnostics.is_empty() {
+        Ok(Program { decls })
+    } else {
+        Err(std::mem::take(&mut parser.diagnostics))
+    }
 }
 
 /// Dispatcher do escopo global: tipo + lookahead para distinguir função de variável global.
