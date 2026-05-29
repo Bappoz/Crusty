@@ -70,6 +70,7 @@ pub enum Expr {
     Cast(QualifierType, Box<Expr>, Span),
     Index(Box<Expr>, Box<Expr>, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
+    CompoundAssign(BinOp, Box<Expr>, Box<Expr>, Span),
     Sizeof(Box<Expr>, Span),
 
     // Variante criada para isolar a representação semântica de tamanhos de TIPOS
@@ -93,6 +94,7 @@ impl Expr {
             Expr::Cast(_, _, s) => s.clone(),
             Expr::Index(_, _, s) => s.clone(),
             Expr::Assign(_, _, s) => s.clone(),
+            Expr::CompoundAssign(_, _, _, s) => s.clone(),
             Expr::Sizeof(_, s) => s.clone(),
             Expr::SizeofType(_, s) => s.clone(),
             Expr::Ternary(_, _, _, s) => s.clone(),
