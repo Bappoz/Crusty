@@ -1362,16 +1362,17 @@ mod tests {
         ];
 
         let mut parser = Parser::new(tokens);
-        let expr = parser
-            .parse_expr(0)
-            .expect("compound assign >>= válido");
+        let expr = parser.parse_expr(0).expect("compound assign >>= válido");
 
         let Expr::CompoundAssign(op, lhs, rhs, _) = expr else {
             panic!("esperava Expr::CompoundAssign para >>=");
         };
         assert_eq!(op, BinOp::Shr);
         assert!(matches!(*lhs, Expr::Ident(ref s, _) if s == "x"));
-        assert!(matches!(*rhs, Expr::Literal(crate::common::ast::expr::Literal::Int(2), _)));
+        assert!(matches!(
+            *rhs,
+            Expr::Literal(crate::common::ast::expr::Literal::Int(2), _)
+        ));
     }
 
     #[test]
@@ -1392,12 +1393,7 @@ mod tests {
         ];
 
         for (token_kind, expected_op) in cases {
-            let tokens = vec![
-                ident("a", 1),
-                tk(token_kind.clone(), 3),
-                int(1, 6),
-                eof(7),
-            ];
+            let tokens = vec![ident("a", 1), tk(token_kind.clone(), 3), int(1, 6), eof(7)];
 
             let mut parser = Parser::new(tokens);
             let expr = parser
