@@ -3,6 +3,24 @@ use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
+/// Consome sufixos `[expr?]` após o nome de uma variável e envolve o tipo em `Type::Array`.
+/// Suporta múltiplas dimensões: `int arr[3][4]` → `Array(Array(Int))`.
+/// O tamanho é consumido mas não armazenado (AST atual não possui campo de tamanho).
+pub fn parse_array_suffix(
+    parser: &mut Parser,
+    mut qty: QualifierType,
+) -> Result<QualifierType, CompilerError> {
+    while parser.check(&TokenKind::LeftBracket) {
+        parser.advance();
+        if !parser.check(&TokenKind::RightBracket) {
+            parser.parse_expr(0)?;
+        }
+        parser.expect(&TokenKind::RightBracket, "']' ao fim do tamanho do array")?;
+        qty.ty = Type::Array(Box::new(qty.ty));
+    }
+    Ok(qty)
+}
+
 // Retorna `true` se o token inicia uma declaração de tipo
 pub fn starts_type(kind: &TokenKind) -> bool {
     matches!(

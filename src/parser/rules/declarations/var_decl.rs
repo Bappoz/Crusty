@@ -2,9 +2,9 @@ use crate::common::ast::stmt::Stmt;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
-use crate::parser::rules::declarations::types::parse_type;
+use crate::parser::rules::declarations::types::{parse_array_suffix, parse_type};
 
-/// Parseia uma declaração de variável local: `tipo ident (= expr)? ;`
+/// Parseia uma declaração de variável local: `tipo ident ([expr?])* (= expr)? ;`
 /// Pressupõe que o token atual já foi confirmado como keyword de tipo.
 pub fn parse_var_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let start = parser.peek().clone();
@@ -20,6 +20,8 @@ pub fn parse_var_decl(parser: &mut Parser) -> Result<Stmt, CompilerError> {
             &format!("{:?}", name_token.kind),
         ));
     };
+
+    let qty = parse_array_suffix(parser, qty)?;
 
     // Inicializador Opcional: = expr
     let init = if parser.match_kind(&TokenKind::Equal) {

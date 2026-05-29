@@ -5,7 +5,7 @@ use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
-use crate::parser::rules::declarations::types::parse_type;
+use crate::parser::rules::declarations::types::{parse_array_suffix, parse_type};
 
 /// Parseia um programa C completo: sequência de declarações globais até EOF.
 /// Ao encontrar erro, sincroniza no próximo `;` ou `}` e continua, acumulando todos os erros.
@@ -153,13 +153,15 @@ fn parse_struct_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
     Ok(Decl::StructDecl(name, fields, span))
 }
 
-/// Continua o parsing de uma variável global após tipo e nome: `(= expr)? ;`.
+/// Continua o parsing de uma variável global após tipo e nome: `([N])? (= expr)? ;`.
 pub(crate) fn parse_global_var_decl(
     parser: &mut Parser,
     qty: QualifierType,
     name: String,
     start: Token,
 ) -> Result<Decl, CompilerError> {
+    let qty = parse_array_suffix(parser, qty)?;
+
     let init = if parser.match_kind(&TokenKind::Equal) {
         Some(parser.parse_expr(0)?)
     } else {
