@@ -29,6 +29,11 @@ impl Parser {
         &self.tokens[next]
     }
 
+    pub(crate) fn peek_at(&self, offset: usize) -> &Token {
+        let idx = (self.pos + offset).min(self.tokens.len() - 1);
+        &self.tokens[idx]
+    }
+
     /// Parseia uma expressão com precedência mínima `min_bp` usando o algoritmo Pratt (top-down operator precedence).
     /// Retorna a expressão construída ou um `Diagnostic` de erro sintático.
     pub fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
