@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
-    use crate::analyser::analyzer::Analyser;
     use crate::analyser::symbol_table::Symbol;
+    use crate::analyser::SemanticAnalyser;
     use crate::common::ast::ast::{QualifierType, Type};
     use crate::common::ast::expr::{Expr, MemberAccess};
     use crate::common::errors::error_data::Span;
@@ -15,33 +15,35 @@ mod test {
         }
     }
 
+    fn make_analyser_with_struct() -> SemanticAnalyser {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser.sym.register_struct(
+            "Pointer".to_string(),
+            vec![(
+                QualifierType {
+                    ty: Type::Int,
+                    is_const: false,
+                    is_unsigned: false,
+                },
+                "nome".to_string(),
+            )],
+        );
+        analyser
+    }
+
     #[test]
     fn test_direct_access_struct() {
-        let mut analyzer = Analyser::new();
-        analyzer.symbols.enter_scope();
-
-        let field_type = QualifierType {
-            ty: Type::Int,
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer.symbols.register_struct(
-            "Pointer".to_string(),
-            vec![(field_type, "nome".to_string())],
-        );
-
-        let struct_call = QualifierType {
-            ty: Type::Struct("Pointer".to_string()),
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer
-            .symbols
+        let mut analyser = make_analyser_with_struct();
+        analyser
+            .sym
             .declare(Symbol {
                 name: "meu_ponto".to_string(),
-                ty: struct_call,
+                ty: QualifierType {
+                    ty: Type::Struct("Pointer".to_string()),
+                    is_const: false,
+                    is_unsigned: false,
+                },
                 mutable: true,
                 decl_span: dummy_span(),
             })
@@ -55,41 +57,26 @@ mod test {
             span,
         );
 
-        let result = analyzer.check_expr(&expr);
+        let ty = analyser.analyse_expr(&expr);
         assert!(
-            result.is_ok(),
+            analyser.diagnostics.is_empty(),
             "deveria aceitar acesso direto a campo existente"
         );
-        assert_eq!(result.unwrap().ty, Type::Int);
+        assert_eq!(ty.ty, Type::Int);
     }
 
     #[test]
     fn test_field_not_found() {
-        let mut analyzer = Analyser::new();
-        analyzer.symbols.enter_scope();
-
-        let field_type = QualifierType {
-            ty: Type::Int,
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer.symbols.register_struct(
-            "Pointer".to_string(),
-            vec![(field_type, "nome".to_string())],
-        );
-
-        let struct_call = QualifierType {
-            ty: Type::Struct("Pointer".to_string()),
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer
-            .symbols
+        let mut analyser = make_analyser_with_struct();
+        analyser
+            .sym
             .declare(Symbol {
                 name: "meu_ponto".to_string(),
-                ty: struct_call,
+                ty: QualifierType {
+                    ty: Type::Struct("Pointer".to_string()),
+                    is_const: false,
+                    is_unsigned: false,
+                },
                 mutable: true,
                 decl_span: dummy_span(),
             })
@@ -103,37 +90,25 @@ mod test {
             span,
         );
 
-        let result = analyzer.check_expr(&expr);
-        assert!(result.is_err(), "deveria rejeitar campo inexistente");
+        analyser.analyse_expr(&expr);
+        assert!(
+            !analyser.diagnostics.is_empty(),
+            "deveria rejeitar campo inexistente"
+        );
     }
 
     #[test]
     fn test_pointer_access_struct() {
-        let mut analyzer = Analyser::new();
-        analyzer.symbols.enter_scope();
-
-        let field_type = QualifierType {
-            ty: Type::Int,
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer.symbols.register_struct(
-            "Pointer".to_string(),
-            vec![(field_type, "nome".to_string())],
-        );
-
-        let struct_pointer_call = QualifierType {
-            ty: Type::Pointer(Box::new(Type::Struct("Pointer".to_string()))),
-            is_const: false,
-            is_unsigned: false,
-        };
-
-        analyzer
-            .symbols
+        let mut analyser = make_analyser_with_struct();
+        analyser
+            .sym
             .declare(Symbol {
                 name: "ponteiro_ponto".to_string(),
-                ty: struct_pointer_call,
+                ty: QualifierType {
+                    ty: Type::Pointer(Box::new(Type::Struct("Pointer".to_string()))),
+                    is_const: false,
+                    is_unsigned: false,
+                },
                 mutable: true,
                 decl_span: dummy_span(),
             })
@@ -147,8 +122,11 @@ mod test {
             span,
         );
 
-        let result = analyzer.check_expr(&expr);
-        assert!(result.is_ok(), "deveria aceitar acesso via ponteiro");
-        assert_eq!(result.unwrap().ty, Type::Int);
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "deveria aceitar acesso via ponteiro"
+        );
+        assert_eq!(ty.ty, Type::Int);
     }
 }
