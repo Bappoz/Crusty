@@ -10,6 +10,7 @@ pub fn starts_type(kind: &TokenKind) -> bool {
         TokenKind::Const
             | TokenKind::Unsigned
             | TokenKind::Int
+            | TokenKind::Long
             | TokenKind::Float
             | TokenKind::Double
             | TokenKind::Struct
@@ -37,6 +38,11 @@ pub fn parse_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
     let base = match parser.peek_kind() {
         TokenKind::Int => {
             parser.advance();
+            Type::Int
+        }
+        TokenKind::Long => {
+            parser.advance();
+            // A AST ainda não possui Type::Long; tratamos como inteiro por ora.
             Type::Int
         }
         TokenKind::Char => {
