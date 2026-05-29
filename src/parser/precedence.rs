@@ -8,7 +8,18 @@ use crate::lexer::tokens::token_kind::TokenKind;
 /// `lbp` é o poder de ligação à esquerda e `rbp` à direita, seguindo a tabela de precedência do C.
 pub fn infix_binding_power(op: &TokenKind) -> Option<(u8, u8, bool)> {
     let bp = match op {
-        TokenKind::Equal => (1, 1, false),
+        // Atribuição simples e composta — associatividade à direita (rbp == lbp)
+        TokenKind::Equal
+        | TokenKind::PlusEqual
+        | TokenKind::MinusEqual
+        | TokenKind::StarEqual
+        | TokenKind::SlashEqual
+        | TokenKind::PercentEqual
+        | TokenKind::AmpersandEqual
+        | TokenKind::PipeEqual
+        | TokenKind::CaretEqual
+        | TokenKind::LessLessEqual
+        | TokenKind::GreaterGreaterEqual => (1, 1, false),
         TokenKind::OrOr => (2, 3, false),
         TokenKind::AndAnd => (4, 5, false),
         TokenKind::Pipe => (6, 7, false),

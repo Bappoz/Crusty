@@ -35,6 +35,36 @@ pub fn token_to_bin_op(
     Ok(op)
 }
 
+/// Converte um `TokenKind` de atribuição composta no `BinOp` da operação subjacente.
+/// Por exemplo, `+=` → `BinOp::Add`, `>>=` → `BinOp::Shr`.
+/// Retorna erro sintático se o token não for um operador de atribuição composta suportado.
+pub fn token_to_compound_bin_op(
+    parser: &Parser,
+    kind: &TokenKind,
+    found: &Token,
+) -> Result<BinOp, CompilerError> {
+    let op = match kind {
+        TokenKind::PlusEqual => BinOp::Add,
+        TokenKind::MinusEqual => BinOp::Sub,
+        TokenKind::StarEqual => BinOp::Mul,
+        TokenKind::SlashEqual => BinOp::Div,
+        TokenKind::PercentEqual => BinOp::Mod,
+        TokenKind::AmpersandEqual => BinOp::BitAnd,
+        TokenKind::PipeEqual => BinOp::BitOr,
+        TokenKind::CaretEqual => BinOp::BitXor,
+        TokenKind::LessLessEqual => BinOp::Shl,
+        TokenKind::GreaterGreaterEqual => BinOp::Shr,
+        _ => {
+            return Err(parser.syntax_error(
+                found,
+                "operador de atribuição composta",
+                &format!("{:?}", kind),
+            ))
+        }
+    };
+    Ok(op)
+}
+
 /// Parseia o operador ternário `? then : else` após o `?` já ter sido consumido.
 pub fn parse_ternary(parser: &mut Parser, lhs: Expr, rbp: u8) -> Result<Expr, CompilerError> {
     let then_expr = parser.parse_expr(rbp)?;
