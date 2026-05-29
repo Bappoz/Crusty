@@ -1,7 +1,7 @@
 use crate::analyser::symbol_table::{Symbol, SymbolTable};
 use crate::common::ast::ast::{Program, QualifierType, Type};
 use crate::common::ast::decl::Decl;
-use crate::common::ast::expr::{Expr, Literal};
+use crate::common::ast::expr::{Expr, Literal, MemberAccess};
 use crate::common::ast::stmt::Stmt;
 use crate::common::errors::types::{CompilerError, SemanticError, SemanticErrorKind};
 
@@ -46,8 +46,8 @@ impl SemanticAnalyser {
                     self.diagnostics.push(e);
                 }
             }
-            Decl::StructDecl(_, _, _) => {
-                // TODO(#87): registrar struct para checagem de membros
+            Decl::StructDecl(name, fields, _) => {
+                self.sym.register_struct(name.clone(), fields.clone());
             }
             Decl::Function(return_type, _name, params, body, span) => {
                 self.sym.enter_scope();
@@ -189,6 +189,11 @@ impl SemanticAnalyser {
             Expr::Unary(_, e, _) | Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => {
                 self.analyse_expr(e)
             }
+            Expr::CompoundAssign(_, lhs, rhs, _) => {
+                let lhs_ty = self.analyse_expr(lhs);
+                self.analyse_expr(rhs);
+                lhs_ty
+            }
             Expr::Cast(qty, e, _) => {
                 self.analyse_expr(e);
                 qty.clone()
@@ -226,10 +231,79 @@ impl SemanticAnalyser {
                 // TODO(#87): verificar compatibilidade de then/else
                 then_ty
             }
-            Expr::Member(obj, _, _, _) => {
-                self.analyse_expr(obj);
-                // TODO(#87): resolver tipo do membro no StructDecl
-                unknown_type()
+            Expr::Member(obj, access_kind, field_name, span) => {
+                let left_type = self.analyse_expr(obj);
+
+                let struct_name = match access_kind {
+                    MemberAccess::Direct => match &left_type.ty {
+                        Type::Struct(name) => name.clone(),
+                        _ => {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::TypeMismatch {
+                                        expected: "Struct".to_string(),
+                                        found: format!("{:?}", left_type.ty),
+                                    },
+                                }));
+                            return unknown_type();
+                        }
+                    },
+                    MemberAccess::Pointer => match &left_type.ty {
+                        Type::Pointer(inner) => match &**inner {
+                            Type::Struct(name) => name.clone(),
+                            _ => {
+                                self.diagnostics
+                                    .push(CompilerError::Semantic(SemanticError {
+                                        span: span.clone(),
+                                        kind: SemanticErrorKind::TypeMismatch {
+                                            expected: "*Struct".to_string(),
+                                            found: format!("{:?}", left_type.ty),
+                                        },
+                                    }));
+                                return unknown_type();
+                            }
+                        },
+                        _ => {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::TypeMismatch {
+                                        expected: "Pointer".to_string(),
+                                        found: format!("{:?}", left_type.ty),
+                                    },
+                                }));
+                            return unknown_type();
+                        }
+                    },
+                };
+
+                let fields = match self.sym.lookup_struct(&struct_name) {
+                    Some(f) => f.to_vec(),
+                    None => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::UndefinedStruct(struct_name.clone()),
+                            }));
+                        return unknown_type();
+                    }
+                };
+
+                match fields.iter().find(|(_, name)| name == field_name) {
+                    Some((field_type, _)) => field_type.clone(),
+                    None => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::FieldNotFound {
+                                    struct_name: struct_name.clone(),
+                                    field_name: field_name.clone(),
+                                },
+                            }));
+                        unknown_type()
+                    }
+                }
             }
         }
     }

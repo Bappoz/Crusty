@@ -1,3 +1,4 @@
+mod analyzer_test;
 mod ast_errors;
 mod lexer_file_test;
 mod lexical_test;
