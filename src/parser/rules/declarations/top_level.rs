@@ -120,7 +120,11 @@ fn parse_struct_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
 
     let name_token = parser.advance().clone();
     let TokenKind::Identifier(name) = name_token.kind else {
-        return Err(parser.syntax_error(&name_token, "nome da struct", &format!("{:?}", name_token.kind)));
+        return Err(parser.syntax_error(
+            &name_token,
+            "nome da struct",
+            &format!("{:?}", name_token.kind),
+        ));
     };
 
     parser.expect(&TokenKind::LeftBrace, "'{' após nome da struct")?;
@@ -140,7 +144,9 @@ fn parse_struct_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
         fields.push((field_type, field_name));
     }
 
-    let end = parser.expect(&TokenKind::RightBrace, "'}' ao fim da struct")?.clone();
+    let end = parser
+        .expect(&TokenKind::RightBrace, "'}' ao fim da struct")?
+        .clone();
     parser.expect(&TokenKind::Semicolon, "';' após definição de struct")?;
 
     let span = parser.join_span(parser.span_of(&start), parser.span_of(&end));

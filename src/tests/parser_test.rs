@@ -1502,7 +1502,9 @@ mod tests {
             eof(32),
         ];
         let mut parser = Parser::new(tokens);
-        let prog = parser.parse_program().expect("deve parsear struct com campos");
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear struct com campos");
         assert_eq!(prog.decls.len(), 1);
         let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
             panic!("esperava Decl::StructDecl");
