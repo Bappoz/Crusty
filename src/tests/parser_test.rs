@@ -388,6 +388,54 @@ mod tests {
     }
 
     #[test]
+    fn parses_typedef_then_uses_alias_as_type() {
+        let tokens = vec![
+            tk(TokenKind::Typedef, 1),
+            tk(TokenKind::Int, 10),
+            ident("Integer", 14),
+            tk(TokenKind::Semicolon, 21),
+            ident("Integer", 23),
+            ident("value", 31),
+            tk(TokenKind::Semicolon, 36),
+            eof(37),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("programa com typedef válido");
+
+        assert!(matches!(program.decls[0], Decl::Typedef(_, ref alias, _) if alias == "Integer"));
+        assert!(matches!(program.decls[1], Decl::GlobalVar(ref qty, ref name, _, _) if name == "value" && matches!(qty.ty, Type::Alias(ref alias) if alias == "Integer")));
+    }
+
+    #[test]
+    fn parses_enum_definition() {
+        let tokens = vec![
+            tk(TokenKind::Enum, 1),
+            ident("Color", 6),
+            tk(TokenKind::LeftBrace, 12),
+            ident("RED", 14),
+            tk(TokenKind::Equal, 18),
+            int(0, 20),
+            tk(TokenKind::Comma, 21),
+            ident("GREEN", 23),
+            tk(TokenKind::Comma, 28),
+            ident("BLUE", 30),
+            tk(TokenKind::RightBrace, 35),
+            tk(TokenKind::Semicolon, 36),
+            eof(37),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("enum válido");
+
+        let Decl::EnumDecl(Some(name), variants, _) = &program.decls[0] else {
+            panic!("esperava Decl::EnumDecl");
+        };
+        assert_eq!(name, "Color");
+        assert_eq!(variants.len(), 3);
+    }
+
+    #[test]
     fn parses_expr_stmt() {
         let tokens = vec![
             ident("x", 1),
