@@ -1694,6 +1694,69 @@ mod tests {
         assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
     }
 
+    #[test]
+    fn parses_enum_decl() {
+        // enum Color { RED = 0, GREEN, BLUE };
+        let tokens = vec![
+            tk(TokenKind::Enum, 1),
+            ident("Color", 6),
+            tk(TokenKind::LeftBrace, 12),
+            ident("RED", 14),
+            tk(TokenKind::Equal, 18),
+            int(0, 20),
+            tk(TokenKind::Comma, 21),
+            ident("GREEN", 23),
+            tk(TokenKind::Comma, 28),
+            ident("BLUE", 30),
+            tk(TokenKind::RightBrace, 34),
+            tk(TokenKind::Semicolon, 35),
+            eof(36),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear enum");
+        let Decl::EnumDecl(name, variants, _) = &prog.decls[0] else {
+            panic!("esperava Decl::EnumDecl");
+        };
+        assert_eq!(name, "Color");
+        assert_eq!(variants.len(), 3);
+        assert_eq!(variants[0].0, "RED");
+        assert!(matches!(variants[0].1, Some(Expr::Literal(Literal::Int(0), _))));
+        assert_eq!(variants[1].0, "GREEN");
+        assert!(variants[1].1.is_none());
+        assert_eq!(variants[2].0, "BLUE");
+        assert!(variants[2].1.is_none());
+    }
+
+    #[test]
+    fn parses_typedef_and_uses_alias_as_type() {
+        // typedef int Integer; Integer x;
+        let tokens = vec![
+            tk(TokenKind::Typedef, 1),
+            tk(TokenKind::Int, 10),
+            ident("Integer", 14),
+            tk(TokenKind::Semicolon, 21),
+            ident("Integer", 23),
+            ident("x", 31),
+            tk(TokenKind::Semicolon, 32),
+            eof(33),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear typedef seguido de uso do alias");
+        assert_eq!(prog.decls.len(), 2);
+        let Decl::Typedef(qty, alias, _) = &prog.decls[0] else {
+            panic!("esperava Decl::Typedef");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(alias, "Integer");
+        let Decl::GlobalVar(qty, name, _, _) = &prog.decls[1] else {
+            panic!("esperava Decl::GlobalVar");
+        };
+        assert_eq!(name, "x");
+        assert!(matches!(&qty.ty, Type::Alias(alias) if alias == "Integer"));
+    }
+
     // ── long / short ──────────────────────────────────────────────────────────
 
     #[test]
