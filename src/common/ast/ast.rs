@@ -11,6 +11,8 @@ pub enum Type {
     Array(Box<Type>),   //Determinar os tipos de arrays
     Pointer(Box<Type>), // olhar onde pode usar
     Struct(String),
+    Enum(String),
+    Alias(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
