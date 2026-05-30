@@ -18,6 +18,14 @@ pub fn parse_program(parser: &mut Parser) -> Result<Program, CompilerError> {
 
 /// Dispatcher do escopo global: tipo + lookahead para distinguir função de variável global.
 fn parse_global_item(parser: &mut Parser) -> Result<Decl, CompilerError> {
+    if parser.check(&TokenKind::Typedef) {
+        return parse_typedef_decl(parser);
+    }
+
+    if is_enum_definition(parser) {
+        return parse_enum_decl(parser);
+    }
+
     let start = parser.peek().clone();
     let qty = parse_type(parser)?;
 
@@ -113,4 +121,89 @@ pub(crate) fn parse_global_var_decl(
         .clone();
     let span = parser.join_span(parser.span_of(&start), parser.span_of(&semi));
     Ok(Decl::GlobalVar(qty, name, init, span))
+}
+
+fn parse_typedef_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
+    let start = parser.expect(&TokenKind::Typedef, "'typedef'")?.clone();
+    let qty = parse_type(parser)?;
+
+    let name_token = parser.advance().clone();
+    let TokenKind::Identifier(alias) = name_token.kind else {
+        return Err(parser.syntax_error(
+            &name_token,
+            "nome do typedef",
+            &format!("{:?}", name_token.kind),
+        ));
+    };
+
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' ao fim do typedef")?
+        .clone();
+    parser.register_type_name(alias.clone());
+    let span = parser.join_span(parser.span_of(&start), parser.span_of(&semi));
+    Ok(Decl::Typedef(qty, alias, span))
+}
+
+fn parse_enum_decl(parser: &mut Parser) -> Result<Decl, CompilerError> {
+    let start = parser.expect(&TokenKind::Enum, "'enum'")?.clone();
+
+    let name = if matches!(parser.peek_kind(), TokenKind::Identifier(_))
+        && parser.peek_next().kind == TokenKind::LeftBrace
+    {
+        let name_token = parser.advance().clone();
+        let TokenKind::Identifier(name) = name_token.kind else {
+            unreachable!();
+        };
+        Some(name)
+    } else {
+        None
+    };
+
+    parser.expect(&TokenKind::LeftBrace, "'{' após enum")?;
+
+    let mut variants = Vec::new();
+    while !parser.check(&TokenKind::RightBrace) && !parser.is_at_end() {
+        let variant_token = parser.advance().clone();
+        let TokenKind::Identifier(variant_name) = variant_token.kind else {
+            return Err(parser.syntax_error(
+                &variant_token,
+                "nome de variante de enum",
+                &format!("{:?}", variant_token.kind),
+            ));
+        };
+
+        let value = if parser.match_kind(&TokenKind::Equal) {
+            Some(parser.parse_expr(0)?)
+        } else {
+            None
+        };
+
+        variants.push((variant_name, value));
+
+        if parser.match_kind(&TokenKind::Comma) {
+            continue;
+        }
+        break;
+    }
+
+    let rbrace = parser
+        .expect(&TokenKind::RightBrace, "'}' ao fim do enum")?
+        .clone();
+    let semi = parser
+        .expect(&TokenKind::Semicolon, "';' ao fim da declaração de enum")?
+        .clone();
+
+    let span = parser.join_span(parser.span_of(&start), parser.span_of(&semi));
+    let _ = rbrace;
+    Ok(Decl::EnumDecl(name, variants, span))
+}
+
+fn is_enum_definition(parser: &Parser) -> bool {
+    if !parser.check(&TokenKind::Enum) {
+        return false;
+    }
+
+    matches!(parser.peek_next().kind, TokenKind::LeftBrace)
+        || (matches!(parser.peek_next().kind, TokenKind::Identifier(_))
+            && parser.peek_n(2).kind == TokenKind::LeftBrace)
 }
