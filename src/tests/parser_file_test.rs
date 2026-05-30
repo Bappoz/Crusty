@@ -56,6 +56,17 @@ mod tests {
     }
 
     #[test]
+    fn typedef_and_enum_are_parsed_and_register_types() {
+        let program = parse_file("typedef_enum.c");
+
+        assert_eq!(program.decls.len(), 4, "esperado 4 declarações globais");
+        assert!(matches!(&program.decls[0], Decl::Typedef(_, alias, _) if alias == "Integer"));
+        assert!(matches!(&program.decls[1], Decl::EnumDecl(Some(name), _, _) if name == "Color"));
+        assert!(matches!(&program.decls[2], Decl::GlobalVar(_, name, _, _) if name == "value"));
+        assert!(matches!(&program.decls[3], Decl::GlobalVar(_, name, _, _) if name == "color"));
+    }
+
+    #[test]
     fn hello_world_has_printf_call_and_return() {
         let program = parse_file("hello_world.c");
 
