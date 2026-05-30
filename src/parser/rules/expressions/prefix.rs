@@ -82,7 +82,7 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
     }
 
     let next = parser.peek_next();
-    crate::parser::rules::declarations::starts_type(&next.kind)
+    parser.is_type_name(&next.kind)
 }
 
 /// Parseia o tipo dentro de um cast, incluindo qualificadores `const`/`unsigned` e ponteiros `*`.
