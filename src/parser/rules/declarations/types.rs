@@ -14,6 +14,7 @@ pub fn starts_type(kind: &TokenKind) -> bool {
             | TokenKind::Float
             | TokenKind::Double
             | TokenKind::Struct
+            | TokenKind::Enum
             | TokenKind::Void
             | TokenKind::Char
     )
@@ -68,6 +69,19 @@ pub fn parse_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
                 return Err(parser.syntax_error(&t, "nome de struct", &format!("{:?}", t.kind)));
             };
             Type::Struct(name)
+        }
+        TokenKind::Enum => {
+            parser.advance();
+            let t = parser.advance().clone();
+            let TokenKind::Identifier(name) = t.kind else {
+                return Err(parser.syntax_error(&t, "nome de enum", &format!("{:?}", t.kind)));
+            };
+            Type::Enum(name)
+        }
+        TokenKind::Identifier(name) if parser.is_type_name(parser.peek_kind()) => {
+            let name = name.clone();
+            parser.advance();
+            Type::Alias(name)
         }
         _ => {
             let found = parser.peek().clone();
