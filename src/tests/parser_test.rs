@@ -403,8 +403,15 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let program = parser.parse_program().expect("programa com typedef válido");
 
-        assert!(matches!(program.decls[0], Decl::Typedef(_, ref alias, _) if alias == "Integer"));
-        assert!(matches!(program.decls[1], Decl::GlobalVar(ref qty, ref name, _, _) if name == "value" && matches!(qty.ty, Type::Alias(ref alias) if alias == "Integer")));
+        assert!(matches!(
+            program.decls[0],
+            Decl::Typedef(_, ref alias, _) if alias == "Integer"
+        ));
+        assert!(matches!(
+            program.decls[1],
+            Decl::GlobalVar(ref qty, ref name, _, _)
+                if name == "value" && matches!(qty.ty, Type::Alias(ref alias) if alias == "Integer")
+        ));
     }
 
     #[test]
