@@ -4,5 +4,6 @@ mod lexical_test;
 mod literals_test;
 mod parser_file_test;
 mod parser_test;
+mod semantic_test;
 mod source_test;
 mod token_test;
