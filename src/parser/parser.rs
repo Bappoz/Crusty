@@ -6,6 +6,7 @@ use crate::common::errors::types::{CompilerError, SyntaxError};
 use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::rules::expressions::{infix, postfix, prefix};
+use std::collections::HashSet;
 
 type Diagnostic = CompilerError;
 
@@ -13,17 +14,51 @@ type Diagnostic = CompilerError;
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    type_names: HashSet<String>,
 }
 
 impl Parser {
     /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            type_names: HashSet::new(),
+        }
     }
 
     pub(crate) fn peek_next(&self) -> &Token {
-        let next = (self.pos + 1).min(self.tokens.len() - 1);
+        self.peek_n(1)
+    }
+
+    pub(crate) fn peek_n(&self, offset: usize) -> &Token {
+        let next = (self.pos + offset).min(self.tokens.len() - 1);
         &self.tokens[next]
+    }
+
+    pub(crate) fn register_type_name(&mut self, name: String) {
+        self.type_names.insert(name);
+    }
+
+    pub(crate) fn is_type_name(&self, kind: &TokenKind) -> bool {
+        match kind {
+            TokenKind::Const
+            | TokenKind::Unsigned
+            | TokenKind::Int
+            | TokenKind::Long
+            | TokenKind::Float
+            | TokenKind::Double
+            | TokenKind::Struct
+            | TokenKind::Enum
+            | TokenKind::Void
+            | TokenKind::Char => true,
+            TokenKind::Identifier(name) => self.type_names.contains(name),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn starts_type(&self) -> bool {
+        self.is_type_name(self.peek_kind())
     }
 
     /// Parseia uma expressão com precedência mínima `min_bp` usando o algoritmo Pratt (top-down operator precedence).
