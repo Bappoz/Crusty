@@ -22,20 +22,26 @@ pub fn parse_array_suffix(
 }
 
 // Retorna `true` se o token inicia uma declaração de tipo
-pub fn starts_type(kind: &TokenKind) -> bool {
-    matches!(
-        kind,
+pub fn starts_type(parser: &Parser) -> bool {
+    starts_type_kind(parser, parser.peek_kind())
+}
+
+pub fn starts_type_kind(parser: &Parser, kind: &TokenKind) -> bool {
+    match kind {
         TokenKind::Const
-            | TokenKind::Unsigned
-            | TokenKind::Int
-            | TokenKind::Long
-            | TokenKind::Short
-            | TokenKind::Float
-            | TokenKind::Double
-            | TokenKind::Struct
-            | TokenKind::Void
-            | TokenKind::Char
-    )
+        | TokenKind::Unsigned
+        | TokenKind::Int
+        | TokenKind::Long
+        | TokenKind::Short
+        | TokenKind::Float
+        | TokenKind::Double
+        | TokenKind::Struct
+        | TokenKind::Void
+        | TokenKind::Char
+        | TokenKind::Enum => true,
+        TokenKind::Identifier(name) => parser.is_type_name(name),
+        _ => false,
+    }
 }
 
 /// Parseia um tipo C completo: `const? Unsigned? base *...`
@@ -90,6 +96,19 @@ pub fn parse_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
                 return Err(parser.syntax_error(&t, "nome de struct", &format!("{:?}", t.kind)));
             };
             Type::Struct(name)
+        }
+        TokenKind::Enum => {
+            parser.advance();
+            let t = parser.advance().clone();
+            let TokenKind::Identifier(name) = t.kind else {
+                return Err(parser.syntax_error(&t, "nome de enum", &format!("{:?}", t.kind)));
+            };
+            Type::Enum(name)
+        }
+        TokenKind::Identifier(name) if parser.is_type_name(name) => {
+            let name = name.clone();
+            parser.advance();
+            Type::Alias(name)
         }
         _ => {
             let found = parser.peek().clone();
