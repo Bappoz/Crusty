@@ -123,7 +123,13 @@ impl SymbolTable {
     }
 
     pub fn has_function(&self, name: &str) -> bool {
-        matches!(self.lookup(name), Some(Symbol { kind: SymbolKind::Function { .. }, .. }))
+        matches!(
+            self.lookup(name),
+            Some(Symbol {
+                kind: SymbolKind::Function { .. },
+                ..
+            })
+        )
     }
 
     pub fn has_struct(&self, name: &str) -> bool {
@@ -166,8 +172,12 @@ impl SemanticAnalyser {
             Decl::Function(return_type, name, params, body, span) => {
                 let param_types = params.iter().map(|(ty, _)| ty.clone()).collect();
                 if !self.sym.has_function(name) {
-                    self.sym
-                        .insert_function(name.clone(), return_type.clone(), param_types, span.clone());
+                    self.sym.insert_function(
+                        name.clone(),
+                        return_type.clone(),
+                        param_types,
+                        span.clone(),
+                    );
                 }
 
                 let previous_return_type = self.current_fn_ret.clone();
@@ -176,15 +186,12 @@ impl SemanticAnalyser {
                 self.sym.enter_scope();
                 for (param_type, param_name) in params {
                     self.validate_type(param_type, span.clone());
-                    if !self
-                        .sym
-                        .insert_variable(param_name.clone(), param_type.clone(), span.clone())
-                    {
-                        self.push_type_mismatch(
-                            span.clone(),
-                            "parametro unico",
-                            param_name,
-                        );
+                    if !self.sym.insert_variable(
+                        param_name.clone(),
+                        param_type.clone(),
+                        span.clone(),
+                    ) {
+                        self.push_type_mismatch(span.clone(), "parametro unico", param_name);
                     }
                 }
 
@@ -449,7 +456,8 @@ impl SemanticAnalyser {
                         for (field_type, field_name) in fields {
                             field_map.insert(field_name.clone(), field_type.clone());
                         }
-                        self.sym.insert_struct(name.clone(), field_map, span.clone());
+                        self.sym
+                            .insert_struct(name.clone(), field_map, span.clone());
                     }
                 }
                 Decl::GlobalVar(_, _, _, _) => {}
@@ -462,7 +470,11 @@ impl SemanticAnalyser {
             SwitchLabel::Case(expr) => {
                 let case_ty = self.analyse_expr(expr);
                 if !self.are_assignable(switch_ty, &case_ty) {
-                    self.push_type_mismatch(expr.span(), &self.type_name(switch_ty), &self.type_name(&case_ty));
+                    self.push_type_mismatch(
+                        expr.span(),
+                        &self.type_name(switch_ty),
+                        &self.type_name(&case_ty),
+                    );
                 }
             }
             SwitchLabel::Default => {}
@@ -551,7 +563,10 @@ impl SemanticAnalyser {
         match info.fields.get(field) {
             Some(ty) => ty.clone(),
             None => {
-                self.push_semantic_error(span, SemanticErrorKind::UndefinedVariable(field.to_string()));
+                self.push_semantic_error(
+                    span,
+                    SemanticErrorKind::UndefinedVariable(field.to_string()),
+                );
                 self.int_type()
             }
         }
@@ -567,9 +582,20 @@ impl SemanticAnalyser {
         match op {
             BinOp::Add => self.analyse_add(lhs_ty, rhs_ty, span),
             BinOp::Sub => self.analyse_sub(lhs_ty, rhs_ty, span),
-            BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+            BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor => {
                 if !self.is_numeric(&lhs_ty.ty) || !self.is_numeric(&rhs_ty.ty) {
-                    self.push_type_mismatch(span, "tipos numericos", &self.binary_type_name(lhs_ty, rhs_ty));
+                    self.push_type_mismatch(
+                        span,
+                        "tipos numericos",
+                        &self.binary_type_name(lhs_ty, rhs_ty),
+                    );
                 }
                 self.merge_numeric(lhs_ty, rhs_ty)
             }
@@ -581,7 +607,11 @@ impl SemanticAnalyser {
             }
             BinOp::Less | BinOp::Greater | BinOp::Leq | BinOp::Geq => {
                 if !self.is_numeric(&lhs_ty.ty) || !self.is_numeric(&rhs_ty.ty) {
-                    self.push_type_mismatch(span, "tipos numericos", &self.binary_type_name(lhs_ty, rhs_ty));
+                    self.push_type_mismatch(
+                        span,
+                        "tipos numericos",
+                        &self.binary_type_name(lhs_ty, rhs_ty),
+                    );
                 }
                 self.int_type()
             }
@@ -593,7 +623,12 @@ impl SemanticAnalyser {
         }
     }
 
-    fn analyse_add(&mut self, lhs_ty: &QualifierType, rhs_ty: &QualifierType, span: Span) -> QualifierType {
+    fn analyse_add(
+        &mut self,
+        lhs_ty: &QualifierType,
+        rhs_ty: &QualifierType,
+        span: Span,
+    ) -> QualifierType {
         if self.is_numeric(&lhs_ty.ty) && self.is_numeric(&rhs_ty.ty) {
             return self.merge_numeric(lhs_ty, rhs_ty);
         }
@@ -606,11 +641,20 @@ impl SemanticAnalyser {
             return rhs_ty.clone();
         }
 
-        self.push_type_mismatch(span, "tipos numericos ou ponteiro + inteiro", &self.binary_type_name(lhs_ty, rhs_ty));
+        self.push_type_mismatch(
+            span,
+            "tipos numericos ou ponteiro + inteiro",
+            &self.binary_type_name(lhs_ty, rhs_ty),
+        );
         self.merge_numeric(lhs_ty, rhs_ty)
     }
 
-    fn analyse_sub(&mut self, lhs_ty: &QualifierType, rhs_ty: &QualifierType, span: Span) -> QualifierType {
+    fn analyse_sub(
+        &mut self,
+        lhs_ty: &QualifierType,
+        rhs_ty: &QualifierType,
+        span: Span,
+    ) -> QualifierType {
         if self.is_numeric(&lhs_ty.ty) && self.is_numeric(&rhs_ty.ty) {
             return self.merge_numeric(lhs_ty, rhs_ty);
         }
@@ -619,15 +663,27 @@ impl SemanticAnalyser {
             return lhs_ty.clone();
         }
 
-        if self.is_pointer(&lhs_ty.ty) && self.is_pointer(&rhs_ty.ty) && self.same_pointee(&lhs_ty.ty, &rhs_ty.ty) {
+        if self.is_pointer(&lhs_ty.ty)
+            && self.is_pointer(&rhs_ty.ty)
+            && self.same_pointee(&lhs_ty.ty, &rhs_ty.ty)
+        {
             return self.int_type();
         }
 
-        self.push_type_mismatch(span, "tipos numericos ou ponteiros compatíveis", &self.binary_type_name(lhs_ty, rhs_ty));
+        self.push_type_mismatch(
+            span,
+            "tipos numericos ou ponteiros compatíveis",
+            &self.binary_type_name(lhs_ty, rhs_ty),
+        );
         self.merge_numeric(lhs_ty, rhs_ty)
     }
 
-    fn analyse_unary_op(&mut self, op: &UnOp, inner_ty: &QualifierType, span: Span) -> QualifierType {
+    fn analyse_unary_op(
+        &mut self,
+        op: &UnOp,
+        inner_ty: &QualifierType,
+        span: Span,
+    ) -> QualifierType {
         match op {
             UnOp::Neg | UnOp::BitNot => {
                 if !self.is_numeric(&inner_ty.ty) {
@@ -709,7 +765,10 @@ impl SemanticAnalyser {
             Type::Pointer(inner) | Type::Array(inner) => self.validate_qualified_type(inner, span),
             Type::Struct(name) => {
                 if !self.sym.has_struct(name) {
-                    self.push_semantic_error(span, SemanticErrorKind::UndefinedVariable(name.clone()));
+                    self.push_semantic_error(
+                        span,
+                        SemanticErrorKind::UndefinedVariable(name.clone()),
+                    );
                 }
             }
             Type::Int | Type::Char | Type::Float | Type::Double | Type::Void => {}
@@ -750,7 +809,8 @@ impl SemanticAnalyser {
     }
 
     fn push_semantic_error(&mut self, span: Span, kind: SemanticErrorKind) {
-        self.diagnostics.push(CompilerError::Semantic(SemanticError { span, kind }));
+        self.diagnostics
+            .push(CompilerError::Semantic(SemanticError { span, kind }));
     }
 
     fn push_type_mismatch(&mut self, span: Span, expected: &str, found: &str) {
@@ -776,14 +836,18 @@ impl SemanticAnalyser {
             | (Type::Void, Type::Void) => true,
             (Type::Struct(lhs_name), Type::Struct(rhs_name)) => lhs_name == rhs_name,
             (Type::Pointer(lhs_inner), Type::Pointer(rhs_inner))
-            | (Type::Array(lhs_inner), Type::Array(rhs_inner)) => self.same_type(lhs_inner, rhs_inner),
+            | (Type::Array(lhs_inner), Type::Array(rhs_inner)) => {
+                self.same_type(lhs_inner, rhs_inner)
+            }
             _ => false,
         }
     }
 
     fn same_pointee(&self, lhs: &Type, rhs: &Type) -> bool {
         match (lhs, rhs) {
-            (Type::Pointer(lhs_inner), Type::Pointer(rhs_inner)) => self.same_type(lhs_inner, rhs_inner),
+            (Type::Pointer(lhs_inner), Type::Pointer(rhs_inner)) => {
+                self.same_type(lhs_inner, rhs_inner)
+            }
             _ => false,
         }
     }
@@ -824,16 +888,22 @@ impl SemanticAnalyser {
             Type::Double => "double".to_string(),
             Type::Void => "void".to_string(),
             Type::Struct(name) => format!("struct {}", name),
-            Type::Pointer(inner) => format!("{}*", self.type_name(&QualifierType {
-                ty: (**inner).clone(),
-                is_const: false,
-                is_unsigned: false,
-            })),
-            Type::Array(inner) => format!("{}[]", self.type_name(&QualifierType {
-                ty: (**inner).clone(),
-                is_const: false,
-                is_unsigned: false,
-            })),
+            Type::Pointer(inner) => format!(
+                "{}*",
+                self.type_name(&QualifierType {
+                    ty: (**inner).clone(),
+                    is_const: false,
+                    is_unsigned: false,
+                })
+            ),
+            Type::Array(inner) => format!(
+                "{}[]",
+                self.type_name(&QualifierType {
+                    ty: (**inner).clone(),
+                    is_const: false,
+                    is_unsigned: false,
+                })
+            ),
         };
 
         format!("{}{}", prefix, suffix)
