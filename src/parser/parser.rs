@@ -6,6 +6,7 @@ use crate::common::errors::types::{CompilerError, SyntaxError};
 use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::rules::expressions::{infix, postfix, prefix};
+use std::collections::HashSet;
 
 type Diagnostic = CompilerError;
 
@@ -13,6 +14,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     pub(crate) diagnostics: Vec<CompilerError>,
+    type_names: HashSet<String>,
 }
 
 impl Parser {
@@ -21,7 +23,16 @@ impl Parser {
             tokens,
             pos: 0,
             diagnostics: Vec::new(),
+            type_names: HashSet::new(),
         }
+    }
+
+    pub(crate) fn register_type_name(&mut self, name: String) {
+        self.type_names.insert(name);
+    }
+
+    pub(crate) fn is_type_name(&self, name: &str) -> bool {
+        self.type_names.contains(name)
     }
 
     pub(crate) fn peek_next(&self) -> &Token {
