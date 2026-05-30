@@ -1,5 +1,6 @@
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
+use crusty::analyser::analyse;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
 use std::env;
@@ -81,6 +82,19 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
             println!("\n=== AST ({}) ===", program.decls.len());
             for decl in &program.decls {
                 println!("{:#?}", decl);
+            }
+
+            let diagnostics = analyse(&program);
+            if diagnostics.is_empty() {
+                println!("\n=== Semantic Diagnostics (0) ===");
+            } else {
+                eprintln!("\n=== Semantic Diagnostics ({}) ===", diagnostics.len());
+                for diagnostic in &diagnostics {
+                    print_report(&diagnostic.to_report());
+                }
+                return Err(Box::new(DiagnosticError {
+                    count: diagnostics.len(),
+                }));
             }
         }
         Err(e) => {
