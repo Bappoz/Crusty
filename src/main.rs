@@ -1,6 +1,6 @@
+use crusty::analyser::analyse;
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
-use crusty::analyser::analyse;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
 use std::env;
