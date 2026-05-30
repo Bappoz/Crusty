@@ -15,7 +15,8 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     if kind == TokenKind::Sizeof {
         let sizeof_token = parser.advance().clone();
 
-        if parser.check(&TokenKind::LeftParen) && starts_type_kind(parser, &parser.peek_next().kind) {
+        if parser.check(&TokenKind::LeftParen) && starts_type_kind(parser, &parser.peek_next().kind)
+        {
             parser.expect(&TokenKind::LeftParen, "'(' após sizeof")?; // verifica se é um ( se for consome e passa pro próximo token
 
             let ty = parse_type(parser)?; // vai guardar tudo que faz parte do entendimento do tipo (*int), (unsiged int),...

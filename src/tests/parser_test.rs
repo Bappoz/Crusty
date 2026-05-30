@@ -1720,7 +1720,10 @@ mod tests {
         assert_eq!(name, "Color");
         assert_eq!(variants.len(), 3);
         assert_eq!(variants[0].0, "RED");
-        assert!(matches!(variants[0].1, Some(Expr::Literal(Literal::Int(0), _))));
+        assert!(matches!(
+            variants[0].1,
+            Some(Expr::Literal(Literal::Int(0), _))
+        ));
         assert_eq!(variants[1].0, "GREEN");
         assert!(variants[1].1.is_none());
         assert_eq!(variants[2].0, "BLUE");

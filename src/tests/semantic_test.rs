@@ -191,12 +191,12 @@ mod tests {
     fn typedef_alias_resolves_before_member_access() {
         let prog = Program {
             decls: vec![
-                Decl::StructDecl(
-                    "Point".into(),
-                    vec![(qty(Type::Int), "x".into())],
+                Decl::StructDecl("Point".into(), vec![(qty(Type::Int), "x".into())], span()),
+                Decl::Typedef(
+                    qty(Type::Struct("Point".into())),
+                    "PointAlias".into(),
                     span(),
                 ),
-                Decl::Typedef(qty(Type::Struct("Point".into())), "PointAlias".into(), span()),
                 Decl::Function(
                     qty(Type::Void),
                     "main".into(),
