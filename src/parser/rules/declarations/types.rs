@@ -28,6 +28,8 @@ pub fn starts_type(kind: &TokenKind) -> bool {
         TokenKind::Const
             | TokenKind::Unsigned
             | TokenKind::Int
+            | TokenKind::Long
+            | TokenKind::Short
             | TokenKind::Float
             | TokenKind::Double
             | TokenKind::Struct
@@ -56,6 +58,14 @@ pub fn parse_type(parser: &mut Parser) -> Result<QualifierType, CompilerError> {
         TokenKind::Int => {
             parser.advance();
             Type::Int
+        }
+        TokenKind::Long => {
+            parser.advance();
+            Type::Long
+        }
+        TokenKind::Short => {
+            parser.advance();
+            Type::Short
         }
         TokenKind::Char => {
             parser.advance();

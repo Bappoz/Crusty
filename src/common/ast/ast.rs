@@ -4,12 +4,14 @@ use crate::common::ast::decl::Decl;
 pub enum Type {
     // Só armazena, então o que importa é a capacidade.
     Int,
+    Long,
+    Short,
     Char,
     Float,
     Double,
     Void,
-    Array(Box<Type>),   //Determinar os tipos de arrays
-    Pointer(Box<Type>), // olhar onde pode usar
+    Array(Box<Type>),
+    Pointer(Box<Type>),
     Struct(String),
 }
 
