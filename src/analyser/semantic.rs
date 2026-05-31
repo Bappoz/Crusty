@@ -211,13 +211,14 @@ impl SemanticAnalyser {
                 let lhs_ty = self.analyse_expr(lhs);
                 let rhs_ty = self.analyse_expr(rhs);
                 if !types_compatible_for_assign(&lhs_ty.ty, &rhs_ty.ty) {
-                    self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                        span: span.clone(),
-                        kind: SemanticErrorKind::TypeMismatch {
-                            expected: type_name(&lhs_ty.ty),
-                            found: type_name(&rhs_ty.ty),
-                        },
-                    }));
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: type_name(&lhs_ty.ty),
+                                found: type_name(&rhs_ty.ty),
+                            },
+                        }));
                 }
                 lhs_ty
             }
@@ -227,10 +228,11 @@ impl SemanticAnalyser {
                 match binary_result_type(&lhs_ty.ty, op, &rhs_ty.ty) {
                     Ok(result_ty) => result_ty,
                     Err((expected, found)) => {
-                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                            span: span.clone(),
-                            kind: SemanticErrorKind::TypeMismatch { expected, found },
-                        }));
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::TypeMismatch { expected, found },
+                            }));
                         unknown_type()
                     }
                 }
@@ -505,9 +507,7 @@ fn binary_result_type(
         is_unsigned: false,
     };
 
-    let is_integer = |t: &Type| {
-        matches!(t, Type::Int | Type::Long | Type::Short | Type::Char)
-    };
+    let is_integer = |t: &Type| matches!(t, Type::Int | Type::Long | Type::Short | Type::Char);
 
     match op {
         // ── Adição e Subtração ───────────────────────────────────────────────

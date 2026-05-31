@@ -415,7 +415,6 @@ mod tests {
 
     #[test]
     fn typedef_alias_resolves_before_member_access() {
-
         let prog = Program {
             decls: vec![
                 Decl::StructDecl("Point".into(), vec![(qty(Type::Int), "x".into())], span()),
