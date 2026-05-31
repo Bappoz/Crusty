@@ -3,7 +3,7 @@ use crate::common::errors::error_data::Span;
 use crate::common::errors::types::CompilerError;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
-use crate::parser::rules::declarations::{parse_type, starts_type};
+use crate::parser::rules::declarations::{parse_type, starts_type_kind};
 
 /// Parseia uma expressão prefix: operadores unários, literais, identificadores, agrupamentos e casts.
 /// É o ponto de entrada principal do lado esquerdo no algoritmo Pratt.
@@ -15,7 +15,8 @@ pub fn parse_prefix_expr(parser: &mut Parser) -> Result<Expr, CompilerError> {
     if kind == TokenKind::Sizeof {
         let sizeof_token = parser.advance().clone();
 
-        if parser.check(&TokenKind::LeftParen) && starts_type(&parser.peek_next().kind) {
+        if parser.check(&TokenKind::LeftParen) && starts_type_kind(parser, &parser.peek_next().kind)
+        {
             parser.expect(&TokenKind::LeftParen, "'(' após sizeof")?; // verifica se é um ( se for consome e passa pro próximo token
 
             let ty = parse_type(parser)?; // vai guardar tudo que faz parte do entendimento do tipo (*int), (unsiged int),...
@@ -113,7 +114,7 @@ pub fn looks_like_cast(parser: &Parser) -> bool {
     }
 
     let next = parser.peek_next();
-    crate::parser::rules::declarations::starts_type(&next.kind)
+    starts_type_kind(parser, &next.kind)
 }
 
 /// Constrói o nó de expressão prefix correto para o operador `op` aplicado sobre `rhs`.

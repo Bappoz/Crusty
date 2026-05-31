@@ -3,7 +3,7 @@ mod tests {
     use crate::analyser::SemanticAnalyser;
     use crate::common::ast::ast::{Program, QualifierType, Type};
     use crate::common::ast::decl::Decl;
-    use crate::common::ast::expr::{Expr, Literal};
+    use crate::common::ast::expr::{Expr, Literal, MemberAccess};
     use crate::common::ast::stmt::Stmt;
     use crate::common::errors::error_data::Span;
     use crate::common::errors::types::SemanticErrorKind;
@@ -185,5 +185,44 @@ mod tests {
             .unwrap();
         let ty = analyser.analyse_expr(&ident("f"));
         assert!(matches!(ty.ty, crate::common::ast::ast::Type::Float));
+    }
+
+    #[test]
+    fn typedef_alias_resolves_before_member_access() {
+        let prog = Program {
+            decls: vec![
+                Decl::StructDecl("Point".into(), vec![(qty(Type::Int), "x".into())], span()),
+                Decl::Typedef(
+                    qty(Type::Struct("Point".into())),
+                    "PointAlias".into(),
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Void),
+                    "main".into(),
+                    vec![],
+                    vec![
+                        Stmt::VarDecl(
+                            qty(Type::Alias("PointAlias".into())),
+                            "p".into(),
+                            None,
+                            span(),
+                        ),
+                        Stmt::ExprStmt(
+                            Expr::Member(
+                                Box::new(ident("p")),
+                                MemberAccess::Direct,
+                                "x".into(),
+                                span(),
+                            ),
+                            span(),
+                        ),
+                    ],
+                    span(),
+                ),
+            ],
+        };
+
+        assert!(analyse(&prog).is_empty());
     }
 }

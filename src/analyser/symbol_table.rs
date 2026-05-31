@@ -18,6 +18,7 @@ pub struct SymbolTable {
     scopes: Vec<HashMap<String, Symbol>>,
 
     struct_table: HashMap<String, Vec<(QualifierType, String)>>,
+    type_aliases: HashMap<String, QualifierType>,
 }
 
 impl SymbolTable {
@@ -62,5 +63,13 @@ impl SymbolTable {
 
     pub fn lookup_struct(&self, name: &str) -> Option<&[(QualifierType, String)]> {
         self.struct_table.get(name).map(|v| v.as_slice())
+    }
+
+    pub fn register_type_alias(&mut self, name: String, ty: QualifierType) {
+        self.type_aliases.insert(name, ty);
+    }
+
+    pub fn lookup_type_alias(&self, name: &str) -> Option<&QualifierType> {
+        self.type_aliases.get(name)
     }
 }

@@ -36,10 +36,11 @@ impl SemanticAnalyser {
                 if let Some(expr) = init {
                     self.analyse_expr(expr);
                 }
+                let resolved_qty = self.resolve_type(qty);
                 let symbol = Symbol {
                     name: name.clone(),
-                    ty: qty.clone(),
-                    mutable: !qty.is_const,
+                    ty: resolved_qty.clone(),
+                    mutable: !resolved_qty.is_const,
                     decl_span: span.clone(),
                 };
                 if let Err(e) = self.sym.declare(symbol) {
@@ -49,15 +50,45 @@ impl SemanticAnalyser {
             Decl::StructDecl(name, fields, _) => {
                 self.sym.register_struct(name.clone(), fields.clone());
             }
+            Decl::EnumDecl(_, variants, enum_span) => {
+                for (variant_name, value) in variants {
+                    if let Some(expr) = value {
+                        self.analyse_expr(expr);
+                    }
+
+                    let symbol = Symbol {
+                        name: variant_name.clone(),
+                        ty: QualifierType {
+                            ty: Type::Int,
+                            is_const: true,
+                            is_unsigned: false,
+                        },
+                        mutable: false,
+                        decl_span: value
+                            .as_ref()
+                            .map(|expr| expr.span())
+                            .unwrap_or_else(|| enum_span.clone()),
+                    };
+
+                    if let Err(e) = self.sym.declare(symbol) {
+                        self.diagnostics.push(e);
+                    }
+                }
+            }
+            Decl::Typedef(qty, name, _) => {
+                let resolved_qty = self.resolve_type(qty);
+                self.sym.register_type_alias(name.clone(), resolved_qty);
+            }
             Decl::Function(return_type, _name, params, body, span) => {
                 self.sym.enter_scope();
-                let prev_ret = self.current_fn_ret.replace(return_type.clone());
+                let prev_ret = self.current_fn_ret.replace(self.resolve_type(return_type));
 
                 for (qty, name) in params {
+                    let resolved_qty = self.resolve_type(qty);
                     let symbol = Symbol {
                         name: name.clone(),
-                        ty: qty.clone(),
-                        mutable: !qty.is_const,
+                        ty: resolved_qty.clone(),
+                        mutable: !resolved_qty.is_const,
                         decl_span: span.clone(),
                     };
                     if let Err(e) = self.sym.declare(symbol) {
@@ -81,10 +112,11 @@ impl SemanticAnalyser {
                 if let Some(expr) = init {
                     self.analyse_expr(expr);
                 }
+                let resolved_qty = self.resolve_type(qty);
                 let symbol = Symbol {
                     name: name.clone(),
-                    ty: qty.clone(),
-                    mutable: !qty.is_const,
+                    ty: resolved_qty.clone(),
+                    mutable: !resolved_qty.is_const,
                     decl_span: span.clone(),
                 };
                 if let Err(e) = self.sym.declare(symbol) {
@@ -196,7 +228,7 @@ impl SemanticAnalyser {
             }
             Expr::Cast(qty, e, _) => {
                 self.analyse_expr(e);
-                qty.clone()
+                self.resolve_type(qty)
             }
             Expr::Sizeof(e, _) => {
                 self.analyse_expr(e);
@@ -305,6 +337,27 @@ impl SemanticAnalyser {
                     }
                 }
             }
+        }
+    }
+
+    fn resolve_type(&self, qty: &QualifierType) -> QualifierType {
+        QualifierType {
+            ty: self.resolve_type_inner(&qty.ty),
+            is_const: qty.is_const,
+            is_unsigned: qty.is_unsigned,
+        }
+    }
+
+    fn resolve_type_inner(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Array(inner) => Type::Array(Box::new(self.resolve_type_inner(inner))),
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_type_inner(inner))),
+            Type::Alias(name) => self
+                .sym
+                .lookup_type_alias(name)
+                .map(|resolved| self.resolve_type(resolved).ty)
+                .unwrap_or_else(|| Type::Alias(name.clone())),
+            other => other.clone(),
         }
     }
 }

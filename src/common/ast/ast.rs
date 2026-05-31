@@ -13,6 +13,8 @@ pub enum Type {
     Array(Box<Type>),
     Pointer(Box<Type>),
     Struct(String),
+    Enum(String),
+    Alias(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
