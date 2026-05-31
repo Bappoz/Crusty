@@ -187,8 +187,235 @@ mod tests {
         assert!(matches!(ty.ty, crate::common::ast::ast::Type::Float));
     }
 
+    // ── Binary: inferência de tipo ────────────────────────────────────────────
+
+    #[test]
+    fn binary_int_plus_int_returns_int() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Add,
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty(), "sem erros esperados");
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn binary_int_plus_double_promotes_to_double() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Add,
+            Box::new(Expr::Literal(Literal::Double(3.14), span())),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty(), "sem erros esperados");
+        assert!(matches!(ty.ty, Type::Double));
+    }
+
+    #[test]
+    fn binary_int_plus_float_promotes_to_float() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "f".into(),
+                ty: qty(Type::Float),
+                mutable: true,
+                decl_span: span(),
+            })
+            .unwrap();
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Add,
+            Box::new(ident("f")),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty(), "sem erros esperados");
+        assert!(matches!(ty.ty, Type::Float));
+    }
+
+    #[test]
+    fn binary_int_plus_pointer_is_valid_pointer_arithmetic() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "p".into(),
+                ty: qty(Type::Pointer(Box::new(Type::Int))),
+                mutable: true,
+                decl_span: span(),
+            })
+            .unwrap();
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Add,
+            Box::new(ident("p")),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "aritmetica de ponteiro deve ser valida"
+        );
+        assert!(matches!(ty.ty, Type::Pointer(_)));
+    }
+
+    #[test]
+    fn binary_int_mul_string_emits_type_mismatch() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // string literal tem tipo Pointer(Char) — não é numérico
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Mul,
+            Box::new(Expr::Literal(Literal::String("hello".into()), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "int * string deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn binary_float_mod_float_emits_type_mismatch() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Binary(
+            Box::new(Expr::Literal(Literal::Double(1.0), span())),
+            crate::common::ast::expr::BinOp::Mod,
+            Box::new(Expr::Literal(Literal::Double(2.0), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "double % double deve emitir TypeMismatch (% exige inteiros)"
+        );
+    }
+
+    #[test]
+    fn binary_relational_int_vs_int_returns_int() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Binary(
+            Box::new(int_lit(1)),
+            crate::common::ast::expr::BinOp::Less,
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty());
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    // ── Assign: verificação de compatibilidade de tipo ────────────────────────
+
+    #[test]
+    fn assign_int_to_int_is_ok() {
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
+            Stmt::ExprStmt(
+                Expr::Assign(Box::new(ident("x")), Box::new(int_lit(42)), span()),
+                span(),
+            ),
+        ]);
+        assert!(analyse(&prog).is_empty(), "int = int deve ser valido");
+    }
+
+    #[test]
+    fn assign_float_to_int_implicit_coercion_is_ok() {
+        // Em C, int = double é válido com coerção implícita
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
+            Stmt::ExprStmt(
+                Expr::Assign(
+                    Box::new(ident("x")),
+                    Box::new(Expr::Literal(Literal::Double(3.14), span())),
+                    span(),
+                ),
+                span(),
+            ),
+        ]);
+        assert!(
+            analyse(&prog).is_empty(),
+            "int = double deve ser valido (coercao implicita)"
+        );
+    }
+
+    #[test]
+    fn assign_string_to_int_emits_type_mismatch() {
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
+            Stmt::ExprStmt(
+                Expr::Assign(
+                    Box::new(ident("x")),
+                    Box::new(Expr::Literal(Literal::String("hello".into()), span())),
+                    span(),
+                ),
+                span(),
+            ),
+        ]);
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "int = string deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn assign_int_to_pointer_emits_type_mismatch() {
+        let prog = program(vec![
+            Stmt::VarDecl(
+                qty(Type::Pointer(Box::new(Type::Int))),
+                "p".into(),
+                None,
+                span(),
+            ),
+            Stmt::ExprStmt(
+                Expr::Assign(Box::new(ident("p")), Box::new(int_lit(42)), span()),
+                span(),
+            ),
+        ]);
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "int* = int deve emitir TypeMismatch"
+        );
+    }
+
+    // ── typedef + member access (teste existente) ─────────────────────────────
+
     #[test]
     fn typedef_alias_resolves_before_member_access() {
+
         let prog = Program {
             decls: vec![
                 Decl::StructDecl("Point".into(), vec![(qty(Type::Int), "x".into())], span()),
