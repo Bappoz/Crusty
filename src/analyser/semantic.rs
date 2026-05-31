@@ -180,8 +180,8 @@ impl SemanticAnalyser {
         }
     }
 
-    /// Analisa uma expressão e retorna o tipo inferido.
-    /// Tipos não resolvidos retornam `Type::Void` como sentinela; TODO(#87): expansão completa.
+    /// Analisa uma expressão, verifica compatibilidade de tipos e retorna o tipo inferido.
+    /// Tipos não resolvíveis retornam `Type::Void` como sentinela.
     pub fn analyse_expr(&mut self, expr: &Expr) -> QualifierType {
         match expr {
             Expr::Literal(lit, _) => infer_literal_type(lit),
@@ -209,14 +209,31 @@ impl SemanticAnalyser {
                     }
                 }
                 let lhs_ty = self.analyse_expr(lhs);
-                self.analyse_expr(rhs);
+                let rhs_ty = self.analyse_expr(rhs);
+                if !types_compatible_for_assign(&lhs_ty.ty, &rhs_ty.ty) {
+                    self.diagnostics.push(CompilerError::Semantic(SemanticError {
+                        span: span.clone(),
+                        kind: SemanticErrorKind::TypeMismatch {
+                            expected: type_name(&lhs_ty.ty),
+                            found: type_name(&rhs_ty.ty),
+                        },
+                    }));
+                }
                 lhs_ty
             }
-            Expr::Binary(l, _, r, _) => {
+            Expr::Binary(l, op, r, span) => {
                 let lhs_ty = self.analyse_expr(l);
-                self.analyse_expr(r);
-                // TODO(#87): resolver tipo resultante com base no operador
-                lhs_ty
+                let rhs_ty = self.analyse_expr(r);
+                match binary_result_type(&lhs_ty.ty, op, &rhs_ty.ty) {
+                    Ok(result_ty) => result_ty,
+                    Err((expected, found)) => {
+                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::TypeMismatch { expected, found },
+                        }));
+                        unknown_type()
+                    }
+                }
             }
             Expr::Unary(_, e, _) | Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => {
                 self.analyse_expr(e)
@@ -396,5 +413,175 @@ fn uint_type() -> QualifierType {
         ty: Type::Int,
         is_const: false,
         is_unsigned: true,
+    }
+}
+
+// ── Type helpers ────────────────────────────────────────────────────────────
+
+/// Retorna `true` se o tipo é numérico (inteiro ou ponto flutuante).
+fn is_numeric(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Int | Type::Long | Type::Short | Type::Char | Type::Float | Type::Double
+    )
+}
+
+/// Retorna `true` se o tipo é ponteiro ou array (array decai para ponteiro em C).
+fn is_pointer(ty: &Type) -> bool {
+    matches!(ty, Type::Pointer(_) | Type::Array(_))
+}
+
+/// Converte `Type` em string legível para mensagens de erro.
+fn type_name(ty: &Type) -> String {
+    match ty {
+        Type::Int => "int".into(),
+        Type::Long => "long".into(),
+        Type::Short => "short".into(),
+        Type::Char => "char".into(),
+        Type::Float => "float".into(),
+        Type::Double => "double".into(),
+        Type::Void => "void".into(),
+        Type::Pointer(inner) => format!("{}*", type_name(inner)),
+        Type::Array(inner) => format!("{}[]", type_name(inner)),
+        Type::Struct(n) => format!("struct {}", n),
+        Type::Enum(n) => format!("enum {}", n),
+        Type::Alias(n) => n.clone(),
+    }
+}
+
+/// Promoção numérica implícita de C: Double > Float > Long > Int > Short/Char.
+fn numeric_promotion(a: &Type, b: &Type) -> Type {
+    use Type::*;
+    match (a, b) {
+        (Double, _) | (_, Double) => Double,
+        (Float, _) | (_, Float) => Float,
+        (Long, _) | (_, Long) => Long,
+        _ => Int,
+    }
+}
+
+/// Verifica se `rhs` é atribuível a uma variável do tipo `lhs`.
+///
+/// Regras (subconjunto de C):
+/// - Tipos iguais → sempre compatível.
+/// - Numérico ← Numérico → compatível (coerção implícita).
+/// - `T*` ← `T*` (mesmo inner) → compatível.
+/// - Qualquer outro par → incompatível.
+fn types_compatible_for_assign(lhs: &Type, rhs: &Type) -> bool {
+    if lhs == rhs {
+        return true;
+    }
+    if is_numeric(lhs) && is_numeric(rhs) {
+        return true;
+    }
+    if let (Type::Pointer(l_inner), Type::Pointer(r_inner)) = (lhs, rhs) {
+        return l_inner == r_inner;
+    }
+    false
+}
+
+/// Calcula o tipo resultante de `lhs op rhs`.
+///
+/// Retorna `Ok(QualifierType)` se a operação é válida ou
+/// `Err((expected, found))` com strings de diagnóstico se inválida.
+///
+/// Regras (subconjunto de C):
+/// - `+`, `-`: numérico OP numérico → promoção; ponteiro ± inteiro → ponteiro.
+/// - `*`, `/`: numérico OP numérico → promoção.
+/// - `%`: **inteiro** OP **inteiro** (float proibido) → promoção.
+/// - Bitwise (`&`, `|`, `^`, `<<`, `>>`): **inteiro** OP **inteiro** → promoção.
+/// - Relacionais (`==`, `!=`, `<`, `>`, `<=`, `>=`): num↔num ou ptr↔ptr → `Int`.
+/// - Lógicos (`&&`, `||`): escalar OP escalar → `Int`.
+fn binary_result_type(
+    lhs: &Type,
+    op: &crate::common::ast::expr::BinOp,
+    rhs: &Type,
+) -> Result<QualifierType, (String, String)> {
+    use crate::common::ast::expr::BinOp;
+
+    let make = |ty: Type| QualifierType {
+        ty,
+        is_const: false,
+        is_unsigned: false,
+    };
+
+    let is_integer = |t: &Type| {
+        matches!(t, Type::Int | Type::Long | Type::Short | Type::Char)
+    };
+
+    match op {
+        // ── Adição e Subtração ───────────────────────────────────────────────
+        BinOp::Add | BinOp::Sub => {
+            // numérico OP numérico → promoção
+            if is_numeric(lhs) && is_numeric(rhs) {
+                return Ok(make(numeric_promotion(lhs, rhs)));
+            }
+            // ponteiro ± inteiro → ponteiro (aritmética de ponteiro)
+            if is_pointer(lhs) && is_integer(rhs) {
+                return Ok(make(lhs.clone()));
+            }
+            // inteiro + ponteiro → ponteiro (só para Add)
+            if is_integer(lhs) && is_pointer(rhs) && matches!(op, BinOp::Add) {
+                return Ok(make(rhs.clone()));
+            }
+            Err((
+                "numeric or pointer".into(),
+                format!("{} op {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
+        // ── Multiplicação e Divisão ──────────────────────────────────────────
+        BinOp::Mul | BinOp::Div => {
+            if is_numeric(lhs) && is_numeric(rhs) {
+                return Ok(make(numeric_promotion(lhs, rhs)));
+            }
+            Err((
+                "numeric".into(),
+                format!("{} op {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
+        // ── Módulo ──────────────────────────────────────────────────────────
+        BinOp::Mod => {
+            if is_integer(lhs) && is_integer(rhs) {
+                return Ok(make(numeric_promotion(lhs, rhs)));
+            }
+            Err((
+                "integer".into(),
+                format!("{} % {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
+        // ── Bitwise ─────────────────────────────────────────────────────────
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+            if is_integer(lhs) && is_integer(rhs) {
+                return Ok(make(numeric_promotion(lhs, rhs)));
+            }
+            Err((
+                "integer".into(),
+                format!("{} bitop {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
+        // ── Relacionais ─────────────────────────────────────────────────────
+        BinOp::Eq | BinOp::Neq | BinOp::Less | BinOp::Greater | BinOp::Leq | BinOp::Geq => {
+            let both_numeric = is_numeric(lhs) && is_numeric(rhs);
+            let both_pointer = is_pointer(lhs) && is_pointer(rhs);
+            if both_numeric || both_pointer || lhs == rhs {
+                return Ok(make(Type::Int)); // bool em C é representado como int
+            }
+            Err((
+                "comparable types".into(),
+                format!("{} vs {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
+        // ── Lógicos ─────────────────────────────────────────────────────────
+        BinOp::And | BinOp::Or => {
+            let lhs_scalar = is_numeric(lhs) || is_pointer(lhs);
+            let rhs_scalar = is_numeric(rhs) || is_pointer(rhs);
+            if lhs_scalar && rhs_scalar {
+                return Ok(make(Type::Int));
+            }
+            Err((
+                "scalar".into(),
+                format!("{} logical {}", type_name(lhs), type_name(rhs)),
+            ))
+        }
     }
 }
