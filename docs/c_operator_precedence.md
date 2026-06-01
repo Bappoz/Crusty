@@ -38,7 +38,7 @@ In a Pratt parser, **lbp** (left binding power) determines when the operator fir
 
 | Operator(s) | lbp | rbp | Associativity | C level |
 |-------------|-----|-----|---------------|---------|
-| `=` | 1 | 1 | Right | 2 |
+| `=` `+=` `-=` `*=` `/=` `%=` `&=` `^=` `\|=` `<<=` `>>=` | 1 | 1 | Right | 2 |
 | `?:` | 2 | 2 | Right | 3 |
 | `\|\|` | 4 | 5 | Left | 4 |
 | `&&` | 6 | 7 | Left | 5 |
@@ -57,5 +57,4 @@ In a Pratt parser, **lbp** (left binding power) determines when the operator fir
 
 | Operator(s) | C level | Notes |
 |-------------|---------|-------|
-| `+=` `-=` `*=` `/=` `%=` `&=` `^=` `\|=` `<<=` `>>=` | 2 | Compound assignment, same lbp as `=` |
 | `,` | 1 | Comma operator (below assignment) |

@@ -80,12 +80,38 @@ peek[0] == Struct
   && peek[1] == Identifier
   && peek[2] == LeftBrace      →  parse_struct_decl()
 
+peek[0] == Enum
+  && peek[1] == Identifier
+  && peek[2] == LeftBrace      →  parse_enum_decl()
+
+peek[0] == Typedef             →  parse_typedef_decl()
+
 senão: parse_type() + nome
   peek == LeftParen             →  parse_function_decl()
   senão                         →  parse_global_var_decl()
 ```
 
-O lookahead de 2 tokens para struct (via `peek_at(2)`) é necessário para distinguir `struct Point { ... }` (definição) de `struct Point p` (uso como tipo).
+O lookahead de 2 tokens para struct/enum (via `peek_at(2)`) é necessário para distinguir `struct Point { ... }` (definição) de `struct Point p` (uso como tipo).
+
+### Enum (`parse_enum_decl`)
+
+```
+enum Nome {
+    VARIANTE_A,
+    VARIANTE_B = expr,
+    ...
+};
+```
+
+Produz `Decl::EnumDecl(nome, Vec<(String, Option<Expr>)>, span)`.
+
+### Typedef (`parse_typedef_decl`)
+
+```
+typedef tipo AliasNome;
+```
+
+Produz `Decl::Typedef(QualifierType, alias_nome, span)`. Após o parse, o nome do alias é registrado no `type_names` do parser, permitindo que ele seja reconhecido em casts e declarações subsequentes via `starts_type()`.
 
 ### Struct (`parse_struct_decl`)
 
@@ -302,6 +328,8 @@ Postfix tem maior precedência efetiva que qualquer infix — o loop de postfix 
 Decl::Function(retorno, nome, params, stmts, span)
 Decl::GlobalVar(qty, nome, Option<init>, span)
 Decl::StructDecl(nome, campos, span)
+Decl::EnumDecl(nome, Vec<(String, Option<Expr>)>, span)
+Decl::Typedef(qty, alias_nome, span)
 ```
 
 ### Stmt
@@ -347,6 +375,8 @@ Type::Int | Long | Short | Char | Float | Double | Void
 Type::Pointer(Box<Type>)
 Type::Array(Box<Type>)      ← tamanho não armazenado
 Type::Struct(String)        ← referência por nome
+Type::Enum(String)          ← referência por nome
+Type::Alias(String)         ← nome de typedef; resolvido pelo analisador semântico
 
 QualifierType {
     ty: Type,
