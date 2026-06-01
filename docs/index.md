@@ -1,16 +1,15 @@
 # Crusty — Compilador de C
 
 O **Crusty** é um compilador de C desenvolvido como projeto acadêmico na disciplina de Compiladores 1.
-Seu objetivo é transformar código-fonte C em código executável passando por todas as fases clássicas
-de um compilador moderno.
+Seu objetivo é transformar código-fonte C em código executável passando por todas as fases clássicas de um compilador moderno.
 
 ## Pipeline de Compilação
 
 | # | Fase | Status |
 |---|------|--------|
 | 01 | [Análise Léxica](lexical-analysis.md) | Concluída |
-| 02 | [Análise Sintática](syntax-analysis.md) | Em desenvolvimento |
-| 03 | [Análise Semântica](semantic-analysis.md) | Planejada |
+| 02 | [Análise Sintática](syntax-analysis.md) | Concluída |
+| 03 | [Análise Semântica](semantic-analysis.md) | Em desenvolvimento |
 | 04 | [Representação Intermediária](intermediate-representation.md) | Planejada |
 | 05 | [Geração de Código](code-generation.md) | Planejada |
 
@@ -22,10 +21,16 @@ src/
 │   ├── scanner.rs
 │   ├── tokens/
 │   └── rules/
-├── parser/         # Análise Sintática
-├── analyser/       # Análise Semântica
-├── codegen/        # Geração de Código
-└── common/         # Utilitários compartilhados
+├── parser/         # Análise Sintática (Pratt parser, AST)
+│   ├── parser.rs
+│   ├── precedence.rs
+│   └── rules/
+├── analyser/       # Análise Semântica (tabela de símbolos, tipos)
+│   ├── semantic.rs
+│   └── symbol_table.rs
+├── codegen/        # Geração de Código (não implementado)
+└── common/         # Estruturas compartilhadas
+    ├── ast/        # AST: decl, expr, stmt
     ├── errors/
     ├── input/
     └── utils/
@@ -37,7 +42,7 @@ src/
 |------------|-----------|---------------|
 | Linguagem | Rust | Segurança de memória e sistema de tipos expressivo |
 | Leitura de arquivo | memmap2 | Memory-mapped I/O para arquivos grandes |
-| Testes | Rust built-in | Testes unitários com `#[test]` |
+| Testes | Rust built-in | 165 testes unitários com `#[test]` |
 
 ## Recuperação de Erros
 
