@@ -115,7 +115,17 @@ impl ToReport for SyntaxError {
 #[derive(Debug)]
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
-    TypeMismatch { expected: String, found: String },
+    Redeclaration(String),
+    TypeMismatch {
+        expected: String,
+        found: String,
+    },
+    UndefinedStruct(String),
+    FieldNotFound {
+        struct_name: String,
+        field_name: String,
+    },
+    AssignToConst(String),
 }
 
 #[derive(Debug)]
@@ -132,12 +142,42 @@ impl ToReport for SemanticError {
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("'{}' nao existe", var))
                 .with_help("declare a variavel antes de usar"),
+            SemanticErrorKind::Redeclaration(name) => Report::new("Redeclaration error")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("'{}' já foi declarado neste escopo", name),
+                )
+                .with_help("use um nome diferente ou remova a declaração duplicada"),
             SemanticErrorKind::TypeMismatch { expected, found } => Report::new("type error")
                 .with_span(self.span.clone())
                 .with_label(
                     self.span.clone(),
                     format!("esperado: '{}', encontrado: '{}'", expected, found),
                 ),
+            SemanticErrorKind::UndefinedStruct(name) => Report::new("undefined struct")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("struct '{}' nao foi declarada", name),
+                )
+                .with_help("declare a struct antes de usar"),
+            SemanticErrorKind::FieldNotFound {
+                struct_name,
+                field_name,
+            } => Report::new("field not found")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("campo '{}' nao existe em '{}'", field_name, struct_name),
+                ),
+            SemanticErrorKind::AssignToConst(name) => Report::new("assignment to const")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("'{}' é const e não pode ser reatribuído", name),
+                )
+                .with_help("remova o qualificador const ou use uma variável mutável"),
         }
     }
 }

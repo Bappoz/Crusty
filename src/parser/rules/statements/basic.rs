@@ -22,7 +22,7 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, CompilerError> {
         TokenKind::Do => parse_do_while(parser),
         TokenKind::For => parse_for(parser),
         TokenKind::Switch => parse_switch(parser),
-        _ if declarations::starts_type(parser.peek_kind()) => declarations::parse_var_decl(parser),
+        _ if declarations::starts_type(parser) => declarations::parse_var_decl(parser),
         _ => parse_expr_stmt(parser),
     }
 }
@@ -148,7 +148,7 @@ fn parse_for(parser: &mut Parser) -> Result<Stmt, CompilerError> {
     let init = if parser.check(&TokenKind::Semicolon) {
         parser.advance();
         None
-    } else if declarations::starts_type(parser.peek_kind()) {
+    } else if declarations::starts_type(parser) {
         Some(Box::new(declarations::parse_var_decl(parser)?))
     } else {
         let expr = parser.parse_expr(0)?;

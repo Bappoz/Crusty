@@ -12,6 +12,8 @@ pub enum Decl {
     ),
     GlobalVar(QualifierType, String, Option<Expr>, Span),
     StructDecl(String, Vec<(QualifierType, String)>, Span),
+    EnumDecl(String, Vec<(String, Option<Expr>)>, Span),
+    Typedef(QualifierType, String, Span),
 }
 
 impl Decl {
@@ -21,6 +23,8 @@ impl Decl {
             Decl::Function(_, _, _, _, s) => s.clone(),
             Decl::GlobalVar(_, _, _, s) => s.clone(),
             Decl::StructDecl(_, _, s) => s.clone(),
+            Decl::EnumDecl(_, _, s) => s.clone(),
+            Decl::Typedef(_, _, s) => s.clone(),
         }
     }
 }

@@ -194,10 +194,16 @@ mod tests {
 
     #[test]
     fn rejects_invalid_operator_tokens() {
-        let tokens = vec![int(1, 1), tk(TokenKind::Unknown('?'), 2), int(2, 3), eof(4)];
+        let tokens = vec![
+            int(1, 1),
+            tk(TokenKind::Unknown('?'), 2),
+            int(2, 3),
+            tk(TokenKind::Semicolon, 4),
+            eof(5),
+        ];
 
         let mut parser = Parser::new(tokens);
-        assert!(parser.parse_expr(0).is_err());
+        assert!(parser.parse_stmt().is_err());
     }
 
     #[test]
@@ -212,6 +218,70 @@ mod tests {
 
         let mut parser = Parser::new(tokens);
         assert!(parser.parse_expr(0).is_err());
+    }
+
+    #[test]
+    fn cast_followed_by_binop_parses_correctly() {
+        // (int)a + b → Binary(Cast(int, a), +, b)
+
+        let tokens = vec![
+            tk(TokenKind::LeftParen, 1),
+            tk(TokenKind::Int, 2),
+            tk(TokenKind::RightParen, 3),
+            ident("a", 4),
+            tk(TokenKind::Plus, 5),
+            ident("b", 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        //inicia a chamada recursiva do Pratt Parser
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "O parsing façhpu: {:?}", result);
+
+        // salva a árvore completa gerada do Pratt Parser
+        let ast = result.unwrap();
+
+        // se ast for do tipo binário salva o bagulho da esq, operador, e o bagulho da direita
+        if let Expr::Binary(lhs, op, _rhs, _) = ast {
+            assert_eq!(op, BinOp::Add); // verifica se o op é "+"
+
+            assert!(matches!(*lhs, Expr::Cast(_, _, _))); //
+        } else {
+            panic!("Esperado Expr::BInary na raiz, mas veio: {:?}", ast);
+        }
+    }
+
+    #[test]
+    fn sizeof_followed_by_binop_parses_correctly() {
+        // sizeof x + 1 → Binary(Sizeof(x), +, 1)
+
+        let tokens = vec![
+            tk(TokenKind::Sizeof, 1),
+            ident("x", 2),
+            tk(TokenKind::Plus, 3),
+            int(1, 4),
+            eof(5),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(result.is_ok(), "O parsing do sizeof falhou: {:?}", result);
+
+        let ast = result.unwrap();
+
+        if let Expr::Binary(lhs, op, _rhs, _) = ast {
+            assert_eq!(op, BinOp::Add);
+
+            assert!(matches!(*lhs, Expr::Sizeof(_, _)));
+        } else {
+            panic!(
+                "Esperado Expr::Binary na raiz para o sizeof, mas veio {:?}",
+                ast
+            );
+        }
     }
 
     #[test]
@@ -1170,6 +1240,78 @@ mod tests {
         ));
     }
 
+    // ── Testes de recuperação de erros (panic mode) ──────────────────────────
+
+    #[test]
+    fn reports_single_syntax_error_in_program() {
+        // int 42;  →  esperado identificador, encontrado IntLiteral
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            eof(8),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria falhar com erro de sintaxe");
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn reports_multiple_syntax_errors_in_program() {
+        // int 42;   float 99;  →  dois erros, ambos reportados
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            tk(TokenKind::Float, 9),
+            int(99, 15),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria acumular erros");
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn continues_parsing_valid_decl_after_error() {
+        // int 42;  float z;  →  1 erro + 1 decl válida (float z)
+        // parse_program retorna Err porque há erros, mas o count é 1
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            int(42, 5),
+            tk(TokenKind::Semicolon, 7),
+            tk(TokenKind::Float, 9),
+            ident("z", 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        let errors = result.expect_err("deveria ter 1 erro");
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn recovers_after_unclosed_function_body() {
+        // int bad(void) { return   ← erro por EOF dentro do bloco
+        // int ok;                  ← decl separada (não chega a ser parseada pois sync vai ao EOF)
+        // Apenas verifica que parse_program não entra em loop infinito e retorna erros.
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("bad", 5),
+            tk(TokenKind::LeftParen, 8),
+            tk(TokenKind::Void, 9),
+            tk(TokenKind::RightParen, 13),
+            tk(TokenKind::LeftBrace, 15),
+            tk(TokenKind::Return, 17),
+            eof(23),
+        ];
+        let result = Parser::new(tokens).parse_program();
+        assert!(result.is_err(), "deveria reportar erro de sintaxe");
+    }
+
+    // ── fim dos testes de recuperação ─────────────────────────────────────────
+
     #[test]
     fn parses_hello_world() {
         // int main() { printf("Hello"); return 0; }
@@ -1202,80 +1344,495 @@ mod tests {
     }
 
     #[test]
-    fn parses_ternary_expression() {
-        // x > 0 ? x : 0 - x
+    fn sizeof_type_parses_correctly() {
+        let tokens = vec![
+            tk(TokenKind::Sizeof, 1),
+            tk(TokenKind::LeftParen, 2),
+            tk(TokenKind::Int, 3),
+            tk(TokenKind::RightParen, 4),
+            eof(5),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(
+            result.is_ok(),
+            "Falhou ao parsear sizeof(type): {:?}",
+            result
+        );
+        let ast = result.unwrap();
+
+        assert!(matches!(ast, Expr::SizeofType(_, _)));
+    }
+
+    #[test]
+    fn sizeof_expr_with_parens_still_works() {
+        let tokens = vec![
+            tk(TokenKind::Sizeof, 1),
+            tk(TokenKind::LeftParen, 2),
+            ident("x", 3),
+            tk(TokenKind::Plus, 4),
+            int(1, 5),
+            tk(TokenKind::RightParen, 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_expr(0);
+
+        assert!(
+            result.is_ok(),
+            "Falhou ao parser sizeof(expr) com parèntese: {:?}",
+            result
+        );
+        let ast = result.unwrap();
+
+        if let Expr::Sizeof(inner_expr, _) = ast {
+            assert!(matches!(*inner_expr, Expr::Binary(_, BinOp::Add, _, _)));
+        } else {
+            panic!(
+                "Esperado Expr::Sizeof para expressão com parêntese, mas veio {:?}",
+                ast
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Testes: operadores de atribuição composta
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compound_assign_plus_parses_correctly() {
+        // a += b  →  CompoundAssign(Add, Ident("a"), Ident("b"))
+        let tokens = vec![
+            ident("a", 1),
+            tk(TokenKind::PlusEqual, 3),
+            ident("b", 6),
+            eof(7),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse_expr(0).expect("compound assign += válido");
+
+        let Expr::CompoundAssign(op, lhs, rhs, _) = expr else {
+            panic!("esperava Expr::CompoundAssign para +=");
+        };
+        assert_eq!(op, BinOp::Add);
+        assert!(matches!(*lhs, Expr::Ident(ref s, _) if s == "a"));
+        assert!(matches!(*rhs, Expr::Ident(ref s, _) if s == "b"));
+    }
+
+    #[test]
+    fn compound_assign_shift_right_parses_correctly() {
+        // x >>= 2  →  CompoundAssign(Shr, Ident("x"), Literal(2))
         let tokens = vec![
             ident("x", 1),
-            tk(TokenKind::Greater, 3),
-            int(0, 5),
-            tk(TokenKind::Question, 7),
-            ident("x", 9),
-            tk(TokenKind::Colon, 11),
-            int(0, 13),
-            tk(TokenKind::Minus, 15),
-            ident("x", 17),
-            eof(18),
+            tk(TokenKind::GreaterGreaterEqual, 3),
+            int(2, 6),
+            eof(7),
         ];
+
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse_expr(0).expect("ternário válido");
-        let Expr::Ternary(cond, then_expr, else_expr, _) = expr else {
-            panic!("esperava Expr::Ternary");
+        let expr = parser.parse_expr(0).expect("compound assign >>= válido");
+
+        let Expr::CompoundAssign(op, lhs, rhs, _) = expr else {
+            panic!("esperava Expr::CompoundAssign para >>=");
         };
-        assert!(matches!(*cond, Expr::Binary(_, BinOp::Greater, _, _)));
-        assert!(matches!(*then_expr, Expr::Ident(name, _) if name == "x"));
-        assert!(matches!(*else_expr, Expr::Binary(_, BinOp::Sub, _, _)));
+        assert_eq!(op, BinOp::Shr);
+        assert!(matches!(*lhs, Expr::Ident(ref s, _) if s == "x"));
+        assert!(matches!(
+            *rhs,
+            Expr::Literal(crate::common::ast::expr::Literal::Int(2), _)
+        ));
     }
 
     #[test]
-    fn parses_nested_ternary_right_assoc() {
-        // a ? b : c ? d : e → a ? b : (c ? d : e)
+    fn compound_assign_all_operators_parse() {
+        // Verifica que todos os 10 tokens de compound-assign são reconhecidos pelo parser
+        // e produzem o BinOp correto.
+        let cases: Vec<(TokenKind, BinOp)> = vec![
+            (TokenKind::PlusEqual, BinOp::Add),
+            (TokenKind::MinusEqual, BinOp::Sub),
+            (TokenKind::StarEqual, BinOp::Mul),
+            (TokenKind::SlashEqual, BinOp::Div),
+            (TokenKind::PercentEqual, BinOp::Mod),
+            (TokenKind::AmpersandEqual, BinOp::BitAnd),
+            (TokenKind::PipeEqual, BinOp::BitOr),
+            (TokenKind::CaretEqual, BinOp::BitXor),
+            (TokenKind::LessLessEqual, BinOp::Shl),
+            (TokenKind::GreaterGreaterEqual, BinOp::Shr),
+        ];
+
+        for (token_kind, expected_op) in cases {
+            let tokens = vec![ident("a", 1), tk(token_kind.clone(), 3), int(1, 6), eof(7)];
+
+            let mut parser = Parser::new(tokens);
+            let expr = parser
+                .parse_expr(0)
+                .unwrap_or_else(|e| panic!("compound assign {:?} falhou: {:?}", token_kind, e));
+
+            let Expr::CompoundAssign(op, _, _, _) = expr else {
+                panic!(
+                    "esperava Expr::CompoundAssign para {:?}, mas veio algo diferente",
+                    token_kind
+                );
+            };
+            assert_eq!(op, expected_op, "BinOp errado para {:?}", token_kind);
+        }
+    }
+
+    // ── arrays ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_global_array_declaration() {
+        // int arr[10];
         let tokens = vec![
-            ident("a", 1),
-            tk(TokenKind::Question, 3),
-            ident("b", 5),
-            tk(TokenKind::Colon, 7),
-            ident("c", 9),
-            tk(TokenKind::Question, 11),
-            ident("d", 13),
-            tk(TokenKind::Colon, 15),
-            ident("e", 17),
-            eof(18),
+            tk(TokenKind::Int, 1),
+            ident("arr", 5),
+            tk(TokenKind::LeftBracket, 8),
+            tk(TokenKind::IntLiteral(10), 9),
+            tk(TokenKind::RightBracket, 11),
+            tk(TokenKind::Semicolon, 12),
+            eof(13),
         ];
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse_expr(0).expect("ternário aninhado válido");
-        let Expr::Ternary(outer_cond, outer_then, outer_else, _) = expr else {
-            panic!("esperava Expr::Ternary no nível externo");
+        let prog = parser.parse_program().expect("deve parsear array global");
+        let Decl::GlobalVar(qty, name, None, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
         };
-        assert!(matches!(*outer_cond, Expr::Ident(name, _) if name == "a"));
-        assert!(matches!(*outer_then, Expr::Ident(name, _) if name == "b"));
-        let Expr::Ternary(inner_cond, inner_then, inner_else, _) = *outer_else else {
-            panic!("esperava Expr::Ternary no else (right-assoc)");
-        };
-        assert!(matches!(*inner_cond, Expr::Ident(name, _) if name == "c"));
-        assert!(matches!(*inner_then, Expr::Ident(name, _) if name == "d"));
-        assert!(matches!(*inner_else, Expr::Ident(name, _) if name == "e"));
+        assert_eq!(name, "arr");
+        assert!(matches!(qty.ty, Type::Array(_)));
     }
 
     #[test]
-    fn parses_ternary_with_or_precedence() {
-        // a || b ? c : d  -> (a || b) ? c : d
+    fn parses_local_array_declaration() {
+        // void f() { int arr[5]; }
         let tokens = vec![
-            ident("a", 1),
-            tk(TokenKind::OrOr, 3),
-            ident("b", 5),
-            tk(TokenKind::Question, 7),
-            ident("c", 9),
-            tk(TokenKind::Colon, 11),
-            ident("d", 13),
-            eof(14),
+            tk(TokenKind::Void, 1),
+            ident("f", 6),
+            tk(TokenKind::LeftParen, 7),
+            tk(TokenKind::RightParen, 8),
+            tk(TokenKind::LeftBrace, 10),
+            tk(TokenKind::Int, 12),
+            ident("arr", 16),
+            tk(TokenKind::LeftBracket, 19),
+            tk(TokenKind::IntLiteral(5), 20),
+            tk(TokenKind::RightBracket, 21),
+            tk(TokenKind::Semicolon, 22),
+            tk(TokenKind::RightBrace, 24),
+            eof(25),
         ];
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse_expr(0).expect("ternário com || válido");
-        let Expr::Ternary(cond, then_expr, else_expr, _) = expr else {
-            panic!("esperava Expr::Ternary");
+        let prog = parser.parse_program().expect("deve parsear array local");
+        let Decl::Function(_, _, _, body, _) = &prog.decls[0] else {
+            panic!("esperava Function");
         };
-        assert!(matches!(*cond, Expr::Binary(_, BinOp::Or, _, _)));
-        assert!(matches!(*then_expr, Expr::Ident(name, _) if name == "c"));
-        assert!(matches!(*else_expr, Expr::Ident(name, _) if name == "d"));
+        let Stmt::VarDecl(qty, name, None, _) = &body[0] else {
+            panic!("esperava VarDecl");
+        };
+        assert_eq!(name, "arr");
+        assert!(matches!(qty.ty, Type::Array(_)));
+    }
+
+    #[test]
+    fn parses_multidimensional_array() {
+        // int matrix[3][4];
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("matrix", 5),
+            tk(TokenKind::LeftBracket, 11),
+            tk(TokenKind::IntLiteral(3), 12),
+            tk(TokenKind::RightBracket, 13),
+            tk(TokenKind::LeftBracket, 14),
+            tk(TokenKind::IntLiteral(4), 15),
+            tk(TokenKind::RightBracket, 16),
+            tk(TokenKind::Semicolon, 17),
+            eof(18),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear array 2D");
+        let Decl::GlobalVar(qty, _, None, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        let Type::Array(inner) = &qty.ty else {
+            panic!("esperava Array externo");
+        };
+        assert!(matches!(**inner, Type::Array(_)));
+    }
+
+    #[test]
+    fn parses_array_without_size() {
+        // int arr[];
+        let tokens = vec![
+            tk(TokenKind::Int, 1),
+            ident("arr", 5),
+            tk(TokenKind::LeftBracket, 8),
+            tk(TokenKind::RightBracket, 9),
+            tk(TokenKind::Semicolon, 10),
+            eof(11),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear array sem tamanho");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Array(_)));
+    }
+    // ── struct ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_struct_decl_with_fields() {
+        // struct Point { int x; int y; };
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Point", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::Int, 16),
+            ident("x", 20),
+            tk(TokenKind::Semicolon, 21),
+            tk(TokenKind::Int, 23),
+            ident("y", 27),
+            tk(TokenKind::Semicolon, 28),
+            tk(TokenKind::RightBrace, 30),
+            tk(TokenKind::Semicolon, 31),
+            eof(32),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear struct com campos");
+        assert_eq!(prog.decls.len(), 1);
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Point");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].1, "x");
+        assert_eq!(fields[0].0.ty, Type::Int);
+        assert_eq!(fields[1].1, "y");
+        assert_eq!(fields[1].0.ty, Type::Int);
+    }
+
+    #[test]
+    fn parses_struct_decl_empty_body() {
+        // struct Empty {};
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Empty", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::RightBrace, 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear struct vazia");
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Empty");
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn parses_struct_decl_with_pointer_field() {
+        // struct Node { int val; struct Node *next; };
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Node", 8),
+            tk(TokenKind::LeftBrace, 13),
+            tk(TokenKind::Int, 15),
+            ident("val", 19),
+            tk(TokenKind::Semicolon, 22),
+            tk(TokenKind::Struct, 24),
+            ident("Node", 31),
+            tk(TokenKind::Star, 36),
+            ident("next", 37),
+            tk(TokenKind::Semicolon, 41),
+            tk(TokenKind::RightBrace, 43),
+            tk(TokenKind::Semicolon, 44),
+            eof(45),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear struct com campo ponteiro");
+        let Decl::StructDecl(name, fields, _) = &prog.decls[0] else {
+            panic!("esperava Decl::StructDecl");
+        };
+        assert_eq!(name, "Node");
+        assert_eq!(fields.len(), 2);
+        assert!(matches!(fields[1].0.ty, Type::Pointer(_)));
+    }
+
+    #[test]
+    fn parses_struct_use_as_type_after_definition() {
+        // struct Point { int x; }; struct Point p;
+        let tokens = vec![
+            tk(TokenKind::Struct, 1),
+            ident("Point", 8),
+            tk(TokenKind::LeftBrace, 14),
+            tk(TokenKind::Int, 16),
+            ident("x", 20),
+            tk(TokenKind::Semicolon, 21),
+            tk(TokenKind::RightBrace, 23),
+            tk(TokenKind::Semicolon, 24),
+            tk(TokenKind::Struct, 26),
+            ident("Point", 33),
+            ident("p", 39),
+            tk(TokenKind::Semicolon, 40),
+            eof(41),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear definição seguida de uso de struct");
+        assert_eq!(prog.decls.len(), 2);
+        assert!(matches!(prog.decls[0], Decl::StructDecl(_, _, _)));
+        assert!(matches!(prog.decls[1], Decl::GlobalVar(_, _, _, _)));
+    }
+
+    #[test]
+    fn parses_enum_decl() {
+        // enum Color { RED = 0, GREEN, BLUE };
+        let tokens = vec![
+            tk(TokenKind::Enum, 1),
+            ident("Color", 6),
+            tk(TokenKind::LeftBrace, 12),
+            ident("RED", 14),
+            tk(TokenKind::Equal, 18),
+            int(0, 20),
+            tk(TokenKind::Comma, 21),
+            ident("GREEN", 23),
+            tk(TokenKind::Comma, 28),
+            ident("BLUE", 30),
+            tk(TokenKind::RightBrace, 34),
+            tk(TokenKind::Semicolon, 35),
+            eof(36),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear enum");
+        let Decl::EnumDecl(name, variants, _) = &prog.decls[0] else {
+            panic!("esperava Decl::EnumDecl");
+        };
+        assert_eq!(name, "Color");
+        assert_eq!(variants.len(), 3);
+        assert_eq!(variants[0].0, "RED");
+        assert!(matches!(
+            variants[0].1,
+            Some(Expr::Literal(Literal::Int(0), _))
+        ));
+        assert_eq!(variants[1].0, "GREEN");
+        assert!(variants[1].1.is_none());
+        assert_eq!(variants[2].0, "BLUE");
+        assert!(variants[2].1.is_none());
+    }
+
+    #[test]
+    fn parses_typedef_and_uses_alias_as_type() {
+        // typedef int Integer; Integer x;
+        let tokens = vec![
+            tk(TokenKind::Typedef, 1),
+            tk(TokenKind::Int, 10),
+            ident("Integer", 14),
+            tk(TokenKind::Semicolon, 21),
+            ident("Integer", 23),
+            ident("x", 31),
+            tk(TokenKind::Semicolon, 32),
+            eof(33),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser
+            .parse_program()
+            .expect("deve parsear typedef seguido de uso do alias");
+        assert_eq!(prog.decls.len(), 2);
+        let Decl::Typedef(qty, alias, _) = &prog.decls[0] else {
+            panic!("esperava Decl::Typedef");
+        };
+        assert!(matches!(qty.ty, Type::Int));
+        assert_eq!(alias, "Integer");
+        let Decl::GlobalVar(qty, name, _, _) = &prog.decls[1] else {
+            panic!("esperava Decl::GlobalVar");
+        };
+        assert_eq!(name, "x");
+        assert!(matches!(&qty.ty, Type::Alias(alias) if alias == "Integer"));
+    }
+
+    // ── long / short ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_long_variable() {
+        // long x;
+        let tokens = vec![
+            tk(TokenKind::Long, 1),
+            ident("x", 6),
+            tk(TokenKind::Semicolon, 7),
+            eof(8),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear long");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Long));
+    }
+
+    #[test]
+    fn parses_short_variable() {
+        // short y;
+        let tokens = vec![
+            tk(TokenKind::Short, 1),
+            ident("y", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear short");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Short));
+    }
+
+    #[test]
+    fn parses_unsigned_long_variable() {
+        // unsigned long z;
+        let tokens = vec![
+            tk(TokenKind::Unsigned, 1),
+            tk(TokenKind::Long, 10),
+            ident("z", 15),
+            tk(TokenKind::Semicolon, 16),
+            eof(17),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear unsigned long");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        assert!(matches!(qty.ty, Type::Long));
+        assert!(qty.is_unsigned);
+    }
+
+    #[test]
+    fn parses_long_pointer() {
+        // long *p;
+        let tokens = vec![
+            tk(TokenKind::Long, 1),
+            tk(TokenKind::Star, 6),
+            ident("p", 7),
+            tk(TokenKind::Semicolon, 8),
+            eof(9),
+        ];
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program().expect("deve parsear long*");
+        let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
+            panic!("esperava GlobalVar");
+        };
+        let Type::Pointer(inner) = &qty.ty else {
+            panic!("esperava Pointer");
+        };
+        assert!(matches!(**inner, Type::Long));
     }
 }

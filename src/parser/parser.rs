@@ -6,24 +6,43 @@ use crate::common::errors::types::{CompilerError, SyntaxError};
 use crate::lexer::tokens::token::Token;
 use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::rules::expressions::{infix, postfix, prefix};
+use std::collections::HashSet;
 
 type Diagnostic = CompilerError;
 
-// Estrutura mínima pedida: apenas fluxo de tokens para parser de expressões.
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    pub(crate) diagnostics: Vec<CompilerError>,
+    type_names: HashSet<String>,
 }
 
 impl Parser {
-    /// Cria um novo `Parser` a partir de um vetor de tokens produzido pelo `Scanner`.
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            diagnostics: Vec::new(),
+            type_names: HashSet::new(),
+        }
+    }
+
+    pub(crate) fn register_type_name(&mut self, name: String) {
+        self.type_names.insert(name);
+    }
+
+    pub(crate) fn is_type_name(&self, name: &str) -> bool {
+        self.type_names.contains(name)
     }
 
     pub(crate) fn peek_next(&self) -> &Token {
         let next = (self.pos + 1).min(self.tokens.len() - 1);
         &self.tokens[next]
+    }
+
+    pub(crate) fn peek_at(&self, offset: usize) -> &Token {
+        let idx = (self.pos + offset).min(self.tokens.len() - 1);
+        &self.tokens[idx]
     }
 
     /// Parseia uma expressão com precedência mínima `min_bp` usando o algoritmo Pratt (top-down operator precedence).
@@ -59,19 +78,25 @@ impl Parser {
 
             if op == TokenKind::Equal {
                 lhs = Expr::Assign(Box::new(lhs), Box::new(rhs), span);
+            } else if matches!(
+                op,
+                TokenKind::PlusEqual
+                    | TokenKind::MinusEqual
+                    | TokenKind::StarEqual
+                    | TokenKind::SlashEqual
+                    | TokenKind::PercentEqual
+                    | TokenKind::AmpersandEqual
+                    | TokenKind::PipeEqual
+                    | TokenKind::CaretEqual
+                    | TokenKind::LessLessEqual
+                    | TokenKind::GreaterGreaterEqual
+            ) {
+                let bin_op = infix::token_to_compound_bin_op(self, &op, &op_token)?;
+                lhs = Expr::CompoundAssign(bin_op, Box::new(lhs), Box::new(rhs), span);
             } else {
                 let bin = infix::token_to_bin_op(self, &op, &op_token)?;
                 lhs = Expr::Binary(Box::new(lhs), bin, Box::new(rhs), span);
             }
-        }
-
-        if !self.is_expression_terminator(self.peek_kind()) {
-            let found = self.peek().clone();
-            return Err(self.syntax_error(
-                &found,
-                "fim de expressão",
-                &format!("{:?}", found.kind),
-            ));
         }
 
         Ok(lhs)
@@ -83,8 +108,24 @@ impl Parser {
     }
 
     /// Parseia um programa C completo: declarações globais até EOF.
-    pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
+    /// Retorna `Ok(Program)` se sem erros, ou `Err(Vec<CompilerError>)` com todos os erros acumulados.
+    pub fn parse_program(&mut self) -> Result<Program, Vec<CompilerError>> {
         crate::parser::rules::declarations::parse_program(self)
+    }
+
+    /// Avança tokens até o próximo ponto de sincronização (`;`, `}` ou EOF), consumindo o delimitador.
+    pub(crate) fn synchronize(&mut self) {
+        while !self.is_at_end() {
+            match self.peek_kind() {
+                TokenKind::Semicolon | TokenKind::RightBrace => {
+                    self.advance();
+                    return;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
     }
 
     /// Retorna o token atual sem avançar a posição.
@@ -159,21 +200,6 @@ impl Parser {
             column_start: start.column_start,
             column_end: end.column_end,
         }
-    }
-
-    /// Retorna `true` se o token indica um terminador de expressão válido (`;`, `)`, `]`, etc.).
-    fn is_expression_terminator(&self, kind: &TokenKind) -> bool {
-        matches!(
-            kind,
-            TokenKind::Eof
-                | TokenKind::Comma
-                | TokenKind::RightParen
-                | TokenKind::RightBracket
-                | TokenKind::Colon
-                | TokenKind::Semicolon
-                | TokenKind::RightBrace
-                | TokenKind::Question
-        )
     }
 
     /// Constrói um `CompilerError::Syntax` com o span do token, o que era esperado e o que foi encontrado.

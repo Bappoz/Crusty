@@ -1,3 +1,4 @@
+use crusty::analyser::analyse;
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
@@ -76,17 +77,32 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     }
 
     let mut parser = Parser::new(scanner.tokens);
-    match parser.parse_program() {
-        Ok(program) => {
-            println!("\n=== AST ({}) ===", program.decls.len());
-            for decl in &program.decls {
+    let program = match parser.parse_program() {
+        Ok(p) => {
+            println!("\n=== AST ({}) ===", p.decls.len());
+            for decl in &p.decls {
                 println!("{:#?}", decl);
             }
+            p
         }
-        Err(e) => {
+        Err(errors) => {
+            let count = errors.len();
+            eprintln!("\n=== Syntax Errors ({count}) ===");
+            for e in &errors {
+                print_report(&e.to_report());
+            }
+            return Err(Box::new(DiagnosticError { count }));
+        }
+    };
+
+    let semantic_errors = analyse(&program);
+    let sem_count = semantic_errors.len();
+    if sem_count > 0 {
+        eprintln!("\n=== Semantic Errors ({sem_count}) ===");
+        for e in &semantic_errors {
             print_report(&e.to_report());
-            return Err(Box::new(DiagnosticError { count: 1 }));
         }
+        return Err(Box::new(DiagnosticError { count: sem_count }));
     }
 
     Ok(())
