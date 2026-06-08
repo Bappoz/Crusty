@@ -37,13 +37,14 @@ impl SemanticAnalyser {
                 if let Some(expr) = init {
                     let init_ty = self.analyse_expr(expr);
                     if !types_compatible_for_assign(&resolved_qty.ty, &init_ty.ty) {
-                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                            span: expr.span(),
-                            kind: SemanticErrorKind::TypeMismatch {
-                                expected: type_name(&resolved_qty.ty),
-                                found: type_name(&init_ty.ty),
-                            },
-                        }));
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: expr.span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&resolved_qty.ty),
+                                    found: type_name(&init_ty.ty),
+                                },
+                            }));
                     }
                 }
                 let symbol = Symbol {
@@ -165,13 +166,17 @@ impl SemanticAnalyser {
 
                 if let Some(expected_ret) = &self.current_fn_ret {
                     if !types_compatible_for_assign(&expected_ret.ty, &ret_ty.ty) {
-                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                            span: expr.as_ref().map(|e| e.span()).unwrap_or_else(|| stmt.span()),
-                            kind: SemanticErrorKind::TypeMismatch {
-                                expected: type_name(&expected_ret.ty),
-                                found: type_name(&ret_ty.ty),
-                            },
-                        }));
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: expr
+                                    .as_ref()
+                                    .map(|e| e.span())
+                                    .unwrap_or_else(|| stmt.span()),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&expected_ret.ty),
+                                    found: type_name(&ret_ty.ty),
+                                },
+                            }));
                     }
                 }
             }
