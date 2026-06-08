@@ -137,6 +137,25 @@ mod tests {
         assert!(analyse(&prog).is_empty());
     }
 
+    #[test]
+    fn global_initializer_type_mismatch_emits_error() {
+        let prog = Program {
+            decls: vec![Decl::GlobalVar(
+                qty(Type::Int),
+                "x".into(),
+                Some(Expr::Literal(Literal::String("hello".into()), span())),
+                span(),
+            )],
+        };
+
+        let errors = analyse(&prog);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            crate::common::errors::types::CompilerError::Semantic(se)
+                if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+        )));
+    }
+
     // ── múltiplos erros acumulados ────────────────────────────────────────────
 
     #[test]
@@ -326,6 +345,24 @@ mod tests {
         let ty = analyser.analyse_expr(&expr);
         assert!(analyser.diagnostics.is_empty());
         assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn function_call_uses_registered_return_type() {
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "main".into(),
+                vec![],
+                vec![Stmt::Return(
+                    Some(Expr::Call(Box::new(ident("main")), vec![], span())),
+                    span(),
+                )],
+                span(),
+            )],
+        };
+
+        assert!(analyse(&prog).is_empty());
     }
 
     // ── Assign: verificação de compatibilidade de tipo ────────────────────────
