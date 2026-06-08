@@ -26,6 +26,7 @@ mod tests {
                 is_unsigned: false,
             },
             mutable: !is_const,
+            params: None,
             decl_span: span(),
         }
     }
