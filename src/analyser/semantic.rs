@@ -33,10 +33,19 @@ impl SemanticAnalyser {
     pub fn analyse_decl(&mut self, decl: &Decl) {
         match decl {
             Decl::GlobalVar(qty, name, init, span) => {
-                if let Some(expr) = init {
-                    self.analyse_expr(expr);
-                }
                 let resolved_qty = self.resolve_type(qty);
+                if let Some(expr) = init {
+                    let init_ty = self.analyse_expr(expr);
+                    if !types_compatible_for_assign(&resolved_qty.ty, &init_ty.ty) {
+                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
+                            span: expr.span(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: type_name(&resolved_qty.ty),
+                                found: type_name(&init_ty.ty),
+                            },
+                        }));
+                    }
+                }
                 let symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_qty.clone(),
@@ -79,9 +88,20 @@ impl SemanticAnalyser {
                 let resolved_qty = self.resolve_type(qty);
                 self.sym.register_type_alias(name.clone(), resolved_qty);
             }
-            Decl::Function(return_type, _name, params, body, span) => {
+            Decl::Function(return_type, name, params, body, span) => {
+                let resolved_return_type = self.resolve_type(return_type);
+                let function_symbol = Symbol {
+                    name: name.clone(),
+                    ty: resolved_return_type.clone(),
+                    mutable: false,
+                    decl_span: span.clone(),
+                };
+                if let Err(e) = self.sym.declare(function_symbol) {
+                    self.diagnostics.push(e);
+                }
+
                 self.sym.enter_scope();
-                let prev_ret = self.current_fn_ret.replace(self.resolve_type(return_type));
+                let prev_ret = self.current_fn_ret.replace(resolved_return_type);
 
                 for (qty, name) in params {
                     let resolved_qty = self.resolve_type(qty);
@@ -134,9 +154,25 @@ impl SemanticAnalyser {
                 self.analyse_expr(expr);
             }
             Stmt::Return(expr, _) => {
-                if let Some(e) = expr {
-                    self.analyse_expr(e);
-                    // TODO(#87): checar compatibilidade com current_fn_ret
+                let ret_ty = expr
+                    .as_ref()
+                    .map(|e| self.analyse_expr(e))
+                    .unwrap_or_else(|| QualifierType {
+                        ty: Type::Void,
+                        is_const: false,
+                        is_unsigned: false,
+                    });
+
+                if let Some(expected_ret) = &self.current_fn_ret {
+                    if !types_compatible_for_assign(&expected_ret.ty, &ret_ty.ty) {
+                        self.diagnostics.push(CompilerError::Semantic(SemanticError {
+                            span: expr.as_ref().map(|e| e.span()).unwrap_or_else(|| stmt.span()),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: type_name(&expected_ret.ty),
+                                found: type_name(&ret_ty.ty),
+                            },
+                        }));
+                    }
                 }
             }
             Stmt::If(cond, then, else_, _) => {
@@ -255,12 +291,11 @@ impl SemanticAnalyser {
             }
             Expr::SizeofType(_, _) => uint_type(),
             Expr::Call(callee, args, _) => {
-                self.analyse_expr(callee);
+                let callee_ty = self.analyse_expr(callee);
                 for a in args {
                     self.analyse_expr(a);
                 }
-                // TODO(#87): lookup do tipo de retorno da função
-                unknown_type()
+                callee_ty
             }
             Expr::Index(arr, idx, _) => {
                 let arr_ty = self.analyse_expr(arr);
