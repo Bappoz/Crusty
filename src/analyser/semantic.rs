@@ -310,10 +310,11 @@ impl SemanticAnalyser {
                 if let Expr::Ident(name, id_span) = callee.as_ref() {
                     match self.sym.lookup(name) {
                         None => {
-                            self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                                span: id_span.clone(),
-                                kind: SemanticErrorKind::UndefinedVariable(name.clone()),
-                            }));
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: id_span.clone(),
+                                    kind: SemanticErrorKind::UndefinedVariable(name.clone()),
+                                }));
                             for a in args {
                                 self.analyse_expr(a);
                             }
@@ -325,10 +326,11 @@ impl SemanticAnalyser {
 
                             match params_clone {
                                 None => {
-                                    self.diagnostics.push(CompilerError::Semantic(SemanticError {
-                                        span: id_span.clone(),
-                                        kind: SemanticErrorKind::CallNonFunction(name.clone()),
-                                    }));
+                                    self.diagnostics
+                                        .push(CompilerError::Semantic(SemanticError {
+                                            span: id_span.clone(),
+                                            kind: SemanticErrorKind::CallNonFunction(name.clone()),
+                                        }));
                                     for a in args {
                                         self.analyse_expr(a);
                                     }
@@ -351,7 +353,10 @@ impl SemanticAnalyser {
                                         let arg_ty = self.analyse_expr(a);
                                         if i < param_types.len() {
                                             let param_ty = &param_types[i];
-                                            if !types_compatible_for_assign(&param_ty.ty, &arg_ty.ty) {
+                                            if !types_compatible_for_assign(
+                                                &param_ty.ty,
+                                                &arg_ty.ty,
+                                            ) {
                                                 self.diagnostics.push(CompilerError::Semantic(
                                                     SemanticError {
                                                         span: a.span(),

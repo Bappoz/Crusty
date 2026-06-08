@@ -498,12 +498,25 @@ mod tests {
     fn call_correct_is_ok() {
         let prog = Program {
             decls: vec![
-                Decl::Function(qty(Type::Int), "f".into(), vec![(qty(Type::Int), "a".into())], vec![], span()),
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
                 Decl::Function(
                     qty(Type::Void),
                     "main".into(),
                     vec![],
-                    vec![Stmt::ExprStmt(Expr::Call(Box::new(Expr::Ident("f".into(), span())), vec![int_lit(1)], span()), span())],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(
+                            Box::new(Expr::Ident("f".into(), span())),
+                            vec![int_lit(1)],
+                            span(),
+                        ),
+                        span(),
+                    )],
                     span(),
                 ),
             ],
@@ -515,12 +528,21 @@ mod tests {
     fn call_arity_mismatch_emits_error() {
         let prog = Program {
             decls: vec![
-                Decl::Function(qty(Type::Int), "f".into(), vec![(qty(Type::Int), "a".into())], vec![], span()),
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
                 Decl::Function(
                     qty(Type::Void),
                     "main".into(),
                     vec![],
-                    vec![Stmt::ExprStmt(Expr::Call(Box::new(Expr::Ident("f".into(), span())), vec![], span()), span())],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(Box::new(Expr::Ident("f".into(), span())), vec![], span()),
+                        span(),
+                    )],
                     span(),
                 ),
             ],
@@ -537,12 +559,25 @@ mod tests {
     fn call_arg_type_mismatch_emits_error() {
         let prog = Program {
             decls: vec![
-                Decl::Function(qty(Type::Int), "f".into(), vec![(qty(Type::Int), "a".into())], vec![], span()),
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
                 Decl::Function(
                     qty(Type::Void),
                     "main".into(),
                     vec![],
-                    vec![Stmt::ExprStmt(Expr::Call(Box::new(Expr::Ident("f".into(), span())), vec![Expr::Literal(Literal::String("hi".into()), span())], span()), span())],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(
+                            Box::new(Expr::Ident("f".into(), span())),
+                            vec![Expr::Literal(Literal::String("hi".into()), span())],
+                            span(),
+                        ),
+                        span(),
+                    )],
                     span(),
                 ),
             ],
@@ -558,18 +593,19 @@ mod tests {
     #[test]
     fn calling_variable_as_function_emits_error() {
         let prog = Program {
-            decls: vec![
-                Decl::Function(
-                    qty(Type::Void),
-                    "main".into(),
-                    vec![],
-                    vec![
-                        Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(1)), span()),
-                        Stmt::ExprStmt(Expr::Call(Box::new(Expr::Ident("x".into(), span())), vec![], span()), span()),
-                    ],
-                    span(),
-                ),
-            ],
+            decls: vec![Decl::Function(
+                qty(Type::Void),
+                "main".into(),
+                vec![],
+                vec![
+                    Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(1)), span()),
+                    Stmt::ExprStmt(
+                        Expr::Call(Box::new(Expr::Ident("x".into(), span())), vec![], span()),
+                        span(),
+                    ),
+                ],
+                span(),
+            )],
         };
         let errors = analyse(&prog);
         assert!(errors.iter().any(|e| matches!(

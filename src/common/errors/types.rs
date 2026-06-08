@@ -160,14 +160,12 @@ impl ToReport for SemanticError {
                     self.span.clone(),
                     format!("esperado: '{}', encontrado: '{}'", expected, found),
                 ),
-            SemanticErrorKind::ArityMismatch { expected, found } => {
-                Report::new("arity mismatch")
-                    .with_span(self.span.clone())
-                    .with_label(
-                        self.span.clone(),
-                        format!("expected {} args, found {}", expected, found),
-                    )
-            }
+            SemanticErrorKind::ArityMismatch { expected, found } => Report::new("arity mismatch")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("expected {} args, found {}", expected, found),
+                ),
             SemanticErrorKind::CallNonFunction(name) => Report::new("call on non-function")
                 .with_span(self.span.clone())
                 .with_label(self.span.clone(), format!("'{}' is not callable", name)),
