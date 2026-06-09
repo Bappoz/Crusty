@@ -116,6 +116,7 @@ impl ToReport for SyntaxError {
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
     Redeclaration(String),
+    ReturnInVoid,
     TypeMismatch {
         expected: String,
         found: String,
@@ -154,6 +155,12 @@ impl ToReport for SemanticError {
                     format!("'{}' já foi declarado neste escopo", name),
                 )
                 .with_help("use um nome diferente ou remova a declaração duplicada"),
+            SemanticErrorKind::ReturnInVoid => Report::new("return in void function")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    "função void não pode retornar um valor".to_string(),
+                ),
             SemanticErrorKind::TypeMismatch { expected, found } => Report::new("type error")
                 .with_span(self.span.clone())
                 .with_label(

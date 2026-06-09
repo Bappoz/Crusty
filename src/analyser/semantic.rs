@@ -165,30 +165,42 @@ impl SemanticAnalyser {
             Stmt::ExprStmt(expr, _) => {
                 self.analyse_expr(expr);
             }
-            Stmt::Return(expr, _) => {
-                let ret_ty = expr
-                    .as_ref()
-                    .map(|e| self.analyse_expr(e))
-                    .unwrap_or_else(|| QualifierType {
-                        ty: Type::Void,
-                        is_const: false,
-                        is_unsigned: false,
-                    });
+            Stmt::Return(expr, span) => {
+                let expected_fn_type = self.current_fn_ret.clone();
 
-                if let Some(expected_ret) = &self.current_fn_ret {
-                    if !types_compatible_for_assign(&expected_ret.ty, &ret_ty.ty) {
+                match (expected_fn_type, expr) {
+                    (Some(expected), Some(e)) if expected.ty == Type::Void => {
+                        self.analyse_expr(e);
                         self.diagnostics
                             .push(CompilerError::Semantic(SemanticError {
-                                span: expr
-                                    .as_ref()
-                                    .map(|e| e.span())
-                                    .unwrap_or_else(|| stmt.span()),
+                                span: span.clone(),
+                                kind: SemanticErrorKind::ReturnInVoid,
+                            }));
+                    }
+                    (Some(expected), Some(e)) => {
+                        let found_expr_qty = self.analyse_expr(e);
+                        if expected.ty != found_expr_qty.ty {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::TypeMismatch {
+                                        expected: type_name(&expected.ty),
+                                        found: type_name(&found_expr_qty.ty),
+                                    },
+                                }));
+                        }
+                    }
+                    (Some(expected), None) if expected.ty != Type::Void => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
                                 kind: SemanticErrorKind::TypeMismatch {
-                                    expected: type_name(&expected_ret.ty),
-                                    found: type_name(&ret_ty.ty),
+                                    expected: type_name(&expected.ty),
+                                    found: "void (retorno vazio)".to_string(),
                                 },
                             }));
                     }
+                    _ => {}
                 }
             }
             Stmt::If(cond, then, else_, _) => {
