@@ -399,17 +399,38 @@ impl SemanticAnalyser {
                 }
                 unknown_type()
             }
-            Expr::Index(arr, idx, _) => {
+            Expr::Index(arr, idx, span) => {
                 let arr_ty = self.analyse_expr(arr);
-                self.analyse_expr(idx);
-                // TODO(#87): desreferenciar o tipo do array/ponteiro
+                let idx_ty = self.analyse_expr(idx);
+
+                let is_integer =
+                    |t: &Type| matches!(t, Type::Int | Type::Long | Type::Short | Type::Char);
+                if !is_integer(&idx_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::InvalidIndexType {
+                                found: type_name(&idx_ty.ty),
+                            },
+                        }));
+                }
+
                 match arr_ty.ty {
                     Type::Array(inner) | Type::Pointer(inner) => QualifierType {
                         ty: *inner,
                         is_const: arr_ty.is_const,
                         is_unsigned: arr_ty.is_unsigned,
                     },
-                    _ => unknown_type(),
+                    _ => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::NotIndexable {
+                                    found: type_name(&arr_ty.ty),
+                                },
+                            }));
+                        unknown_type()
+                    }
                 }
             }
             Expr::Ternary(cond, then, else_, _) => {

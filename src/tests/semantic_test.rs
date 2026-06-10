@@ -590,6 +590,106 @@ mod tests {
         )));
     }
 
+    // ── Expr::Index ───────────────────────────────────────────────────────────
+
+    fn declare_array(analyser: &mut SemanticAnalyser, name: &str, inner: Type) {
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: name.into(),
+                ty: qty(Type::Array(Box::new(inner))),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+            })
+            .unwrap();
+    }
+
+    fn declare_var(analyser: &mut SemanticAnalyser, name: &str, ty: Type) {
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: name.into(),
+                ty: qty(ty),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn index_array_with_int_is_ok() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_array(&mut analyser, "arr", Type::Int);
+        let expr = Expr::Index(Box::new(ident("arr")), Box::new(int_lit(0)), span());
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty(), "arr[0] deve ser válido");
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn index_array_with_float_emits_invalid_index_type() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_array(&mut analyser, "arr", Type::Int);
+        let expr = Expr::Index(
+            Box::new(ident("arr")),
+            Box::new(Expr::Literal(Literal::Double(1.5), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::InvalidIndexType { .. })
+            )),
+            "arr[float] deve emitir InvalidIndexType"
+        );
+    }
+
+    #[test]
+    fn index_non_array_emits_not_indexable() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_var(&mut analyser, "x", Type::Int);
+        let expr = Expr::Index(Box::new(ident("x")), Box::new(int_lit(0)), span());
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::NotIndexable { .. })
+            )),
+            "x[0] onde x é int deve emitir NotIndexable"
+        );
+    }
+
+    #[test]
+    fn index_char_pointer_returns_char() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "s".into(),
+                ty: qty(Type::Pointer(Box::new(Type::Char))),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+            })
+            .unwrap();
+        let expr = Expr::Index(Box::new(ident("s")), Box::new(int_lit(0)), span());
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "s[0] onde s é char* deve ser válido"
+        );
+        assert!(matches!(ty.ty, Type::Char));
+    }
+
     #[test]
     fn calling_variable_as_function_emits_error() {
         let prog = Program {

@@ -132,6 +132,12 @@ pub enum SemanticErrorKind {
         field_name: String,
     },
     AssignToConst(String),
+    InvalidIndexType {
+        found: String,
+    },
+    NotIndexable {
+        found: String,
+    },
 }
 
 #[derive(Debug)]
@@ -199,6 +205,19 @@ impl ToReport for SemanticError {
                     format!("'{}' é const e não pode ser reatribuído", name),
                 )
                 .with_help("remova o qualificador const ou use uma variável mutável"),
+            SemanticErrorKind::InvalidIndexType { found } => Report::new("invalid index type")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("índice deve ser inteiro, encontrado '{}'", found),
+                )
+                .with_help("use um tipo inteiro (int, long, short, char) como índice"),
+            SemanticErrorKind::NotIndexable { found } => Report::new("not indexable")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("'{}' não é indexável (esperado array ou ponteiro)", found),
+                ),
         }
     }
 }
