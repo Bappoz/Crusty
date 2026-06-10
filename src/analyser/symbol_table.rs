@@ -10,6 +10,8 @@ pub struct Symbol {
     pub name: String,
     pub ty: QualifierType,
     pub mutable: bool,
+    /// For functions, the parameter types (in order). `None` for non-functions.
+    pub params: Option<Vec<QualifierType>>,
     pub decl_span: Span,
 }
 

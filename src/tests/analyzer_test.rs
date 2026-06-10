@@ -45,6 +45,7 @@ mod test {
                     is_unsigned: false,
                 },
                 mutable: true,
+                params: None,
                 decl_span: dummy_span(),
             })
             .unwrap();
@@ -78,6 +79,7 @@ mod test {
                     is_unsigned: false,
                 },
                 mutable: true,
+                params: None,
                 decl_span: dummy_span(),
             })
             .unwrap();
@@ -110,6 +112,7 @@ mod test {
                     is_unsigned: false,
                 },
                 mutable: true,
+                params: None,
                 decl_span: dummy_span(),
             })
             .unwrap();

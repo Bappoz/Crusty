@@ -199,6 +199,7 @@ mod tests {
                 name: "f".into(),
                 ty: qty(Type::Float),
                 mutable: true,
+                params: None,
                 decl_span: span(),
             })
             .unwrap();
@@ -248,6 +249,7 @@ mod tests {
                 name: "f".into(),
                 ty: qty(Type::Float),
                 mutable: true,
+                params: None,
                 decl_span: span(),
             })
             .unwrap();
@@ -272,6 +274,7 @@ mod tests {
                 name: "p".into(),
                 ty: qty(Type::Pointer(Box::new(Type::Int))),
                 mutable: true,
+                params: None,
                 decl_span: span(),
             })
             .unwrap();
@@ -487,5 +490,128 @@ mod tests {
         };
 
         assert!(analyse(&prog).is_empty());
+    }
+
+    // ── Call checks ───────────────────────────────────────────────────────
+
+    #[test]
+    fn call_correct_is_ok() {
+        let prog = Program {
+            decls: vec![
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Void),
+                    "main".into(),
+                    vec![],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(
+                            Box::new(Expr::Ident("f".into(), span())),
+                            vec![int_lit(1)],
+                            span(),
+                        ),
+                        span(),
+                    )],
+                    span(),
+                ),
+            ],
+        };
+        assert!(analyse(&prog).is_empty());
+    }
+
+    #[test]
+    fn call_arity_mismatch_emits_error() {
+        let prog = Program {
+            decls: vec![
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Void),
+                    "main".into(),
+                    vec![],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(Box::new(Expr::Ident("f".into(), span())), vec![], span()),
+                        span(),
+                    )],
+                    span(),
+                ),
+            ],
+        };
+        let errors = analyse(&prog);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            crate::common::errors::types::CompilerError::Semantic(se)
+                if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::ArityMismatch { .. })
+        )));
+    }
+
+    #[test]
+    fn call_arg_type_mismatch_emits_error() {
+        let prog = Program {
+            decls: vec![
+                Decl::Function(
+                    qty(Type::Int),
+                    "f".into(),
+                    vec![(qty(Type::Int), "a".into())],
+                    vec![],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Void),
+                    "main".into(),
+                    vec![],
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(
+                            Box::new(Expr::Ident("f".into(), span())),
+                            vec![Expr::Literal(Literal::String("hi".into()), span())],
+                            span(),
+                        ),
+                        span(),
+                    )],
+                    span(),
+                ),
+            ],
+        };
+        let errors = analyse(&prog);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            crate::common::errors::types::CompilerError::Semantic(se)
+                if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::TypeMismatch { .. })
+        )));
+    }
+
+    #[test]
+    fn calling_variable_as_function_emits_error() {
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Void),
+                "main".into(),
+                vec![],
+                vec![
+                    Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(1)), span()),
+                    Stmt::ExprStmt(
+                        Expr::Call(Box::new(Expr::Ident("x".into(), span())), vec![], span()),
+                        span(),
+                    ),
+                ],
+                span(),
+            )],
+        };
+        let errors = analyse(&prog);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            crate::common::errors::types::CompilerError::Semantic(se)
+                if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::CallNonFunction(_))
+        )));
     }
 }
