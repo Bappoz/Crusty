@@ -433,12 +433,38 @@ impl SemanticAnalyser {
                     }
                 }
             }
-            Expr::Ternary(cond, then, else_, _) => {
-                self.analyse_expr(cond);
+            Expr::Ternary(cond, then, else_, span) => {
+                let cond_ty = self.analyse_expr(cond);
+                // 1. A condição deve ser um tipo escalar (numérico ou ponteiro)
+                if !is_numeric(&cond_ty.ty) && !is_pointer(&cond_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: cond.span(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: "scalar".to_string(),
+                                found: type_name(&cond_ty.ty),
+                            },
+                        }));
+                }
+
                 let then_ty = self.analyse_expr(then);
-                self.analyse_expr(else_);
-                // TODO(#87): verificar compatibilidade de then/else
-                then_ty
+                let else_ty = self.analyse_expr(else_);
+
+                // 2. Verificar compatibilidade entre os ramos then/else
+                if !ternary_branches_compatible(&then_ty.ty, &else_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: type_name(&then_ty.ty),
+                                found: type_name(&else_ty.ty),
+                            },
+                        }));
+                    return unknown_type();
+                }
+
+                // 3. Retornar o tipo promovido
+                ternary_result_type(&then_ty, &else_ty)
             }
             Expr::Member(obj, access_kind, field_name, span) => {
                 let left_type = self.analyse_expr(obj);
@@ -638,6 +664,44 @@ fn types_compatible_for_assign(lhs: &Type, rhs: &Type) -> bool {
         return l_inner == r_inner;
     }
     false
+}
+
+/// Verifica compatibilidade entre os ramos `then`/`else` de um ternário.
+///
+/// Segue as regras do C:
+/// - Tipos iguais → compatível.
+/// - Ambos numéricos → compatível (promoção implícita).
+/// - Ambos ponteiros do mesmo tipo → compatível.
+///
+/// Nota: a regra do null pointer constant (`T* : 0`) exigiria análise de
+/// valor constante (constant folding) e está fora do escopo desta verificação.
+fn ternary_branches_compatible(a: &Type, b: &Type) -> bool {
+    if a == b {
+        return true;
+    }
+    if is_numeric(a) && is_numeric(b) {
+        return true;
+    }
+    if let (Type::Pointer(ai), Type::Pointer(bi)) = (a, b) {
+        return ai == bi;
+    }
+    false
+}
+
+/// Determina o tipo resultante do operador ternário a partir dos tipos dos ramos.
+///
+/// - Ambos numéricos → promoção numérica dominante (Double > Float > Long > Int).
+/// - Demais casos (tipos iguais, ponteiros iguais) → tipo do ramo `then`.
+fn ternary_result_type(then_ty: &QualifierType, else_ty: &QualifierType) -> QualifierType {
+    let make = |ty: Type| QualifierType {
+        ty,
+        is_const: false,
+        is_unsigned: false,
+    };
+    if is_numeric(&then_ty.ty) && is_numeric(&else_ty.ty) {
+        return make(numeric_promotion(&then_ty.ty, &else_ty.ty));
+    }
+    then_ty.clone()
 }
 
 /// Calcula o tipo resultante de `lhs op rhs`.
