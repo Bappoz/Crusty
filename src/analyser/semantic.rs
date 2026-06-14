@@ -435,8 +435,8 @@ impl SemanticAnalyser {
             }
             Expr::Ternary(cond, then, else_, span) => {
                 let cond_ty = self.analyse_expr(cond);
-                // 1. A condição deve ser um tipo escalar (numérico ou ponteiro)
-                if !is_numeric(&cond_ty.ty) && !is_pointer(&cond_ty.ty) {
+                // 1. A condição deve ser um tipo escalar (numérico, ponteiro ou enum)
+                if !is_scalar(&cond_ty.ty) {
                     self.diagnostics
                         .push(CompilerError::Semantic(SemanticError {
                             span: cond.span(),
@@ -445,6 +445,7 @@ impl SemanticAnalyser {
                                 found: type_name(&cond_ty.ty),
                             },
                         }));
+                    return unknown_type();
                 }
 
                 let then_ty = self.analyse_expr(then);
@@ -617,6 +618,12 @@ fn is_pointer(ty: &Type) -> bool {
     matches!(ty, Type::Pointer(_) | Type::Array(_))
 }
 
+/// Retorna `true` se o tipo é escalar (numérico, ponteiro ou enum).
+/// Enums são tipos inteiros em C e são válidos como condições.
+fn is_scalar(ty: &Type) -> bool {
+    is_numeric(ty) || is_pointer(ty) || matches!(ty, Type::Enum(_))
+}
+
 /// Converte `Type` em string legível para mensagens de erro.
 fn type_name(ty: &Type) -> String {
     match ty {
@@ -668,24 +675,10 @@ fn types_compatible_for_assign(lhs: &Type, rhs: &Type) -> bool {
 
 /// Verifica compatibilidade entre os ramos `then`/`else` de um ternário.
 ///
-/// Segue as regras do C:
-/// - Tipos iguais → compatível.
-/// - Ambos numéricos → compatível (promoção implícita).
-/// - Ambos ponteiros do mesmo tipo → compatível.
-///
-/// Nota: a regra do null pointer constant (`T* : 0`) exigiria análise de
-/// valor constante (constant folding) e está fora do escopo desta verificação.
+/// Nota: a regra do null pointer constant (`T* : 0`) exigiria constant folding
+/// e está fora do escopo desta verificação.
 fn ternary_branches_compatible(a: &Type, b: &Type) -> bool {
-    if a == b {
-        return true;
-    }
-    if is_numeric(a) && is_numeric(b) {
-        return true;
-    }
-    if let (Type::Pointer(ai), Type::Pointer(bi)) = (a, b) {
-        return ai == bi;
-    }
-    false
+    types_compatible_for_assign(a, b)
 }
 
 /// Determina o tipo resultante do operador ternário a partir dos tipos dos ramos.

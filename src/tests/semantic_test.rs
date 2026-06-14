@@ -811,6 +811,35 @@ mod tests {
     }
 
     #[test]
+    fn ternary_enum_condition_is_valid() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "e".into(),
+                ty: qty(Type::Enum("Color".into())),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+            })
+            .unwrap();
+        // e ? 1 : 2  → enum é escalar, deve ser válido
+        let expr = Expr::Ternary(
+            Box::new(ident("e")),
+            Box::new(int_lit(1)),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "condição enum no ternário deve ser válida (enum é tipo inteiro em C)"
+        );
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
     fn ternary_pointer_int_without_constant_folding_emits_error() {
         // Sem análise de valor constante (constant folding), o analisador
         // não distingue `0` (null pointer) de `10` (inteiro arbitrário).
