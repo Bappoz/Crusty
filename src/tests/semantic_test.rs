@@ -201,6 +201,7 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
             })
             .unwrap();
         let ty = analyser.analyse_expr(&ident("f"));
@@ -251,6 +252,7 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
             })
             .unwrap();
         let expr = Expr::Binary(
@@ -276,6 +278,7 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
             })
             .unwrap();
         let expr = Expr::Binary(
@@ -590,6 +593,109 @@ mod tests {
         )));
     }
 
+    // ── Expr::Index ───────────────────────────────────────────────────────────
+
+    fn declare_array(analyser: &mut SemanticAnalyser, name: &str, inner: Type) {
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: name.into(),
+                ty: qty(Type::Array(Box::new(inner))),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+            })
+            .unwrap();
+    }
+
+    fn declare_var(analyser: &mut SemanticAnalyser, name: &str, ty: Type) {
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: name.into(),
+                ty: qty(ty),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn index_array_with_int_is_ok() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_array(&mut analyser, "arr", Type::Int);
+        let expr = Expr::Index(Box::new(ident("arr")), Box::new(int_lit(0)), span());
+        let ty = analyser.analyse_expr(&expr);
+        assert!(analyser.diagnostics.is_empty(), "arr[0] deve ser válido");
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn index_array_with_float_emits_invalid_index_type() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_array(&mut analyser, "arr", Type::Int);
+        let expr = Expr::Index(
+            Box::new(ident("arr")),
+            Box::new(Expr::Literal(Literal::Double(1.5), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::InvalidIndexType { .. })
+            )),
+            "arr[float] deve emitir InvalidIndexType"
+        );
+    }
+
+    #[test]
+    fn index_non_array_emits_not_indexable() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        declare_var(&mut analyser, "x", Type::Int);
+        let expr = Expr::Index(Box::new(ident("x")), Box::new(int_lit(0)), span());
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::NotIndexable { .. })
+            )),
+            "x[0] onde x é int deve emitir NotIndexable"
+        );
+    }
+
+    #[test]
+    fn index_char_pointer_returns_char() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "s".into(),
+                ty: qty(Type::Pointer(Box::new(Type::Char))),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+            })
+            .unwrap();
+        let expr = Expr::Index(Box::new(ident("s")), Box::new(int_lit(0)), span());
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "s[0] onde s é char* deve ser válido"
+        );
+        assert!(matches!(ty.ty, Type::Char));
+    }
+
     #[test]
     fn calling_variable_as_function_emits_error() {
         let prog = Program {
@@ -613,5 +719,170 @@ mod tests {
             crate::common::errors::types::CompilerError::Semantic(se)
                 if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::CallNonFunction(_))
         )));
+    }
+
+    // ── Protótipos de função (forward declarations) ───────────────────────────
+
+    /// Caso 1: protótipo declarado antes da definição → chamada válida sem erros.
+    #[test]
+    fn prototype_valid_forward_call_is_ok() {
+        // int soma(int a, int b);
+        // int main() { return soma(1, 2); }
+        // int soma(int a, int b) { return a + b; }
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "main".into(),
+                    vec![],
+                    vec![Stmt::Return(
+                        Some(Expr::Call(
+                            Box::new(ident("soma")),
+                            vec![int_lit(1), int_lit(2)],
+                            span(),
+                        )),
+                        span(),
+                    )],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        assert!(
+            analyse(&prog).is_empty(),
+            "chamada com protótipo declarado antes deve ser válida"
+        );
+    }
+
+    /// Caso 2: chamada sem protótipo → `UndefinedVariable`.
+    #[test]
+    fn prototype_call_without_declaration_emits_undefined() {
+        // int main() { return soma(1, 2); }  // sem protótipo
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "main".into(),
+                vec![],
+                vec![Stmt::Return(
+                    Some(Expr::Call(
+                        Box::new(ident("soma")),
+                        vec![int_lit(1), int_lit(2)],
+                        span(),
+                    )),
+                    span(),
+                )],
+                span(),
+            )],
+        };
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::UndefinedVariable(n) if n == "soma")
+            )),
+            "chamada sem protótipo deve emitir UndefinedVariable"
+        );
+    }
+
+    /// Caso 3: protótipo com tipo de retorno diferente da definição → `PrototypeMismatch`.
+    #[test]
+    fn prototype_mismatch_return_type_emits_error() {
+        // float soma(int a, int b);  // protótipo diz float
+        // int soma(int a, int b) { ... }  // definição diz int
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Float), // retorno float no protótipo
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int), // retorno int na definição
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMismatch { name, .. } if name == "soma")
+            )),
+            "retorno diferente entre protótipo e definição deve emitir PrototypeMismatch"
+        );
+    }
+
+    /// Caso 4: protótipo com parâmetros diferentes da definição → `PrototypeMismatch`.
+    #[test]
+    fn prototype_mismatch_param_types_emits_error() {
+        // int soma(float a, int b);  // protótipo diz float no 1º param
+        // int soma(int a, int b) { ... }  // definição diz int
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Float), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMismatch { name, .. } if name == "soma")
+            )),
+            "parâmetros diferentes entre protótipo e definição deve emitir PrototypeMismatch"
+        );
+    }
+
+    /// Caso 5: protótipo sem implementação correspondente → `PrototypeMissingBody`.
+    #[test]
+    fn prototype_without_body_emits_warning() {
+        // int soma(int a, int b);  // nunca implementada
+        let prog = Program {
+            decls: vec![Decl::Prototype(
+                qty(Type::Int),
+                "soma".into(),
+                vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                span(),
+            )],
+        };
+        let errors = analyse(&prog);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMissingBody(n) if n == "soma")
+            )),
+            "protótipo sem implementação deve emitir PrototypeMissingBody"
+        );
     }
 }

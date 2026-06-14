@@ -15,6 +15,9 @@ pub enum Type {
     Struct(String),
     Enum(String),
     Alias(String),
+    /// Tipo de uma função: (tipo_retorno, [tipos_parâmetros]).
+    /// Usado para registrar assinaturas de protótipos e definições na tabela de símbolos.
+    Function(Box<QualifierType>, Vec<QualifierType>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

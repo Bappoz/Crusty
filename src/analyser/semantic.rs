@@ -27,6 +27,20 @@ impl SemanticAnalyser {
         for decl in &prog.decls {
             self.analyse_decl(decl);
         }
+        // Verifica protótipos sem implementação correspondente
+        let dangling: Vec<_> = self
+            .sym
+            .dangling_prototypes()
+            .into_iter()
+            .map(|s| (s.name.clone(), s.decl_span.clone()))
+            .collect();
+        for (name, span) in dangling {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span,
+                    kind: SemanticErrorKind::PrototypeMissingBody(name),
+                }));
+        }
         self.sym.exit_scope();
     }
 
@@ -53,6 +67,7 @@ impl SemanticAnalyser {
                     mutable: !resolved_qty.is_const,
                     params: None,
                     decl_span: span.clone(),
+                    prototype_only: false,
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -80,6 +95,7 @@ impl SemanticAnalyser {
                             .as_ref()
                             .map(|expr| expr.span())
                             .unwrap_or_else(|| enum_span.clone()),
+                        prototype_only: false,
                     };
 
                     if let Err(e) = self.sym.declare(symbol) {
@@ -98,15 +114,42 @@ impl SemanticAnalyser {
                     .map(|(qty, _)| self.resolve_type(qty))
                     .collect();
 
+                // Constrói strings de assinatura para mensagens de erro
+                let sig = |ret: &QualifierType, pts: &[QualifierType]| -> String {
+                    format!(
+                        "{}({})",
+                        type_name(&ret.ty),
+                        pts.iter()
+                            .map(|p| type_name(&p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+
                 let function_symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_ret.clone(),
                     mutable: false,
                     params: Some(param_tys.clone()),
                     decl_span: span.clone(),
+                    prototype_only: false,
                 };
 
-                if let Err(e) = self.sym.declare(function_symbol) {
+                // Se já existe um protótipo, verifica compatibilidade; senão declara.
+                // O expected_sig é o que o protótipo esperava, found_sig é o que a definição traz.
+                // Como a função é quem define, invertemos: expected = protótipo, found = definição.
+                let proto_sig = self
+                    .sym
+                    .lookup(name)
+                    .filter(|s| s.prototype_only)
+                    .map(|s| sig(&s.ty, s.params.as_deref().unwrap_or(&[])));
+                let def_sig = sig(&resolved_ret, &param_tys);
+                let expected_sig = proto_sig.unwrap_or_else(|| def_sig.clone());
+
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(function_symbol, &expected_sig, &def_sig)
+                {
                     self.diagnostics.push(e);
                 }
 
@@ -121,6 +164,7 @@ impl SemanticAnalyser {
                         mutable: !resolved_qty.is_const,
                         params: None,
                         decl_span: span.clone(),
+                        prototype_only: false,
                     };
                     if let Err(e) = self.sym.declare(symbol) {
                         self.diagnostics.push(e);
@@ -133,6 +177,46 @@ impl SemanticAnalyser {
 
                 self.current_fn_ret = prev_ret;
                 self.sym.exit_scope();
+            }
+            Decl::Prototype(return_type, name, params, span) => {
+                let resolved_ret = self.resolve_type(return_type);
+                let param_tys: Vec<QualifierType> = params
+                    .iter()
+                    .map(|(qty, _)| self.resolve_type(qty))
+                    .collect();
+
+                let prototype_symbol = Symbol {
+                    name: name.clone(),
+                    ty: resolved_ret,
+                    mutable: false,
+                    params: Some(param_tys),
+                    decl_span: span.clone(),
+                    prototype_only: true,
+                };
+
+                // Um protótipo duplicado sobre outro protótipo idêntico é ignorado (C permite).
+                // Se houver conflito, declare reportará Redeclaration.
+                // Usamos declare_or_upgrade: se o protótipo já existe e é idêntico, simplesmente
+                // mantém (nenhuma mudança no flag prototype_only). Senão, Redeclaration ou
+                // PrototypeMismatch.
+                let proto_sig = format!(
+                    "{}({})",
+                    type_name(&prototype_symbol.ty.ty),
+                    prototype_symbol
+                        .params
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|p| type_name(&p.ty))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(prototype_symbol, &proto_sig, &proto_sig)
+                {
+                    self.diagnostics.push(e);
+                }
             }
         }
     }
@@ -150,6 +234,7 @@ impl SemanticAnalyser {
                     mutable: !resolved_qty.is_const,
                     params: None,
                     decl_span: span.clone(),
+                    prototype_only: false,
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -399,17 +484,38 @@ impl SemanticAnalyser {
                 }
                 unknown_type()
             }
-            Expr::Index(arr, idx, _) => {
+            Expr::Index(arr, idx, span) => {
                 let arr_ty = self.analyse_expr(arr);
-                self.analyse_expr(idx);
-                // TODO(#87): desreferenciar o tipo do array/ponteiro
+                let idx_ty = self.analyse_expr(idx);
+
+                let is_integer =
+                    |t: &Type| matches!(t, Type::Int | Type::Long | Type::Short | Type::Char);
+                if !is_integer(&idx_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::InvalidIndexType {
+                                found: type_name(&idx_ty.ty),
+                            },
+                        }));
+                }
+
                 match arr_ty.ty {
                     Type::Array(inner) | Type::Pointer(inner) => QualifierType {
                         ty: *inner,
                         is_const: arr_ty.is_const,
                         is_unsigned: arr_ty.is_unsigned,
                     },
-                    _ => unknown_type(),
+                    _ => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::NotIndexable {
+                                    found: type_name(&arr_ty.ty),
+                                },
+                            }));
+                        unknown_type()
+                    }
                 }
             }
             Expr::Ternary(cond, then, else_, _) => {
@@ -585,6 +691,15 @@ fn type_name(ty: &Type) -> String {
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),
+        Type::Function(ret, params) => format!(
+            "{}({})",
+            type_name(&ret.ty),
+            params
+                .iter()
+                .map(|p| type_name(&p.ty))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 

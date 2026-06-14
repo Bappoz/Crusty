@@ -14,6 +14,8 @@ pub enum Decl {
     StructDecl(String, Vec<(QualifierType, String)>, Span),
     EnumDecl(String, Vec<(String, Option<Expr>)>, Span),
     Typedef(QualifierType, String, Span),
+    /// Protótipo de função (forward declaration): `tipo nome(params);`
+    Prototype(QualifierType, String, Vec<(QualifierType, String)>, Span),
 }
 
 impl Decl {
@@ -25,6 +27,7 @@ impl Decl {
             Decl::StructDecl(_, _, s) => s.clone(),
             Decl::EnumDecl(_, _, s) => s.clone(),
             Decl::Typedef(_, _, s) => s.clone(),
+            Decl::Prototype(_, _, _, s) => s.clone(),
         }
     }
 }
