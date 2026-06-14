@@ -29,6 +29,8 @@ mod tests {
             params: None,
             decl_span: span(),
             prototype_only: false,
+            used: false,
+            initialized: false,
         }
     }
 
