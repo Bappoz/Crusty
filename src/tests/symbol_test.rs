@@ -28,6 +28,7 @@ mod tests {
             mutable: !is_const,
             params: None,
             decl_span: span(),
+            prototype_only: false,
         }
     }
 
