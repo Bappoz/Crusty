@@ -119,7 +119,10 @@ impl SemanticAnalyser {
                     format!(
                         "{}({})",
                         type_name(&ret.ty),
-                        pts.iter().map(|p| type_name(&p.ty)).collect::<Vec<_>>().join(", ")
+                        pts.iter()
+                            .map(|p| type_name(&p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 };
 
@@ -139,18 +142,13 @@ impl SemanticAnalyser {
                     .sym
                     .lookup(name)
                     .filter(|s| s.prototype_only)
-                    .map(|s| {
-                        sig(
-                            &s.ty,
-                            s.params.as_deref().unwrap_or(&[]),
-                        )
-                    });
+                    .map(|s| sig(&s.ty, s.params.as_deref().unwrap_or(&[])));
                 let def_sig = sig(&resolved_ret, &param_tys);
                 let expected_sig = proto_sig.unwrap_or_else(|| def_sig.clone());
 
-                if let Err(e) = self
-                    .sym
-                    .declare_or_upgrade(function_symbol, &expected_sig, &def_sig)
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(function_symbol, &expected_sig, &def_sig)
                 {
                     self.diagnostics.push(e);
                 }
@@ -213,9 +211,9 @@ impl SemanticAnalyser {
                         .collect::<Vec<_>>()
                         .join(", ")
                 );
-                if let Err(e) = self
-                    .sym
-                    .declare_or_upgrade(prototype_symbol, &proto_sig, &proto_sig)
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(prototype_symbol, &proto_sig, &proto_sig)
                 {
                     self.diagnostics.push(e);
                 }
@@ -696,7 +694,11 @@ fn type_name(ty: &Type) -> String {
         Type::Function(ret, params) => format!(
             "{}({})",
             type_name(&ret.ty),
-            params.iter().map(|p| type_name(&p.ty)).collect::<Vec<_>>().join(", ")
+            params
+                .iter()
+                .map(|p| type_name(&p.ty))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     }
 }

@@ -213,25 +213,29 @@ impl ToReport for SemanticError {
                     format!("'{}' é const e não pode ser reatribuído", name),
                 )
                 .with_help("remova o qualificador const ou use uma variável mutável"),
-            SemanticErrorKind::PrototypeMismatch { name, expected, found } =>
-                Report::new("prototype mismatch")
-                    .with_span(self.span.clone())
-                    .with_label(
-                        self.span.clone(),
-                        format!(
-                            "definição de '{}' diverge do protótipo: esperado '{}', encontrado '{}'",
-                            name, expected, found
-                        ),
-                    )
-                    .with_help("ajuste a assinatura da função para corresponder ao protótipo"),
-            SemanticErrorKind::PrototypeMissingBody(name) =>
+            SemanticErrorKind::PrototypeMismatch {
+                name,
+                expected,
+                found,
+            } => Report::new("prototype mismatch")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!(
+                        "definição de '{}' diverge do protótipo: esperado '{}', encontrado '{}'",
+                        name, expected, found
+                    ),
+                )
+                .with_help("ajuste a assinatura da função para corresponder ao protótipo"),
+            SemanticErrorKind::PrototypeMissingBody(name) => {
                 Report::new("prototype without definition")
                     .with_span(self.span.clone())
                     .with_label(
                         self.span.clone(),
                         format!("'{}' foi declarada mas nunca definida", name),
                     )
-                    .with_help("adicione a implementação da função ou remova o protótipo"),
+                    .with_help("adicione a implementação da função ou remova o protótipo")
+            }
             SemanticErrorKind::InvalidIndexType { found } => Report::new("invalid index type")
                 .with_span(self.span.clone())
                 .with_label(
