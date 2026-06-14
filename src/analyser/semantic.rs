@@ -33,14 +33,25 @@ impl SemanticAnalyser {
     pub fn analyse_decl(&mut self, decl: &Decl) {
         match decl {
             Decl::GlobalVar(qty, name, init, span) => {
-                if let Some(expr) = init {
-                    self.analyse_expr(expr);
-                }
                 let resolved_qty = self.resolve_type(qty);
+                if let Some(expr) = init {
+                    let init_ty = self.analyse_expr(expr);
+                    if !types_compatible_for_assign(&resolved_qty.ty, &init_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: expr.span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&resolved_qty.ty),
+                                    found: type_name(&init_ty.ty),
+                                },
+                            }));
+                    }
+                }
                 let symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_qty.clone(),
                     mutable: !resolved_qty.is_const,
+                    params: None,
                     decl_span: span.clone(),
                 };
                 if let Err(e) = self.sym.declare(symbol) {
@@ -64,6 +75,7 @@ impl SemanticAnalyser {
                             is_unsigned: false,
                         },
                         mutable: false,
+                        params: None,
                         decl_span: value
                             .as_ref()
                             .map(|expr| expr.span())
@@ -79,9 +91,27 @@ impl SemanticAnalyser {
                 let resolved_qty = self.resolve_type(qty);
                 self.sym.register_type_alias(name.clone(), resolved_qty);
             }
-            Decl::Function(return_type, _name, params, body, span) => {
+            Decl::Function(return_type, name, params, body, span) => {
+                let resolved_ret = self.resolve_type(return_type);
+                let param_tys: Vec<QualifierType> = params
+                    .iter()
+                    .map(|(qty, _)| self.resolve_type(qty))
+                    .collect();
+
+                let function_symbol = Symbol {
+                    name: name.clone(),
+                    ty: resolved_ret.clone(),
+                    mutable: false,
+                    params: Some(param_tys.clone()),
+                    decl_span: span.clone(),
+                };
+
+                if let Err(e) = self.sym.declare(function_symbol) {
+                    self.diagnostics.push(e);
+                }
+
                 self.sym.enter_scope();
-                let prev_ret = self.current_fn_ret.replace(self.resolve_type(return_type));
+                let prev_ret = self.current_fn_ret.replace(resolved_ret);
 
                 for (qty, name) in params {
                     let resolved_qty = self.resolve_type(qty);
@@ -89,6 +119,7 @@ impl SemanticAnalyser {
                         name: name.clone(),
                         ty: resolved_qty.clone(),
                         mutable: !resolved_qty.is_const,
+                        params: None,
                         decl_span: span.clone(),
                     };
                     if let Err(e) = self.sym.declare(symbol) {
@@ -117,6 +148,7 @@ impl SemanticAnalyser {
                     name: name.clone(),
                     ty: resolved_qty.clone(),
                     mutable: !resolved_qty.is_const,
+                    params: None,
                     decl_span: span.clone(),
                 };
                 if let Err(e) = self.sym.declare(symbol) {
@@ -133,10 +165,42 @@ impl SemanticAnalyser {
             Stmt::ExprStmt(expr, _) => {
                 self.analyse_expr(expr);
             }
-            Stmt::Return(expr, _) => {
-                if let Some(e) = expr {
-                    self.analyse_expr(e);
-                    // TODO(#87): checar compatibilidade com current_fn_ret
+            Stmt::Return(expr, span) => {
+                let expected_fn_type = self.current_fn_ret.clone();
+
+                match (expected_fn_type, expr) {
+                    (Some(expected), Some(e)) if expected.ty == Type::Void => {
+                        self.analyse_expr(e);
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::ReturnInVoid,
+                            }));
+                    }
+                    (Some(expected), Some(e)) => {
+                        let found_expr_qty = self.analyse_expr(e);
+                        if expected.ty != found_expr_qty.ty {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: span.clone(),
+                                    kind: SemanticErrorKind::TypeMismatch {
+                                        expected: type_name(&expected.ty),
+                                        found: type_name(&found_expr_qty.ty),
+                                    },
+                                }));
+                        }
+                    }
+                    (Some(expected), None) if expected.ty != Type::Void => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&expected.ty),
+                                    found: "void (retorno vazio)".to_string(),
+                                },
+                            }));
+                    }
+                    _ => {}
                 }
             }
             Stmt::If(cond, then, else_, _) => {
@@ -254,12 +318,85 @@ impl SemanticAnalyser {
                 uint_type()
             }
             Expr::SizeofType(_, _) => uint_type(),
-            Expr::Call(callee, args, _) => {
+            Expr::Call(callee, args, span) => {
+                if let Expr::Ident(name, id_span) = callee.as_ref() {
+                    match self.sym.lookup(name) {
+                        None => {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: id_span.clone(),
+                                    kind: SemanticErrorKind::UndefinedVariable(name.clone()),
+                                }));
+                            for a in args {
+                                self.analyse_expr(a);
+                            }
+                            return unknown_type();
+                        }
+                        Some(sym) => {
+                            let params_clone = sym.params.clone();
+                            let ret_ty_clone = sym.ty.clone();
+
+                            match params_clone {
+                                None => {
+                                    self.diagnostics
+                                        .push(CompilerError::Semantic(SemanticError {
+                                            span: id_span.clone(),
+                                            kind: SemanticErrorKind::CallNonFunction(name.clone()),
+                                        }));
+                                    for a in args {
+                                        self.analyse_expr(a);
+                                    }
+                                    return unknown_type();
+                                }
+                                Some(param_types) => {
+                                    if param_types.len() != args.len() {
+                                        self.diagnostics.push(CompilerError::Semantic(
+                                            SemanticError {
+                                                span: span.clone(),
+                                                kind: SemanticErrorKind::ArityMismatch {
+                                                    expected: param_types.len(),
+                                                    found: args.len(),
+                                                },
+                                            },
+                                        ));
+                                    }
+
+                                    for (i, a) in args.iter().enumerate() {
+                                        let arg_ty = self.analyse_expr(a);
+                                        if i < param_types.len() {
+                                            let param_ty = &param_types[i];
+                                            if !types_compatible_for_assign(
+                                                &param_ty.ty,
+                                                &arg_ty.ty,
+                                            ) {
+                                                self.diagnostics.push(CompilerError::Semantic(
+                                                    SemanticError {
+                                                        span: a.span(),
+                                                        kind: SemanticErrorKind::TypeMismatch {
+                                                            expected: type_name(&param_ty.ty),
+                                                            found: type_name(&arg_ty.ty),
+                                                        },
+                                                    },
+                                                ));
+                                            }
+                                        }
+                                    }
+
+                                    return QualifierType {
+                                        ty: ret_ty_clone.ty,
+                                        is_const: ret_ty_clone.is_const,
+                                        is_unsigned: ret_ty_clone.is_unsigned,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+
                 self.analyse_expr(callee);
                 for a in args {
                     self.analyse_expr(a);
                 }
-                // TODO(#87): lookup do tipo de retorno da função
                 unknown_type()
             }
             Expr::Index(arr, idx, _) => {

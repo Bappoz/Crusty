@@ -116,10 +116,16 @@ impl ToReport for SyntaxError {
 pub enum SemanticErrorKind {
     UndefinedVariable(String),
     Redeclaration(String),
+    ReturnInVoid,
     TypeMismatch {
         expected: String,
         found: String,
     },
+    ArityMismatch {
+        expected: usize,
+        found: usize,
+    },
+    CallNonFunction(String),
     UndefinedStruct(String),
     FieldNotFound {
         struct_name: String,
@@ -149,12 +155,27 @@ impl ToReport for SemanticError {
                     format!("'{}' já foi declarado neste escopo", name),
                 )
                 .with_help("use um nome diferente ou remova a declaração duplicada"),
+            SemanticErrorKind::ReturnInVoid => Report::new("return in void function")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    "função void não pode retornar um valor".to_string(),
+                ),
             SemanticErrorKind::TypeMismatch { expected, found } => Report::new("type error")
                 .with_span(self.span.clone())
                 .with_label(
                     self.span.clone(),
                     format!("esperado: '{}', encontrado: '{}'", expected, found),
                 ),
+            SemanticErrorKind::ArityMismatch { expected, found } => Report::new("arity mismatch")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("expected {} args, found {}", expected, found),
+                ),
+            SemanticErrorKind::CallNonFunction(name) => Report::new("call on non-function")
+                .with_span(self.span.clone())
+                .with_label(self.span.clone(), format!("'{}' is not callable", name)),
             SemanticErrorKind::UndefinedStruct(name) => Report::new("undefined struct")
                 .with_span(self.span.clone())
                 .with_label(
