@@ -15,6 +15,12 @@ pub struct Symbol {
     pub decl_span: Span,
     /// `true` quando o símbolo veio de um protótipo sem implementação correspondente ainda.
     pub prototype_only: bool,
+    /// `false` enquanto a variável nunca foi referenciada em uma leitura.
+    /// Usado para emitir o aviso `unused-variable` ao sair do escopo.
+    pub used: bool,
+    /// `false` enquanto a variável não recebeu inicializador nem atribuição.
+    /// Usado para emitir o aviso `may-be-uninitialized` no primeiro uso em leitura.
+    pub initialized: bool,
 }
 
 #[derive(Debug, Default)]
@@ -36,6 +42,12 @@ impl SymbolTable {
 
     pub fn exit_scope(&mut self) {
         self.scopes.pop();
+    }
+
+    /// Remove o escopo atual e devolve seus símbolos, permitindo inspecioná-los
+    /// (por exemplo, para emitir avisos de `unused-variable` ao fim do escopo).
+    pub fn drain_scope(&mut self) -> Option<HashMap<String, Symbol>> {
+        self.scopes.pop()
     }
 
     /// Declara um símbolo no escopo atual. Erro se já declarado no mesmo escopo.
@@ -69,9 +81,12 @@ impl SymbolTable {
                 Ok(())
             }
             Some(existing) if existing.prototype_only => {
-                // Assinaturas compatíveis: completa o protótipo
                 if existing.ty == symbol.ty && existing.params == symbol.params {
-                    existing.prototype_only = false;
+                    if !symbol.prototype_only {
+                        // Definição completa compatível: remove o flag de protótipo pendente.
+                        existing.prototype_only = false;
+                    }
+                    // Protótipo idêntico redeclarado: ignorado silenciosamente (C permite).
                     Ok(())
                 } else {
                     Err(CompilerError::Semantic(SemanticError {
@@ -102,6 +117,12 @@ impl SymbolTable {
     /// Busca o escopo do mais interno para o mais externo
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// Busca mutável, do escopo mais interno para o mais externo.
+    /// Permite marcar `used`/`initialized` no símbolo que efetivamente resolve o nome.
+    pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Symbol> {
+        self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name))
     }
 
     /// Busca apenas o escopo atual

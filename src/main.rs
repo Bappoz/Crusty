@@ -1,5 +1,7 @@
 use crusty::analyser::analyse;
+use crusty::common::errors::render::{bold, red, yellow};
 use crusty::common::errors::report::{Report, ToReport};
+use crusty::common::errors::types::Severity;
 use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
@@ -7,23 +9,51 @@ use std::env;
 use std::path::PathBuf;
 use std::process::exit;
 
-/// Ponto de entrada: decide entre modo interativo (sem args) ou compilação de arquivo (1 arg).
+/// Opções de diagnóstico passadas via linha de comando.
+#[derive(Default, Clone, Copy)]
+struct DiagnosticsConfig {
+    /// `--Werror`: trata todos os warnings como erros (faz a compilação falhar).
+    werror: bool,
+    /// `--no-warnings`: suprime a exibição de warnings.
+    no_warnings: bool,
+}
+
+/// Ponto de entrada: faz o parse das flags, decide entre modo interativo
+/// (sem arquivo) ou compilação de arquivo.
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = env::args().collect();
-    match args.len() {
-        1 => {
+    let mut config = DiagnosticsConfig::default();
+    let mut file: Option<String> = None;
+
+    for arg in args.iter().skip(1) {
+        match arg.as_str() {
+            "--Werror" => config.werror = true,
+            "--no-warnings" => config.no_warnings = true,
+            s if s.starts_with("--") => {
+                eprintln!("unknown flag: {}", s);
+                eprintln!("Usage: crusty [--Werror] [--no-warnings] [script]");
+                exit(64);
+            }
+            s => {
+                if file.is_some() {
+                    eprintln!("Usage: crusty [--Werror] [--no-warnings] [script]");
+                    exit(64);
+                }
+                file = Some(s.to_string());
+            }
+        }
+    }
+
+    match file {
+        None => {
             if let Err(e) = run_prompt() {
                 report_and_exit(e);
             }
         }
-        2 => {
-            if let Err(e) = run_file(&args[1]) {
+        Some(path) => {
+            if let Err(e) = run_file(&path, &config) {
                 report_and_exit(e);
             }
-        }
-        _ => {
-            eprintln!("Usage: crusty [script]");
-            exit(64);
         }
     }
     Ok(())
@@ -47,7 +77,7 @@ fn run_prompt() -> Result<(), Box<dyn ToReport>> {
 }
 
 /// Executa o scanner e parser sobre o `SourceFile`, imprime tokens e AST.
-fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
+fn run(source: SourceFile, config: &DiagnosticsConfig) -> Result<(), Box<dyn ToReport>> {
     let mut scanner = Scanner::new(source);
     scanner.scan();
 
@@ -66,7 +96,7 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
     if diag_count > 0 {
         eprintln!("\n=== Diagnostics ({diag_count}) ===");
         for diagnostic in &scanner.diagnostics {
-            print_report(&diagnostic.to_report());
+            print_report(&diagnostic.to_report(), Severity::Error);
         }
     } else {
         println!("\n=== Diagnostics (0) ===");
@@ -89,27 +119,46 @@ fn run(source: SourceFile) -> Result<(), Box<dyn ToReport>> {
             let count = errors.len();
             eprintln!("\n=== Syntax Errors ({count}) ===");
             for e in &errors {
-                print_report(&e.to_report());
+                print_report(&e.to_report(), Severity::Error);
             }
             return Err(Box::new(DiagnosticError { count }));
         }
     };
 
-    let semantic_errors = analyse(&program);
-    let sem_count = semantic_errors.len();
-    if sem_count > 0 {
-        eprintln!("\n=== Semantic Errors ({sem_count}) ===");
-        for e in &semantic_errors {
-            print_report(&e.to_report());
+    let diagnostics = analyse(&program);
+    let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.iter().partition(|d| d.is_error());
+
+    let warn_count = warnings.len();
+    if warn_count > 0 && !config.no_warnings {
+        eprintln!("\n=== Warnings ({warn_count}) ===");
+        for w in &warnings {
+            print_report(&w.to_report(), Severity::Warning);
         }
-        return Err(Box::new(DiagnosticError { count: sem_count }));
+    }
+
+    if !errors.is_empty() {
+        let count = errors.len();
+        eprintln!("\n=== Semantic Errors ({count}) ===");
+        for e in &errors {
+            print_report(&e.to_report(), Severity::Error);
+        }
+        return Err(Box::new(DiagnosticError { count }));
+    }
+
+    // `--Werror`: warnings são tratados como erros e falham a compilação.
+    if config.werror && warn_count > 0 {
+        return Err(Box::new(DiagnosticError { count: warn_count }));
     }
 
     Ok(())
 }
 
-fn print_report(report: &Report) {
-    eprintln!("  error: {}", report.message);
+fn print_report(report: &Report, severity: Severity) {
+    let label = match severity {
+        Severity::Error => red(&bold("error")),
+        Severity::Warning => yellow(&bold("warning")),
+    };
+    eprintln!("  {}: {}", label, report.message);
     if let Some(span) = &report.span {
         eprintln!("    --> {}:{}", span.line, span.column_start);
     }
@@ -122,9 +171,9 @@ fn print_report(report: &Report) {
 }
 
 /// Lê o arquivo no caminho informado e delega a execução para `run`.
-fn run_file(path: &str) -> Result<(), Box<dyn ToReport>> {
+fn run_file(path: &str, config: &DiagnosticsConfig) -> Result<(), Box<dyn ToReport>> {
     let source = SourceFile::from_path(PathBuf::from(path))?;
-    run(source)?;
+    run(source, config)?;
     Ok(())
 }
 

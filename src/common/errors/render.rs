@@ -1,25 +1,37 @@
 // Rendering simple colors for display in error handlings
 
-use crate::common::errors::{error_data::Source, report::Report};
+use crate::common::errors::error_data::Source;
+use crate::common::errors::report::Report;
+use crate::common::errors::types::Severity;
 
 /// Envolve a string `s` na sequência ANSI de cor vermelha para exibição no terminal.
-fn red(s: &str) -> String {
+pub fn red(s: &str) -> String {
     format!("\x1b[31m{}\x1b[0m", s)
 }
 
+/// Envolve a string `s` na sequência ANSI de cor amarela (usada para warnings).
+pub fn yellow(s: &str) -> String {
+    format!("\x1b[33m{}\x1b[0m", s)
+}
+
 /// Envolve a string `s` na sequência ANSI de cor verde para exibição no terminal.
-fn green(s: &str) -> String {
+pub fn green(s: &str) -> String {
     format!("\x1b[32m{}\x1b[0m", s)
 }
 
 /// Envolve a string `s` na sequência ANSI de negrito para exibição no terminal.
-fn bold(s: &str) -> String {
+pub fn bold(s: &str) -> String {
     format!("\x1b[1m{}\x1b[0m", s)
 }
 
-/// Imprime o `Report` formatado no terminal com localização, setas indicadoras e sugestão de ajuda.
-pub fn render(report: &Report, source: &Source) {
-    println!("{}: {}", red(&bold("error")), report.message);
+/// Imprime o `Report` formatado no terminal com localização, setas indicadoras e
+/// sugestão de ajuda. A cor do rótulo (`error`/`warning`) segue a `severity`.
+pub fn render(report: &Report, source: &Source, severity: Severity) {
+    let (label, accent): (String, fn(&str) -> String) = match severity {
+        Severity::Error => (red(&bold("error")), red),
+        Severity::Warning => (yellow(&bold("warning")), yellow),
+    };
+    println!("{}: {}", label, report.message);
 
     if let Some(span) = &report.span {
         if span.end_line == span.line {
@@ -39,7 +51,7 @@ pub fn render(report: &Report, source: &Source) {
                 indicator.push('^');
             }
 
-            println!("  | {}", red(&indicator));
+            println!("  | {}", accent(&indicator));
         }
     }
 
