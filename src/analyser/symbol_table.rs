@@ -13,6 +13,8 @@ pub struct Symbol {
     /// For functions, the parameter types (in order). `None` for non-functions.
     pub params: Option<Vec<QualifierType>>,
     pub decl_span: Span,
+    /// `true` quando o símbolo veio de um protótipo sem implementação correspondente ainda.
+    pub prototype_only: bool,
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +49,54 @@ impl SymbolTable {
         }
         scope.insert(symbol.name.clone(), symbol);
         Ok(())
+    }
+
+    /// Registra um símbolo de função no escopo atual, lidando com o caso de protótipo prévio:
+    /// - Se não existe: declara normalmente.
+    /// - Se existe como `prototype_only`: compara assinaturas e, se compatível, marca como implementado.
+    /// - Se existe como `prototype_only` mas assinatura diverge: emite `PrototypeMismatch`.
+    /// - Se existe sem ser `prototype_only`: `Redeclaration`.
+    pub fn declare_or_upgrade(
+        &mut self,
+        symbol: Symbol,
+        expected_sig: &str,
+        found_sig: &str,
+    ) -> Result<(), CompilerError> {
+        let scope = self.scopes.last_mut().expect("nenhum escopo ativado");
+        match scope.get_mut(&symbol.name) {
+            None => {
+                scope.insert(symbol.name.clone(), symbol);
+                Ok(())
+            }
+            Some(existing) if existing.prototype_only => {
+                // Assinaturas compatíveis: completa o protótipo
+                if existing.ty == symbol.ty && existing.params == symbol.params {
+                    existing.prototype_only = false;
+                    Ok(())
+                } else {
+                    Err(CompilerError::Semantic(SemanticError {
+                        span: symbol.decl_span.clone(),
+                        kind: SemanticErrorKind::PrototypeMismatch {
+                            name: symbol.name.clone(),
+                            expected: expected_sig.to_string(),
+                            found: found_sig.to_string(),
+                        },
+                    }))
+                }
+            }
+            Some(_) => Err(CompilerError::Semantic(SemanticError {
+                span: symbol.decl_span.clone(),
+                kind: SemanticErrorKind::Redeclaration(symbol.name.clone()),
+            })),
+        }
+    }
+
+    /// Retorna todos os símbolos do escopo global (primeiro escopo) que ainda são `prototype_only`.
+    pub fn dangling_prototypes(&self) -> Vec<&Symbol> {
+        self.scopes
+            .first()
+            .map(|scope| scope.values().filter(|s| s.prototype_only).collect())
+            .unwrap_or_default()
     }
 
     /// Busca o escopo do mais interno para o mais externo
