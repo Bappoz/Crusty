@@ -1,8 +1,8 @@
 // Rendering simple colors for display in error handlings
 
+use crate::common::errors::error_data::Source;
 use crate::common::errors::report::Report;
 use crate::common::errors::types::Severity;
-use crate::common::errors::{error_data::Source};
 
 /// Envolve a string `s` na sequência ANSI de cor vermelha para exibição no terminal.
 pub fn red(s: &str) -> String {

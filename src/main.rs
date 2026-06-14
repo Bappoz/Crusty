@@ -126,8 +126,7 @@ fn run(source: SourceFile, config: &DiagnosticsConfig) -> Result<(), Box<dyn ToR
     };
 
     let diagnostics = analyse(&program);
-    let (errors, warnings): (Vec<_>, Vec<_>) =
-        diagnostics.iter().partition(|d| d.is_error());
+    let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.iter().partition(|d| d.is_error());
 
     let warn_count = warnings.len();
     if warn_count > 0 && !config.no_warnings {
