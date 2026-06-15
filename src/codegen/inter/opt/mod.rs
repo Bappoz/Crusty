@@ -79,18 +79,13 @@ impl Default for PassManager {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptLevel {
+    #[default]
     O0,
     O1,
     O2,
     O3,
-}
-
-impl Default for OptLevel {
-    fn default() -> Self {
-        Self::O0
-    }
 }
 
 impl OptLevel {
