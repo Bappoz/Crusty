@@ -838,6 +838,160 @@ mod tests {
         )));
     }
 
+    // ── Expr::Ternary ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ternary_same_type_returns_int() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 10 : 20  → int, sem erros
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(int_lit(10)),
+            Box::new(int_lit(20)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "ternário int:int deve ser válido"
+        );
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn ternary_numeric_promotion_returns_double() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 1.0 : 2  → double, sem erros
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(Expr::Literal(Literal::Double(1.0), span())),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "ternário double:int deve ser válido (promoção numérica)"
+        );
+        assert!(matches!(ty.ty, Type::Double));
+    }
+
+    #[test]
+    fn ternary_incompatible_branches_emits_type_mismatch() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 10 : "str"  → TypeMismatch (int vs char*)
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(int_lit(10)),
+            Box::new(Expr::Literal(Literal::String("str".into()), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "ternário int:char* deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn ternary_non_scalar_condition_emits_error() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // Declara variável do tipo struct
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "s".into(),
+                ty: qty(Type::Struct("S".into())),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
+            })
+            .unwrap();
+        // s ? 1 : 2  → erro: struct não é escalar
+        let expr = Expr::Ternary(
+            Box::new(ident("s")),
+            Box::new(int_lit(1)),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "condição struct no ternário deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn ternary_enum_condition_is_valid() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "e".into(),
+                ty: qty(Type::Enum("Color".into())),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
+            })
+            .unwrap();
+        // e ? 1 : 2  → enum é escalar, deve ser válido
+        let expr = Expr::Ternary(
+            Box::new(ident("e")),
+            Box::new(int_lit(1)),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "condição enum no ternário deve ser válida (enum é tipo inteiro em C)"
+        );
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn ternary_pointer_int_without_constant_folding_emits_error() {
+        // Sem análise de valor constante (constant folding), o analisador
+        // não distingue `0` (null pointer) de `10` (inteiro arbitrário).
+        // Por isso, `char* : int` é sempre rejeitado neste nível semântico.
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(Expr::Literal(Literal::String("a".into()), span())),
+            Box::new(int_lit(0)),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "char*:int deve emitir TypeMismatch sem constant folding"
+        );
+    }
+
     // ── Protótipos de função (forward declarations) ───────────────────────────
 
     /// Caso 1: protótipo declarado antes da definição → chamada válida sem erros.
