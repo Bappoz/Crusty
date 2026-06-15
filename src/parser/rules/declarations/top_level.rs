@@ -67,7 +67,7 @@ fn parse_global_item(parser: &mut Parser) -> Result<Decl, CompilerError> {
     }
 }
 
-/// Continua o parsing de uma função após tipo e nome: `( params ) block`.
+/// Continua o parsing de uma função após tipo e nome: `( params ) block` ou `( params );`.
 pub(crate) fn parse_function_decl(
     parser: &mut Parser,
     return_type: QualifierType,
@@ -80,6 +80,13 @@ pub(crate) fn parse_function_decl(
 
     parser.expect(&TokenKind::RightParen, "')' após parâmetros")?;
 
+    // Protótipo: `tipo nome(params);`
+    if parser.match_kind(&TokenKind::Semicolon) {
+        let span = parser.join_span(parser.span_of(&start), parser.span_of(&start));
+        return Ok(Decl::Prototype(return_type, name, params, span));
+    }
+
+    // Definição completa: `tipo nome(params) { ... }`
     let block = crate::parser::rules::statements::parse_block(parser)?;
 
     let span = parser.join_span(parser.span_of(&start), block.span());

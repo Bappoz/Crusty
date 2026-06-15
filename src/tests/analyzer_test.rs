@@ -50,6 +50,9 @@ mod test {
                 mutable: true,
                 params: None,
                 decl_span: dummy_span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
 
@@ -84,6 +87,9 @@ mod test {
                 mutable: true,
                 params: None,
                 decl_span: dummy_span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
 
@@ -117,6 +123,9 @@ mod test {
                 mutable: true,
                 params: None,
                 decl_span: dummy_span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
 
