@@ -1,5 +1,6 @@
 mod analyzer_test;
 mod ast_errors;
+mod codegen_test;
 mod lexer_file_test;
 mod lexical_test;
 mod literals_test;
@@ -9,4 +10,3 @@ mod semantic_test;
 mod source_test;
 mod symbol_test;
 mod token_test;
-mod codegen_test;
