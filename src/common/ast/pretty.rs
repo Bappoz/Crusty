@@ -364,7 +364,7 @@ fn fmt_type(ty: &Type) -> String {
         Type::Function(ret, params) => {
             let params_str = params
                 .iter()
-                .map(|p| fmt_qty(p))
+                .map(fmt_qty)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("fn({}) -> {}", params_str, fmt_qty(ret))
