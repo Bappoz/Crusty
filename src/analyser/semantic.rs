@@ -3,7 +3,11 @@ use crate::common::ast::ast::{Program, QualifierType, Type};
 use crate::common::ast::decl::Decl;
 use crate::common::ast::expr::{Expr, Literal, MemberAccess};
 use crate::common::ast::stmt::Stmt;
-use crate::common::errors::types::{CompilerError, SemanticError, SemanticErrorKind};
+use crate::common::errors::error_data::Span;
+use crate::common::errors::types::{
+    CompilerError, CompilerWarning, Diagnostic, SemanticError, SemanticErrorKind, SemanticWarning,
+    SemanticWarningKind,
+};
 
 #[derive(Default, Debug)]
 pub struct SemanticAnalyser {
@@ -11,6 +15,7 @@ pub struct SemanticAnalyser {
     /// Tipo de retorno da função sendo analisada no momento; `None` fora de funções.
     pub current_fn_ret: Option<QualifierType>,
     pub diagnostics: Vec<CompilerError>,
+    pub warnings: Vec<CompilerWarning>,
 }
 
 impl SemanticAnalyser {
@@ -19,6 +24,7 @@ impl SemanticAnalyser {
             sym: SymbolTable::new(),
             current_fn_ret: None,
             diagnostics: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -27,7 +33,21 @@ impl SemanticAnalyser {
         for decl in &prog.decls {
             self.analyse_decl(decl);
         }
-        self.sym.exit_scope();
+        // Verifica protótipos sem implementação correspondente
+        let dangling: Vec<_> = self
+            .sym
+            .dangling_prototypes()
+            .into_iter()
+            .map(|s| (s.name.clone(), s.decl_span.clone()))
+            .collect();
+        for (name, span) in dangling {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span,
+                    kind: SemanticErrorKind::PrototypeMissingBody(name),
+                }));
+        }
+        self.exit_scope_checking_unused();
     }
 
     pub fn analyse_decl(&mut self, decl: &Decl) {
@@ -53,6 +73,11 @@ impl SemanticAnalyser {
                     mutable: !resolved_qty.is_const,
                     params: None,
                     decl_span: span.clone(),
+                    prototype_only: false,
+                    // Globais não são rastreadas para unused/uninit: podem ser
+                    // referenciadas em outra unidade de tradução e são zero-inicializadas.
+                    used: true,
+                    initialized: true,
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -80,6 +105,9 @@ impl SemanticAnalyser {
                             .as_ref()
                             .map(|expr| expr.span())
                             .unwrap_or_else(|| enum_span.clone()),
+                        prototype_only: false,
+                        used: true,
+                        initialized: true,
                     };
 
                     if let Err(e) = self.sym.declare(symbol) {
@@ -98,15 +126,44 @@ impl SemanticAnalyser {
                     .map(|(qty, _)| self.resolve_type(qty))
                     .collect();
 
+                // Constrói strings de assinatura para mensagens de erro
+                let sig = |ret: &QualifierType, pts: &[QualifierType]| -> String {
+                    format!(
+                        "{}({})",
+                        type_name(&ret.ty),
+                        pts.iter()
+                            .map(|p| type_name(&p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+
                 let function_symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_ret.clone(),
                     mutable: false,
                     params: Some(param_tys.clone()),
                     decl_span: span.clone(),
+                    prototype_only: false,
+                    used: true,
+                    initialized: true,
                 };
 
-                if let Err(e) = self.sym.declare(function_symbol) {
+                // Se já existe um protótipo, verifica compatibilidade; senão declara.
+                // O expected_sig é o que o protótipo esperava, found_sig é o que a definição traz.
+                // Como a função é quem define, invertemos: expected = protótipo, found = definição.
+                let proto_sig = self
+                    .sym
+                    .lookup(name)
+                    .filter(|s| s.prototype_only)
+                    .map(|s| sig(&s.ty, s.params.as_deref().unwrap_or(&[])));
+                let def_sig = sig(&resolved_ret, &param_tys);
+                let expected_sig = proto_sig.unwrap_or_else(|| def_sig.clone());
+
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(function_symbol, &expected_sig, &def_sig)
+                {
                     self.diagnostics.push(e);
                 }
 
@@ -121,6 +178,11 @@ impl SemanticAnalyser {
                         mutable: !resolved_qty.is_const,
                         params: None,
                         decl_span: span.clone(),
+                        prototype_only: false,
+                        // Parâmetros são inicializados pelo chamador e, por padrão,
+                        // não geram aviso de unused (espelha o comportamento do GCC).
+                        used: true,
+                        initialized: true,
                     };
                     if let Err(e) = self.sym.declare(symbol) {
                         self.diagnostics.push(e);
@@ -132,7 +194,49 @@ impl SemanticAnalyser {
                 }
 
                 self.current_fn_ret = prev_ret;
-                self.sym.exit_scope();
+                self.exit_scope_checking_unused();
+            }
+            Decl::Prototype(return_type, name, params, span) => {
+                let resolved_ret = self.resolve_type(return_type);
+                let param_tys: Vec<QualifierType> = params
+                    .iter()
+                    .map(|(qty, _)| self.resolve_type(qty))
+                    .collect();
+
+                let prototype_symbol = Symbol {
+                    name: name.clone(),
+                    ty: resolved_ret,
+                    mutable: false,
+                    params: Some(param_tys),
+                    decl_span: span.clone(),
+                    prototype_only: true,
+                    used: true,
+                    initialized: true,
+                };
+
+                // Um protótipo duplicado sobre outro protótipo idêntico é ignorado (C permite).
+                // Se houver conflito, declare reportará Redeclaration.
+                // Usamos declare_or_upgrade: se o protótipo já existe e é idêntico, simplesmente
+                // mantém (nenhuma mudança no flag prototype_only). Senão, Redeclaration ou
+                // PrototypeMismatch.
+                let proto_sig = format!(
+                    "{}({})",
+                    type_name(&prototype_symbol.ty.ty),
+                    prototype_symbol
+                        .params
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|p| type_name(&p.ty))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if let Err(e) =
+                    self.sym
+                        .declare_or_upgrade(prototype_symbol, &proto_sig, &proto_sig)
+                {
+                    self.diagnostics.push(e);
+                }
             }
         }
     }
@@ -150,6 +254,10 @@ impl SemanticAnalyser {
                     mutable: !resolved_qty.is_const,
                     params: None,
                     decl_span: span.clone(),
+                    prototype_only: false,
+                    // Locais começam "não usadas"; a leitura marca `used = true`.
+                    used: false,
+                    initialized: init.is_some(),
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -160,7 +268,7 @@ impl SemanticAnalyser {
                 for s in stmts {
                     self.analyse_stmt(s);
                 }
-                self.sym.exit_scope();
+                self.exit_scope_checking_unused();
             }
             Stmt::ExprStmt(expr, _) => {
                 self.analyse_expr(expr);
@@ -230,7 +338,7 @@ impl SemanticAnalyser {
                     self.analyse_expr(e);
                 }
                 self.analyse_stmt(body);
-                self.sym.exit_scope();
+                self.exit_scope_checking_unused();
             }
             Stmt::Switch(expr, cases, _) => {
                 self.analyse_expr(expr);
@@ -249,30 +357,43 @@ impl SemanticAnalyser {
     pub fn analyse_expr(&mut self, expr: &Expr) -> QualifierType {
         match expr {
             Expr::Literal(lit, _) => infer_literal_type(lit),
-            Expr::Ident(name, span) => match self.sym.lookup(name) {
-                Some(sym) => sym.ty.clone(),
-                None => {
-                    self.diagnostics
-                        .push(CompilerError::Semantic(SemanticError {
-                            span: span.clone(),
-                            kind: SemanticErrorKind::UndefinedVariable(name.clone()),
-                        }));
-                    unknown_type()
-                }
-            },
-            Expr::Assign(lhs, rhs, span) => {
-                if let Expr::Ident(name, _) = lhs.as_ref() {
-                    if let Some(sym) = self.sym.lookup(name) {
-                        if !sym.mutable {
-                            self.diagnostics
-                                .push(CompilerError::Semantic(SemanticError {
-                                    span: span.clone(),
-                                    kind: SemanticErrorKind::AssignToConst(name.clone()),
-                                }));
+            Expr::Ident(name, span) => {
+                let mut maybe_uninit = false;
+                let ty = match self.sym.lookup_mut(name) {
+                    Some(sym) => {
+                        sym.used = true;
+                        if !sym.initialized {
+                            // Marca como inicializado para não repetir o aviso nos usos seguintes.
+                            sym.initialized = true;
+                            maybe_uninit = true;
                         }
+                        sym.ty.clone()
                     }
+                    None => {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: span.clone(),
+                                kind: SemanticErrorKind::UndefinedVariable(name.clone()),
+                            }));
+                        unknown_type()
+                    }
+                };
+                if maybe_uninit {
+                    self.warnings
+                        .push(CompilerWarning::Semantic(SemanticWarning {
+                            span: span.clone(),
+                            kind: SemanticWarningKind::MayBeUninitialized(name.clone()),
+                        }));
                 }
-                let lhs_ty = self.analyse_expr(lhs);
+                ty
+            }
+            Expr::Assign(lhs, rhs, span) => {
+                // O LHS de uma atribuição é uma escrita: marca usado + inicializado,
+                // sem disparar o aviso de "uso sem inicialização".
+                let lhs_ty = match lhs.as_ref() {
+                    Expr::Ident(name, _) => self.assign_target_type(name, span),
+                    _ => self.analyse_expr(lhs),
+                };
                 let rhs_ty = self.analyse_expr(rhs);
                 if !types_compatible_for_assign(&lhs_ty.ty, &rhs_ty.ty) {
                     self.diagnostics
@@ -433,12 +554,39 @@ impl SemanticAnalyser {
                     }
                 }
             }
-            Expr::Ternary(cond, then, else_, _) => {
-                self.analyse_expr(cond);
+            Expr::Ternary(cond, then, else_, span) => {
+                let cond_ty = self.analyse_expr(cond);
+                // 1. A condição deve ser um tipo escalar (numérico, ponteiro ou enum)
+                if !is_scalar(&cond_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: cond.span(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: "scalar".to_string(),
+                                found: type_name(&cond_ty.ty),
+                            },
+                        }));
+                    return unknown_type();
+                }
+
                 let then_ty = self.analyse_expr(then);
-                self.analyse_expr(else_);
-                // TODO(#87): verificar compatibilidade de then/else
-                then_ty
+                let else_ty = self.analyse_expr(else_);
+
+                // 2. Verificar compatibilidade entre os ramos then/else
+                if !ternary_branches_compatible(&then_ty.ty, &else_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: type_name(&then_ty.ty),
+                                found: type_name(&else_ty.ty),
+                            },
+                        }));
+                    return unknown_type();
+                }
+
+                // 3. Retornar o tipo promovido
+                ternary_result_type(&then_ty, &else_ty)
             }
             Expr::Member(obj, access_kind, field_name, span) => {
                 let left_type = self.analyse_expr(obj);
@@ -537,13 +685,66 @@ impl SemanticAnalyser {
             other => other.clone(),
         }
     }
+
+    /// Resolve o tipo do alvo de uma atribuição (`x = ...`).
+    /// Marca o símbolo como usado e inicializado (é uma escrita), verifica
+    /// mutabilidade e emite os erros apropriados — sem disparar o aviso de
+    /// "uso sem inicialização", já que atribuir inicializa a variável.
+    fn assign_target_type(&mut self, name: &str, span: &Span) -> QualifierType {
+        let (ty, undefined, not_mutable) = match self.sym.lookup_mut(name) {
+            Some(sym) => {
+                sym.used = true;
+                sym.initialized = true;
+                let not_mutable = !sym.mutable;
+                (sym.ty.clone(), false, not_mutable)
+            }
+            None => (unknown_type(), true, false),
+        };
+
+        if undefined {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: span.clone(),
+                    kind: SemanticErrorKind::UndefinedVariable(name.to_string()),
+                }));
+        } else if not_mutable {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: span.clone(),
+                    kind: SemanticErrorKind::AssignToConst(name.to_string()),
+                }));
+        }
+        ty
+    }
+
+    /// Remove o escopo atual e emite avisos de `unused-variable` para cada
+    /// símbolo local declarado que nunca foi lido.
+    fn exit_scope_checking_unused(&mut self) {
+        if let Some(scope) = self.sym.drain_scope() {
+            for (_, sym) in scope {
+                if !sym.used {
+                    self.warnings
+                        .push(CompilerWarning::Semantic(SemanticWarning {
+                            span: sym.decl_span.clone(),
+                            kind: SemanticWarningKind::UnusedVariable(sym.name.clone()),
+                        }));
+                }
+            }
+        }
+    }
 }
 
-/// API pública: analisa o programa e retorna todos os diagnósticos semânticos.
-pub fn analyse(prog: &Program) -> Vec<CompilerError> {
+/// API pública: analisa o programa e retorna todos os diagnósticos semânticos
+/// (erros e avisos) como `Vec<Diagnostic>`.
+pub fn analyse(prog: &Program) -> Vec<Diagnostic> {
     let mut analyser = SemanticAnalyser::new();
     analyser.analyse_program(prog);
-    analyser.diagnostics
+    analyser
+        .diagnostics
+        .into_iter()
+        .map(Diagnostic::Error)
+        .chain(analyser.warnings.into_iter().map(Diagnostic::Warning))
+        .collect()
 }
 
 fn infer_literal_type(lit: &Literal) -> QualifierType {
@@ -591,6 +792,12 @@ fn is_pointer(ty: &Type) -> bool {
     matches!(ty, Type::Pointer(_) | Type::Array(_))
 }
 
+/// Retorna `true` se o tipo é escalar (numérico, ponteiro ou enum).
+/// Enums são tipos inteiros em C e são válidos como condições.
+fn is_scalar(ty: &Type) -> bool {
+    is_numeric(ty) || is_pointer(ty) || matches!(ty, Type::Enum(_))
+}
+
 /// Converte `Type` em string legível para mensagens de erro.
 fn type_name(ty: &Type) -> String {
     match ty {
@@ -606,6 +813,15 @@ fn type_name(ty: &Type) -> String {
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),
+        Type::Function(ret, params) => format!(
+            "{}({})",
+            type_name(&ret.ty),
+            params
+                .iter()
+                .map(|p| type_name(&p.ty))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -638,6 +854,30 @@ fn types_compatible_for_assign(lhs: &Type, rhs: &Type) -> bool {
         return l_inner == r_inner;
     }
     false
+}
+
+/// Verifica compatibilidade entre os ramos `then`/`else` de um ternário.
+///
+/// Nota: a regra do null pointer constant (`T* : 0`) exigiria constant folding
+/// e está fora do escopo desta verificação.
+fn ternary_branches_compatible(a: &Type, b: &Type) -> bool {
+    types_compatible_for_assign(a, b)
+}
+
+/// Determina o tipo resultante do operador ternário a partir dos tipos dos ramos.
+///
+/// - Ambos numéricos → promoção numérica dominante (Double > Float > Long > Int).
+/// - Demais casos (tipos iguais, ponteiros iguais) → tipo do ramo `then`.
+fn ternary_result_type(then_ty: &QualifierType, else_ty: &QualifierType) -> QualifierType {
+    let make = |ty: Type| QualifierType {
+        ty,
+        is_const: false,
+        is_unsigned: false,
+    };
+    if is_numeric(&then_ty.ty) && is_numeric(&else_ty.ty) {
+        return make(numeric_promotion(&then_ty.ty, &else_ty.ty));
+    }
+    then_ty.clone()
 }
 
 /// Calcula o tipo resultante de `lhs op rhs`.

@@ -25,6 +25,66 @@ impl ToReport for CompilerError {
     }
 }
 
+/// Nível de severidade de um diagnóstico.
+/// `Error` impede a compilação; `Warning` apenas sinaliza um problema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+/// Diagnóstico unificado: pode ser um erro (impede a compilação) ou um aviso.
+/// O analisador semântico produz `Vec<Diagnostic>` misturando ambos.
+#[derive(Debug)]
+pub enum Diagnostic {
+    Error(CompilerError),
+    Warning(CompilerWarning),
+}
+
+impl Diagnostic {
+    /// Retorna a severidade deste diagnóstico.
+    pub fn severity(&self) -> Severity {
+        match self {
+            Diagnostic::Error(_) => Severity::Error,
+            Diagnostic::Warning(_) => Severity::Warning,
+        }
+    }
+
+    /// Retorna `true` quando este diagnóstico impede a compilação.
+    pub fn is_error(&self) -> bool {
+        matches!(self, Diagnostic::Error(_))
+    }
+
+    /// Retorna `true` quando este diagnóstico é apenas um aviso.
+    pub fn is_warning(&self) -> bool {
+        matches!(self, Diagnostic::Warning(_))
+    }
+}
+
+impl ToReport for Diagnostic {
+    /// Delega a conversão para o `Report` do erro ou aviso subjacente.
+    fn to_report(&self) -> Report {
+        match self {
+            Diagnostic::Error(e) => e.to_report(),
+            Diagnostic::Warning(w) => w.to_report(),
+        }
+    }
+}
+
+/// Categoria de aviso do compilador. Apenas semânticos por enquanto.
+#[derive(Debug)]
+pub enum CompilerWarning {
+    Semantic(SemanticWarning),
+}
+
+impl ToReport for CompilerWarning {
+    fn to_report(&self) -> Report {
+        match self {
+            CompilerWarning::Semantic(w) => w.to_report(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum LexicalErrorKind {
     /// Caractere que o lexer não reconhece (ex: `@`, `$`)
@@ -132,6 +192,14 @@ pub enum SemanticErrorKind {
         field_name: String,
     },
     AssignToConst(String),
+    /// Protótipo e definição da função têm assinaturas diferentes.
+    PrototypeMismatch {
+        name: String,
+        expected: String,
+        found: String,
+    },
+    /// Protótipo declarado mas nunca implementado.
+    PrototypeMissingBody(String),
     InvalidIndexType {
         found: String,
     },
@@ -205,6 +273,29 @@ impl ToReport for SemanticError {
                     format!("'{}' é const e não pode ser reatribuído", name),
                 )
                 .with_help("remova o qualificador const ou use uma variável mutável"),
+            SemanticErrorKind::PrototypeMismatch {
+                name,
+                expected,
+                found,
+            } => Report::new("prototype mismatch")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!(
+                        "definição de '{}' diverge do protótipo: esperado '{}', encontrado '{}'",
+                        name, expected, found
+                    ),
+                )
+                .with_help("ajuste a assinatura da função para corresponder ao protótipo"),
+            SemanticErrorKind::PrototypeMissingBody(name) => {
+                Report::new("prototype without definition")
+                    .with_span(self.span.clone())
+                    .with_label(
+                        self.span.clone(),
+                        format!("'{}' foi declarada mas nunca definida", name),
+                    )
+                    .with_help("adicione a implementação da função ou remova o protótipo")
+            }
             SemanticErrorKind::InvalidIndexType { found } => Report::new("invalid index type")
                 .with_span(self.span.clone())
                 .with_label(
@@ -218,6 +309,52 @@ impl ToReport for SemanticError {
                     self.span.clone(),
                     format!("'{}' não é indexável (esperado array ou ponteiro)", found),
                 ),
+        }
+    }
+}
+
+/*
+ * Avisos semânticos são problemas que não impedem a compilação, mas devem ser
+ * sinalizados ao usuário. Exemplos:
+ *      - variável declarada mas nunca lida (unused-variable)
+ *      - variável possivelmente usada sem inicialização (uninitialized)
+ */
+
+#[derive(Debug)]
+pub enum SemanticWarningKind {
+    /// Variável declarada mas nunca lida em nenhum ponto do escopo.
+    UnusedVariable(String),
+    /// Variável lida antes de receber qualquer inicializador ou atribuição.
+    MayBeUninitialized(String),
+}
+
+#[derive(Debug)]
+pub struct SemanticWarning {
+    pub span: Span,
+    pub kind: SemanticWarningKind,
+}
+
+impl ToReport for SemanticWarning {
+    /// Converte o aviso semântico em `Report` com mensagem, span e sugestão específicos.
+    fn to_report(&self) -> Report {
+        match &self.kind {
+            SemanticWarningKind::UnusedVariable(var) => Report::new("unused variable")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!("variavel '{}' declarada mas nunca lida", var),
+                )
+                .with_help("remova a declaracao ou use a variavel"),
+
+            SemanticWarningKind::MayBeUninitialized(var) => {
+                Report::new("may be used uninitialized")
+                    .with_span(self.span.clone())
+                    .with_label(
+                        self.span.clone(),
+                        format!("variavel '{}' pode ser usada sem inicializacao", var),
+                    )
+                    .with_help("inicialize a variavel antes de usa-la")
+            }
         }
     }
 }

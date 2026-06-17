@@ -6,7 +6,9 @@ mod tests {
     use crate::common::ast::expr::{Expr, Literal, MemberAccess};
     use crate::common::ast::stmt::Stmt;
     use crate::common::errors::error_data::Span;
-    use crate::common::errors::types::SemanticErrorKind;
+    use crate::common::errors::types::{
+        CompilerError, Diagnostic, SemanticErrorKind, SemanticWarningKind,
+    };
 
     fn span() -> Span {
         Span {
@@ -44,7 +46,7 @@ mod tests {
     fn program(stmts: Vec<Stmt>) -> Program {
         Program {
             decls: vec![Decl::Function(
-                qty(Type::Void),
+                qty(Type::Int),
                 "main".into(),
                 vec![],
                 stmts,
@@ -53,8 +55,19 @@ mod tests {
         }
     }
 
-    fn analyse(prog: &Program) -> Vec<crate::common::errors::types::CompilerError> {
+    fn analyse(prog: &Program) -> Vec<Diagnostic> {
         crate::analyser::analyse(prog)
+    }
+
+    /// Extrai apenas os erros (ignora avisos) de um conjunto de diagnósticos.
+    fn errors(diags: &[Diagnostic]) -> Vec<&CompilerError> {
+        diags
+            .iter()
+            .filter_map(|d| match d {
+                Diagnostic::Error(e) => Some(e),
+                _ => None,
+            })
+            .collect()
     }
 
     // ── VarDecl ───────────────────────────────────────────────────────────────
@@ -71,11 +84,11 @@ mod tests {
     #[test]
     fn undeclared_variable_emits_error() {
         let prog = program(vec![Stmt::ExprStmt(ident("x"), span())]);
-        let errors = analyse(&prog);
-        assert_eq!(errors.len(), 1);
+        let diags = analyse(&prog);
+        assert_eq!(diags.len(), 1);
         assert!(matches!(
-            &errors[0],
-            crate::common::errors::types::CompilerError::Semantic(e)
+            &diags[0],
+            Diagnostic::Error(CompilerError::Semantic(e))
                 if matches!(e.kind, SemanticErrorKind::UndefinedVariable(_))
         ));
     }
@@ -86,10 +99,11 @@ mod tests {
             Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
             Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
         ]);
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        let errs = errors(&diags);
+        assert!(errs.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            CompilerError::Semantic(se)
                 if matches!(se.kind, SemanticErrorKind::Redeclaration(_))
         )));
     }
@@ -103,7 +117,8 @@ mod tests {
                 span(),
             ),
         ]);
-        assert!(analyse(&prog).is_empty());
+        // sem erros (apenas warnings de unused-variable, que são esperados)
+        assert!(errors(&analyse(&prog)).is_empty());
     }
 
     // ── AssignToConst ─────────────────────────────────────────────────────────
@@ -117,10 +132,11 @@ mod tests {
                 span(),
             ),
         ]);
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        let errs = errors(&diags);
+        assert!(errs.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            CompilerError::Semantic(se)
                 if matches!(&se.kind, SemanticErrorKind::AssignToConst(n) if n == "PI")
         )));
     }
@@ -148,10 +164,10 @@ mod tests {
             )],
         };
 
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        assert!(diags.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
                 if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
         )));
     }
@@ -164,8 +180,8 @@ mod tests {
             Stmt::ExprStmt(ident("a"), span()),
             Stmt::ExprStmt(ident("b"), span()),
         ]);
-        let errors = analyse(&prog);
-        assert_eq!(errors.len(), 2);
+        let diags = analyse(&prog);
+        assert_eq!(diags.len(), 2);
     }
 
     // ── inferência de tipo básica ─────────────────────────────────────────────
@@ -201,6 +217,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
         let ty = analyser.analyse_expr(&ident("f"));
@@ -231,7 +250,7 @@ mod tests {
         let expr = Expr::Binary(
             Box::new(int_lit(1)),
             crate::common::ast::expr::BinOp::Add,
-            Box::new(Expr::Literal(Literal::Double(3.14), span())),
+            Box::new(Expr::Literal(Literal::Double(1.5), span())),
             span(),
         );
         let ty = analyser.analyse_expr(&expr);
@@ -251,6 +270,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
         let expr = Expr::Binary(
@@ -276,6 +298,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
             })
             .unwrap();
         let expr = Expr::Binary(
@@ -390,7 +415,7 @@ mod tests {
             Stmt::ExprStmt(
                 Expr::Assign(
                     Box::new(ident("x")),
-                    Box::new(Expr::Literal(Literal::Double(3.14), span())),
+                    Box::new(Expr::Literal(Literal::Double(1.5), span())),
                     span(),
                 ),
                 span(),
@@ -415,11 +440,12 @@ mod tests {
                 span(),
             ),
         ]);
-        let errors = analyse(&prog);
+        let diags = analyse(&prog);
+        let errs = errors(&diags);
         assert!(
-            errors.iter().any(|e| matches!(
+            errs.iter().any(|e| matches!(
                 e,
-                crate::common::errors::types::CompilerError::Semantic(se)
+                CompilerError::Semantic(se)
                     if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
             )),
             "int = string deve emitir TypeMismatch"
@@ -440,11 +466,12 @@ mod tests {
                 span(),
             ),
         ]);
-        let errors = analyse(&prog);
+        let diags = analyse(&prog);
+        let errs = errors(&diags);
         assert!(
-            errors.iter().any(|e| matches!(
+            errs.iter().any(|e| matches!(
                 e,
-                crate::common::errors::types::CompilerError::Semantic(se)
+                CompilerError::Semantic(se)
                     if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
             )),
             "int* = int deve emitir TypeMismatch"
@@ -489,6 +516,93 @@ mod tests {
             ],
         };
 
+        // sem erros (p é lido via member access; apenas pode haver warnings)
+        assert!(errors(&analyse(&prog)).is_empty());
+    }
+
+    // ── Warnings: unused-variable ─────────────────────────────────────────────
+
+    #[test]
+    fn unused_variable_emits_warning() {
+        // int x = 5; return 0;   -> x declarada mas nunca lida
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(5)), span()),
+            Stmt::Return(Some(int_lit(0)), span()),
+        ]);
+        let diags = analyse(&prog);
+        assert!(errors(&diags).is_empty(), "não deve haver erros");
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(&w.kind, SemanticWarningKind::UnusedVariable(n) if n == "x")
+            )),
+            "deve emitir warning de unused-variable para 'x'"
+        );
+    }
+
+    #[test]
+    fn used_variable_emits_no_warning() {
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(5)), span()),
+            Stmt::Return(Some(ident("x")), span()),
+        ]);
+        let diags = analyse(&prog);
+        assert!(
+            diags.is_empty(),
+            "variável usada não deve gerar nenhum diagnóstico"
+        );
+    }
+
+    #[test]
+    fn assignment_counts_as_use_no_unused_warning() {
+        // int x = 0; x = 1;  -> x é referenciada (atribuição), sem warning de unused
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(0)), span()),
+            Stmt::ExprStmt(
+                Expr::Assign(Box::new(ident("x")), Box::new(int_lit(1)), span()),
+                span(),
+            ),
+        ]);
+        let diags = analyse(&prog);
+        assert!(
+            !diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(w.kind, SemanticWarningKind::UnusedVariable(_))
+            )),
+            "atribuir à variável conta como uso"
+        );
+    }
+
+    // ── Warnings: uninitialized ───────────────────────────────────────────────
+
+    #[test]
+    fn uninitialized_use_emits_warning() {
+        // int x; return x;  -> x lida sem inicialização
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
+            Stmt::Return(Some(ident("x")), span()),
+        ]);
+        let diags = analyse(&prog);
+        assert!(errors(&diags).is_empty(), "não deve haver erros");
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(&w.kind, SemanticWarningKind::MayBeUninitialized(n) if n == "x")
+            )),
+            "deve emitir warning de uninitialized para 'x'"
+        );
+    }
+
+    #[test]
+    fn initialized_then_used_emits_no_warning() {
+        // int x = 0; return x;  -> x inicializada, nenhum warning
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(0)), span()),
+            Stmt::Return(Some(ident("x")), span()),
+        ]);
         assert!(analyse(&prog).is_empty());
     }
 
@@ -547,10 +661,10 @@ mod tests {
                 ),
             ],
         };
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        assert!(diags.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
                 if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::ArityMismatch { .. })
         )));
     }
@@ -582,10 +696,10 @@ mod tests {
                 ),
             ],
         };
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        assert!(diags.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
                 if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::TypeMismatch { .. })
         )));
     }
@@ -601,6 +715,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: true,
+                initialized: true,
             })
             .unwrap();
     }
@@ -614,6 +731,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: true,
+                initialized: true,
             })
             .unwrap();
     }
@@ -679,6 +799,9 @@ mod tests {
                 mutable: true,
                 params: None,
                 decl_span: span(),
+                prototype_only: false,
+                used: true,
+                initialized: true,
             })
             .unwrap();
         let expr = Expr::Index(Box::new(ident("s")), Box::new(int_lit(0)), span());
@@ -707,11 +830,352 @@ mod tests {
                 span(),
             )],
         };
-        let errors = analyse(&prog);
-        assert!(errors.iter().any(|e| matches!(
+        let diags = analyse(&prog);
+        assert!(diags.iter().any(|e| matches!(
             e,
-            crate::common::errors::types::CompilerError::Semantic(se)
+            Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
                 if matches!(&se.kind, crate::common::errors::types::SemanticErrorKind::CallNonFunction(_))
         )));
+    }
+
+    // ── Expr::Ternary ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ternary_same_type_returns_int() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 10 : 20  → int, sem erros
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(int_lit(10)),
+            Box::new(int_lit(20)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "ternário int:int deve ser válido"
+        );
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn ternary_numeric_promotion_returns_double() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 1.0 : 2  → double, sem erros
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(Expr::Literal(Literal::Double(1.0), span())),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "ternário double:int deve ser válido (promoção numérica)"
+        );
+        assert!(matches!(ty.ty, Type::Double));
+    }
+
+    #[test]
+    fn ternary_incompatible_branches_emits_type_mismatch() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // 1 ? 10 : "str"  → TypeMismatch (int vs char*)
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(int_lit(10)),
+            Box::new(Expr::Literal(Literal::String("str".into()), span())),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "ternário int:char* deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn ternary_non_scalar_condition_emits_error() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        // Declara variável do tipo struct
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "s".into(),
+                ty: qty(Type::Struct("S".into())),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
+            })
+            .unwrap();
+        // s ? 1 : 2  → erro: struct não é escalar
+        let expr = Expr::Ternary(
+            Box::new(ident("s")),
+            Box::new(int_lit(1)),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "condição struct no ternário deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn ternary_enum_condition_is_valid() {
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        analyser
+            .sym
+            .declare(crate::analyser::symbol_table::Symbol {
+                name: "e".into(),
+                ty: qty(Type::Enum("Color".into())),
+                mutable: true,
+                params: None,
+                decl_span: span(),
+                prototype_only: false,
+                used: false,
+                initialized: true,
+            })
+            .unwrap();
+        // e ? 1 : 2  → enum é escalar, deve ser válido
+        let expr = Expr::Ternary(
+            Box::new(ident("e")),
+            Box::new(int_lit(1)),
+            Box::new(int_lit(2)),
+            span(),
+        );
+        let ty = analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "condição enum no ternário deve ser válida (enum é tipo inteiro em C)"
+        );
+        assert!(matches!(ty.ty, Type::Int));
+    }
+
+    #[test]
+    fn ternary_pointer_int_without_constant_folding_emits_error() {
+        // Sem análise de valor constante (constant folding), o analisador
+        // não distingue `0` (null pointer) de `10` (inteiro arbitrário).
+        // Por isso, `char* : int` é sempre rejeitado neste nível semântico.
+        let mut analyser = SemanticAnalyser::new();
+        analyser.sym.enter_scope();
+        let expr = Expr::Ternary(
+            Box::new(int_lit(1)),
+            Box::new(Expr::Literal(Literal::String("a".into()), span())),
+            Box::new(int_lit(0)),
+            span(),
+        );
+        analyser.analyse_expr(&expr);
+        assert!(
+            analyser.diagnostics.iter().any(|e| matches!(
+                e,
+                crate::common::errors::types::CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "char*:int deve emitir TypeMismatch sem constant folding"
+        );
+    }
+
+    // ── Protótipos de função (forward declarations) ───────────────────────────
+
+    /// Caso 1: protótipo declarado antes da definição → chamada válida sem erros.
+    #[test]
+    fn prototype_valid_forward_call_is_ok() {
+        // int soma(int a, int b);
+        // int main() { return soma(1, 2); }
+        // int soma(int a, int b) { return a + b; }
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "main".into(),
+                    vec![],
+                    vec![Stmt::Return(
+                        Some(Expr::Call(
+                            Box::new(ident("soma")),
+                            vec![int_lit(1), int_lit(2)],
+                            span(),
+                        )),
+                        span(),
+                    )],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        assert!(
+            analyse(&prog).is_empty(),
+            "chamada com protótipo declarado antes deve ser válida"
+        );
+    }
+
+    /// Caso 2: chamada sem protótipo → `UndefinedVariable`.
+    #[test]
+    fn prototype_call_without_declaration_emits_undefined() {
+        // int main() { return soma(1, 2); }  // sem protótipo
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "main".into(),
+                vec![],
+                vec![Stmt::Return(
+                    Some(Expr::Call(
+                        Box::new(ident("soma")),
+                        vec![int_lit(1), int_lit(2)],
+                        span(),
+                    )),
+                    span(),
+                )],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            diags.iter().any(|e| matches!(
+                e,
+                Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
+                    if matches!(&se.kind, SemanticErrorKind::UndefinedVariable(n) if n == "soma")
+            )),
+            "chamada sem protótipo deve emitir UndefinedVariable"
+        );
+    }
+
+    /// Caso 3: protótipo com tipo de retorno diferente da definição → `PrototypeMismatch`.
+    #[test]
+    fn prototype_mismatch_return_type_emits_error() {
+        // float soma(int a, int b);  // protótipo diz float
+        // int soma(int a, int b) { ... }  // definição diz int
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Float), // retorno float no protótipo
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int), // retorno int na definição
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            diags.iter().any(|e| matches!(
+                e,
+                Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMismatch { name, .. } if name == "soma")
+            )),
+            "retorno diferente entre protótipo e definição deve emitir PrototypeMismatch"
+        );
+    }
+
+    /// Caso 4: protótipo com parâmetros diferentes da definição → `PrototypeMismatch`.
+    #[test]
+    fn prototype_mismatch_param_types_emits_error() {
+        // int soma(float a, int b);  // protótipo diz float no 1º param
+        // int soma(int a, int b) { ... }  // definição diz int
+        let prog = Program {
+            decls: vec![
+                Decl::Prototype(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Float), "a".into()), (qty(Type::Int), "b".into())],
+                    span(),
+                ),
+                Decl::Function(
+                    qty(Type::Int),
+                    "soma".into(),
+                    vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                    vec![],
+                    span(),
+                ),
+            ],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            diags.iter().any(|e| matches!(
+                e,
+                Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMismatch { name, .. } if name == "soma")
+            )),
+            "parâmetros diferentes entre protótipo e definição deve emitir PrototypeMismatch"
+        );
+    }
+
+    /// Caso 5: protótipo sem implementação correspondente → `PrototypeMissingBody`.
+    #[test]
+    fn prototype_without_body_emits_error() {
+        // int soma(int a, int b);  // nunca implementada
+        let prog = Program {
+            decls: vec![Decl::Prototype(
+                qty(Type::Int),
+                "soma".into(),
+                vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            diags.iter().any(|e| matches!(
+                e,
+                Diagnostic::Error(crate::common::errors::types::CompilerError::Semantic(se))
+                    if matches!(&se.kind, SemanticErrorKind::PrototypeMissingBody(n) if n == "soma")
+            )),
+            "protótipo sem implementação deve emitir PrototypeMissingBody"
+        );
+    }
+
+    #[test]
+    fn assignment_before_use_initializes_variable() {
+        // int x; x = 5; return x;  -> atribuição inicializa antes do uso
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
+            Stmt::ExprStmt(
+                Expr::Assign(Box::new(ident("x")), Box::new(int_lit(5)), span()),
+                span(),
+            ),
+            Stmt::Return(Some(ident("x")), span()),
+        ]);
+        let diags = analyse(&prog);
+        assert!(
+            !diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(w.kind, SemanticWarningKind::MayBeUninitialized(_))
+            )),
+            "atribuição antes do uso inicializa a variável"
+        );
     }
 }
