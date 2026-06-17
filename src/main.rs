@@ -69,6 +69,17 @@ impl CliArgs {
                 "--only-lex" => cli.only_lex = true,
                 "--only-parse" => cli.only_parse = true,
                 "--only-semantic" => cli.only_semantic = true,
+                _ if arg.starts_with("--") => {
+                    eprintln!("error: unknown flag '{arg}'");
+                    exit(64);
+                }
+                _ if cli.input_file.is_some() => {
+                    eprintln!(
+                        "error: multiple input files provided ('{}' and '{arg}')",
+                        cli.input_file.unwrap()
+                    );
+                    exit(64);
+                }
                 _ => cli.input_file = Some(arg.clone()),
             }
         }
@@ -105,6 +116,10 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
             print_report(&d.to_report());
         }
         return Err(Box::new(DiagnosticError { count: lex_errors }));
+    }
+
+    if args.dump_ir {
+        eprintln!("=== IR (not yet implemented) ===");
     }
 
     if args.only_lex {
@@ -146,11 +161,6 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
 
     if args.only_semantic {
         return Ok(());
-    }
-
-    // ── Stage 4: IR / Codegen ────────────────────────────────────────────────
-    if args.dump_ir {
-        eprintln!("=== IR (not yet implemented) ===");
     }
 
     Ok(())

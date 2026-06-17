@@ -362,11 +362,7 @@ fn fmt_type(ty: &Type) -> String {
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),
         Type::Function(ret, params) => {
-            let params_str = params
-                .iter()
-                .map(fmt_qty)
-                .collect::<Vec<_>>()
-                .join(", ");
+            let params_str = params.iter().map(fmt_qty).collect::<Vec<_>>().join(", ");
             format!("fn({}) -> {}", params_str, fmt_qty(ret))
         }
     }
