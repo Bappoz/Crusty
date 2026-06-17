@@ -166,11 +166,7 @@ impl fmt::Display for TacInstr {
                 then_label,
                 else_label,
             } => write!(f, "if {cond} goto {then_label} else goto {else_label}"),
-            TacInstr::Call {
-                dst,
-                fn_name,
-                args,
-            } => {
+            TacInstr::Call { dst, fn_name, args } => {
                 if let Some(dst) = dst {
                     write!(f, "{dst} = ")?;
                 }
