@@ -1,4 +1,6 @@
 use crusty::analyser::analyse;
+use crusty::codegen::inter::opt::{pipeline_for_level, OptLevel};
+use crusty::codegen::inter::Cfg;
 use crusty::common::ast::pretty::pretty_program;
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
@@ -17,12 +19,14 @@ fn main() -> std::io::Result<()> {
         None => {
             eprintln!("Usage: crusty [flags] <file>");
             eprintln!("Flags:");
-            eprintln!("  --dump-tokens      List all tokens emitted by the lexer");
-            eprintln!("  --dump-ast         Pretty-print the AST");
-            eprintln!("  --dump-ir          Dump TAC IR (not yet implemented)");
-            eprintln!("  --only-lex         Stop after lexing");
-            eprintln!("  --only-parse       Stop after parsing");
-            eprintln!("  --only-semantic    Stop after semantic analysis");
+            eprintln!("  --dump-tokens          List all tokens emitted by the lexer");
+            eprintln!("  --dump-ast             Pretty-print the AST");
+            eprintln!("  --dump-ir              Dump TAC IR (not yet implemented)");
+            eprintln!("  --only-lex             Stop after lexing");
+            eprintln!("  --only-parse           Stop after parsing");
+            eprintln!("  --only-semantic        Stop after semantic analysis");
+            eprintln!("  -O0|-O1|-O2|-O3        Set optimization level");
+            eprintln!("  --opt-level 0|1|2|3    Set optimization level");
             exit(64);
         }
     };
@@ -48,6 +52,7 @@ struct CliArgs {
     only_lex: bool,
     only_parse: bool,
     only_semantic: bool,
+    opt_level: OptLevel,
 }
 
 impl CliArgs {
@@ -60,8 +65,13 @@ impl CliArgs {
             only_lex: false,
             only_parse: false,
             only_semantic: false,
+            opt_level: OptLevel::default(),
         };
-        for arg in args.iter().skip(1) {
+
+        let mut i = 1;
+        while i < args.len() {
+            let arg = &args[i];
+
             match arg.as_str() {
                 "--dump-tokens" => cli.dump_tokens = true,
                 "--dump-ast" => cli.dump_ast = true,
@@ -69,6 +79,28 @@ impl CliArgs {
                 "--only-lex" => cli.only_lex = true,
                 "--only-parse" => cli.only_parse = true,
                 "--only-semantic" => cli.only_semantic = true,
+                "-O" | "--opt-level" => {
+                    i += 1;
+                    let Some(level) = args.get(i) else {
+                        eprintln!("error: missing value for {arg}");
+                        exit(64);
+                    };
+                    cli.opt_level = OptLevel::parse(level).unwrap_or_else(|| {
+                        eprintln!("error: invalid optimization level: {level}");
+                        exit(64);
+                    });
+                }
+                _ if arg
+                    .strip_prefix("-O")
+                    .filter(|level| !level.is_empty())
+                    .is_some() =>
+                {
+                    let level = arg.strip_prefix("-O").unwrap();
+                    cli.opt_level = OptLevel::parse(level).unwrap_or_else(|| {
+                        eprintln!("error: invalid optimization level: {arg}");
+                        exit(64);
+                    });
+                }
                 _ if arg.starts_with("--") => {
                     eprintln!("error: unknown flag '{arg}'");
                     exit(64);
@@ -82,6 +114,8 @@ impl CliArgs {
                 }
                 _ => cli.input_file = Some(arg.clone()),
             }
+
+            i += 1;
         }
         cli
     }
@@ -163,6 +197,13 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
         return Ok(());
     }
 
+    // ── Stage 4: Optimization ────────────────────────────────────────────────
+    // A geração de TAC/CFG ainda não está integrada; a etapa de otimização
+    // opera sobre uma instância vazia de `Cfg` até essa integração existir.
+    let mut cfg = Cfg::new();
+    let opt_pipeline = pipeline_for_level(args.opt_level);
+    opt_pipeline.run(&mut cfg, 10);
+
     Ok(())
 }
 
@@ -212,4 +253,38 @@ fn report_and_exit(e: Box<dyn ToReport>) -> ! {
         eprintln!("help: {}", help);
     }
     exit(74);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_default_opt_level() {
+        let parsed = CliArgs::parse(&args(&["crusty", "main.c"]));
+        assert_eq!(parsed.input_file, Some("main.c".to_string()));
+        assert_eq!(parsed.opt_level, OptLevel::O0);
+    }
+
+    #[test]
+    fn parses_short_opt_level_forms() {
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "-O2", "main.c"])).opt_level,
+            OptLevel::O2
+        );
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "-O", "3", "main.c"])).opt_level,
+            OptLevel::O3
+        );
+    }
+
+    #[test]
+    fn parses_long_opt_level_form() {
+        let parsed = CliArgs::parse(&args(&["crusty", "--opt-level", "1", "main.c"]));
+        assert_eq!(parsed.opt_level, OptLevel::O1);
+    }
 }
