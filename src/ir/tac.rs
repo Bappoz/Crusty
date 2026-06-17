@@ -1,3 +1,5 @@
+use crate::common::ast::expr::{BinOp, UnOp};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TempId(pub u32);
 
@@ -48,4 +50,67 @@ impl Default for LabelGen {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstValue {
+    Int(i64),
+    Double(f64),
+    Char(char),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Operand {
+    Temp(TempId),
+    Var(String),
+    Const(ConstValue),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TacInstr {
+    BinOp {
+        dst: TempId,
+        op: BinOp,
+        lhs: Operand,
+        rhs: Operand,
+    },
+    UnOp {
+        dst: TempId,
+        op: UnOp,
+        src: Operand,
+    },
+    Copy {
+        dst: TempId,
+        src: Operand,
+    },
+    Jump {
+        label: LabelId,
+    },
+    CondJump {
+        cond: Operand,
+        then_label: LabelId,
+        else_label: LabelId,
+    },
+    Call {
+        dst: Option<TempId>,
+        fn_name: String,
+        args: Vec<Operand>,
+    },
+    Return {
+        val: Option<Operand>,
+    },
+    Label(LabelId),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TacFunction {
+    pub name: String,
+    pub params: Vec<String>,
+    pub instrs: Vec<TacInstr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TacProgram {
+    pub functions: Vec<TacFunction>,
 }
