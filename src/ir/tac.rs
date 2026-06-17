@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::common::ast::expr::{BinOp, UnOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,4 +115,116 @@ pub struct TacFunction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TacProgram {
     pub functions: Vec<TacFunction>,
+}
+
+impl fmt::Display for TempId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t{}", self.0)
+    }
+}
+
+impl fmt::Display for LabelId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "L{}", self.0)
+    }
+}
+
+impl fmt::Display for ConstValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConstValue::Int(value) => write!(f, "{value}"),
+            ConstValue::Double(value) => write!(f, "{value}"),
+            ConstValue::Char(value) => write!(f, "{value:?}"),
+            ConstValue::String(value) => write!(f, "{value:?}"),
+        }
+    }
+}
+
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operand::Temp(temp) => write!(f, "{temp}"),
+            Operand::Var(name) => write!(f, "{name}"),
+            Operand::Const(value) => write!(f, "{value}"),
+        }
+    }
+}
+
+impl fmt::Display for TacInstr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TacInstr::BinOp { dst, op, lhs, rhs } => {
+                write!(f, "{dst} = {lhs} {} {rhs}", bin_op_symbol(op))
+            }
+            TacInstr::UnOp { dst, op, src } => {
+                write!(f, "{dst} = {}{src}", un_op_symbol(op))
+            }
+            TacInstr::Copy { dst, src } => write!(f, "{dst} = {src}"),
+            TacInstr::Jump { label } => write!(f, "goto {label}"),
+            TacInstr::CondJump {
+                cond,
+                then_label,
+                else_label,
+            } => write!(f, "if {cond} goto {then_label} else goto {else_label}"),
+            TacInstr::Call {
+                dst,
+                fn_name,
+                args,
+            } => {
+                if let Some(dst) = dst {
+                    write!(f, "{dst} = ")?;
+                }
+
+                write!(f, "call {fn_name}(")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            TacInstr::Return { val } => {
+                if let Some(val) = val {
+                    write!(f, "return {val}")
+                } else {
+                    write!(f, "return")
+                }
+            }
+            TacInstr::Label(label) => write!(f, "{label}:"),
+        }
+    }
+}
+
+fn bin_op_symbol(op: &BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Mod => "%",
+        BinOp::Eq => "==",
+        BinOp::Neq => "!=",
+        BinOp::Less => "<",
+        BinOp::Greater => ">",
+        BinOp::Leq => "<=",
+        BinOp::Geq => ">=",
+        BinOp::And => "&&",
+        BinOp::Or => "||",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
+    }
+}
+
+fn un_op_symbol(op: &UnOp) -> &'static str {
+    match op {
+        UnOp::Neg => "-",
+        UnOp::Not => "!",
+        UnOp::BitNot => "~",
+        UnOp::Deref => "*",
+        UnOp::AddrOf => "&",
+    }
 }
