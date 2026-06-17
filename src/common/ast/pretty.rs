@@ -104,6 +104,25 @@ fn fmt_decl(out: &mut String, decl: &Decl, prefix: &str, is_last: bool) {
                 fmt_qty(qty)
             ));
         }
+        Decl::Prototype(ret, name, params, _) => {
+            let params_str = if params.is_empty() {
+                "[]".into()
+            } else {
+                let p: Vec<_> = params
+                    .iter()
+                    .map(|(qty, n)| format!("{} {}", fmt_qty(qty), n))
+                    .collect();
+                format!("[{}]", p.join(", "))
+            };
+            out.push_str(&format!(
+                "{}{}Prototype({} {}, params={})\n",
+                prefix,
+                conn,
+                fmt_qty(ret),
+                name,
+                params_str
+            ));
+        }
     }
 }
 
@@ -342,6 +361,14 @@ fn fmt_type(ty: &Type) -> String {
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),
+        Type::Function(ret, params) => {
+            let params_str = params
+                .iter()
+                .map(|p| fmt_qty(p))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("fn({}) -> {}", params_str, fmt_qty(ret))
+        }
     }
 }
 
