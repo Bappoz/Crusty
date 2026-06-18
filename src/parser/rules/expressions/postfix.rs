@@ -4,8 +4,13 @@ use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
 /// Tenta parsear uma operação postfix (`()`, `[]`, `.`, `->`, `++`, `--`) sobre `lhs`.
-/// Retorna `Ok(true)` se consumiu um postfix, `Ok(false)` se não há postfix aplicável.
-pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, CompilerError> {
+///
+/// Recebe `lhs` **por valor** para encapsulá-lo em um novo nó movendo (e não clonando)
+/// a subexpressão. Encadeamentos como `a.b.c.d.e.f` assim crescem em O(n) em vez de O(n²).
+///
+/// Retorna `Ok((expr, true))` se consumiu um postfix (com o novo nó já construído) ou
+/// `Ok((lhs, false))` quando não há postfix aplicável (devolvendo `lhs` intacto).
+pub fn try_parse_postfix(parser: &mut Parser, lhs: Expr) -> Result<(Expr, bool), CompilerError> {
     match parser.peek_kind() {
         TokenKind::LeftParen => {
             let start = lhs.span();
@@ -25,8 +30,8 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
                 .expect(&TokenKind::RightParen, "')' ao fechar chamada")?
                 .clone();
             let span = parser.join_span(start, parser.span_of(&end));
-            *lhs = Expr::Call(Box::new(lhs.clone()), args, span);
-            Ok(true)
+            let new_expr = Expr::Call(Box::new(lhs), args, span);
+            Ok((new_expr, true))
         }
         TokenKind::LeftBracket => {
             let start = lhs.span();
@@ -36,10 +41,11 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
                 .expect(&TokenKind::RightBracket, "']' ao fechar indexação")?
                 .clone();
             let span = parser.join_span(start, parser.span_of(&end));
-            *lhs = Expr::Index(Box::new(lhs.clone()), Box::new(index), span);
-            Ok(true)
+            let new_expr = Expr::Index(Box::new(lhs), Box::new(index), span);
+            Ok((new_expr, true))
         }
         TokenKind::Dot | TokenKind::Arrow => {
+            let start = lhs.span();
             let op = parser.advance().clone();
             let field_token = parser.advance().clone();
             let TokenKind::Identifier(field_name) = field_token.kind.clone() else {
@@ -50,26 +56,27 @@ pub fn try_parse_postfix(parser: &mut Parser, lhs: &mut Expr) -> Result<bool, Co
                 ));
             };
 
-            let span = parser.join_span(lhs.span(), parser.span_of(&field_token));
+            let span = parser.join_span(start, parser.span_of(&field_token));
             let access = if op.kind == TokenKind::Dot {
                 MemberAccess::Direct
             } else {
                 MemberAccess::Pointer
             };
-            *lhs = Expr::Member(Box::new(lhs.clone()), access, field_name, span);
-            Ok(true)
+            let new_expr = Expr::Member(Box::new(lhs), access, field_name, span);
+            Ok((new_expr, true))
         }
         TokenKind::PlusPlus | TokenKind::MinusMinus => {
+            let start = lhs.span();
             let op = parser.advance().clone();
-            let span = parser.join_span(lhs.span(), parser.span_of(&op));
+            let span = parser.join_span(start, parser.span_of(&op));
             let kind = if op.kind == TokenKind::PlusPlus {
                 PostfixOp::Inc
             } else {
                 PostfixOp::Dec
             };
-            *lhs = Expr::Postfix(kind, Box::new(lhs.clone()), span);
-            Ok(true)
+            let new_expr = Expr::Postfix(kind, Box::new(lhs), span);
+            Ok((new_expr, true))
         }
-        _ => Ok(false),
+        _ => Ok((lhs, false)),
     }
 }

@@ -52,7 +52,11 @@ impl Parser {
 
         loop {
             // Primeiro tratamos todos os postfix, pois têm maior precedência efetiva.
-            if postfix::try_parse_postfix(self, &mut lhs)? {
+            // `try_parse_postfix` toma `lhs` por valor e devolve o novo nó (ou o mesmo
+            // `lhs` intocado quando não há postfix), evitando clones O(n²) em cadeias.
+            let (next_lhs, consumed) = postfix::try_parse_postfix(self, lhs)?;
+            lhs = next_lhs;
+            if consumed {
                 continue;
             }
 
