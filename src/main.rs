@@ -1,9 +1,11 @@
 use crusty::analyser::analyse;
 use crusty::codegen::inter::opt::{pipeline_for_level, OptLevel};
 use crusty::codegen::inter::Cfg;
+use crusty::codegen::last;
 use crusty::common::ast::pretty::pretty_program;
 use crusty::common::errors::report::{Report, ToReport};
 use crusty::common::input::source::SourceFile;
+use crusty::ir::lower::lower_program;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
 use std::env;
@@ -25,6 +27,7 @@ fn main() -> std::io::Result<()> {
             eprintln!("  --only-lex             Stop after lexing");
             eprintln!("  --only-parse           Stop after parsing");
             eprintln!("  --only-semantic        Stop after semantic analysis");
+            eprintln!("  -S, --emit-asm         Emit x86-64 assembly (AT&T) to <file>.s");
             eprintln!("  -O0|-O1|-O2|-O3        Set optimization level");
             eprintln!("  --opt-level 0|1|2|3    Set optimization level");
             exit(64);
@@ -52,6 +55,7 @@ struct CliArgs {
     only_lex: bool,
     only_parse: bool,
     only_semantic: bool,
+    emit_asm: bool,
     opt_level: OptLevel,
 }
 
@@ -65,6 +69,7 @@ impl CliArgs {
             only_lex: false,
             only_parse: false,
             only_semantic: false,
+            emit_asm: false,
             opt_level: OptLevel::default(),
         };
 
@@ -79,6 +84,7 @@ impl CliArgs {
                 "--only-lex" => cli.only_lex = true,
                 "--only-parse" => cli.only_parse = true,
                 "--only-semantic" => cli.only_semantic = true,
+                "-S" | "--emit-asm" => cli.emit_asm = true,
                 "-O" | "--opt-level" => {
                     i += 1;
                     let Some(level) = args.get(i) else {
@@ -131,6 +137,15 @@ struct DiagnosticError {
 impl ToReport for DiagnosticError {
     fn to_report(&self) -> Report {
         Report::new(&format!("compilation failed with {} error(s)", self.count))
+    }
+}
+
+#[derive(Debug)]
+struct IoError(String);
+
+impl ToReport for IoError {
+    fn to_report(&self) -> Report {
+        Report::new(&format!("I/O error: {}", self.0))
     }
 }
 
@@ -204,7 +219,25 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     let opt_pipeline = pipeline_for_level(args.opt_level);
     opt_pipeline.run(&mut cfg, 10);
 
+    // ── Stage 5: Code generation (x86-64 / AT&T) ─────────────────────────────
+    if args.emit_asm {
+        let tac_program = lower_program(&program);
+        let asm = last::emit_program(&tac_program);
+
+        let output_path = asm_output_path(&args.input_file);
+        std::fs::write(&output_path, asm)
+            .map_err(|e| Box::new(IoError(e.to_string())) as Box<dyn ToReport>)?;
+        eprintln!("emitted assembly: {}", output_path.display());
+    }
+
     Ok(())
+}
+
+fn asm_output_path(input: &Option<String>) -> PathBuf {
+    let input = input.clone().unwrap_or_else(|| "crusty.out".to_string());
+    let mut path = PathBuf::from(input);
+    path.set_extension("s");
+    path
 }
 
 // ── Dump helpers ─────────────────────────────────────────────────────────────
