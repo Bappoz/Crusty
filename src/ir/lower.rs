@@ -405,3 +405,208 @@ fn type_size(ty: &Type) -> i64 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{
+        ast::ast::{QualifierType, Type},
+        errors::error_data::Span,
+    };
+
+    fn span() -> Span {
+        Span {
+            line: 1,
+            end_line: 1,
+            column_start: 1,
+            column_end: 1,
+        }
+    }
+
+    fn int_ty() -> QualifierType {
+        QualifierType {
+            ty: Type::Int,
+            is_const: false,
+            is_unsigned: false,
+        }
+    }
+
+    fn int(value: i64) -> Expr {
+        Expr::Literal(Literal::Int(value), span())
+    }
+
+    fn ident(name: &str) -> Expr {
+        Expr::Ident(name.to_string(), span())
+    }
+
+    #[test]
+    fn lower_binary_expr_produces_temp() {
+        let expr = Expr::Binary(Box::new(int(2)), BinOp::Add, Box::new(int(3)), span());
+        let mut lowerer = Lowerer::new();
+
+        let result = lowerer.lower_expr(&expr);
+
+        assert_eq!(result, Operand::Temp(TempId(0)));
+        assert_eq!(
+            lowerer.finish(),
+            vec![TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::Add,
+                lhs: Operand::Const(ConstValue::Int(2)),
+                rhs: Operand::Const(ConstValue::Int(3)),
+            }]
+        );
+    }
+
+    #[test]
+    fn lower_if_else_produces_labels() {
+        let stmt = Stmt::If(
+            int(1),
+            Box::new(Stmt::VarDecl(
+                int_ty(),
+                "x".to_string(),
+                Some(int(2)),
+                span(),
+            )),
+            Some(Box::new(Stmt::VarDecl(
+                int_ty(),
+                "y".to_string(),
+                Some(int(3)),
+                span(),
+            ))),
+            span(),
+        );
+        let mut lowerer = Lowerer::new();
+
+        lowerer.lower_stmt(&stmt);
+        let instrs = lowerer.finish();
+
+        assert!(matches!(
+            instrs[0],
+            TacInstr::CondJump {
+                then_label: LabelId(0),
+                else_label: LabelId(1),
+                ..
+            }
+        ));
+        assert_eq!(instrs[1], TacInstr::Label(LabelId(0)));
+        assert_eq!(
+            instrs[2],
+            TacInstr::Copy {
+                dst: Operand::Var("x".to_string()),
+                src: Operand::Const(ConstValue::Int(2)),
+            }
+        );
+        assert_eq!(instrs[3], TacInstr::Jump { label: LabelId(2) });
+        assert_eq!(instrs[4], TacInstr::Label(LabelId(1)));
+        assert_eq!(
+            instrs[5],
+            TacInstr::Copy {
+                dst: Operand::Var("y".to_string()),
+                src: Operand::Const(ConstValue::Int(3)),
+            }
+        );
+        assert_eq!(instrs[6], TacInstr::Label(LabelId(2)));
+    }
+
+    #[test]
+    fn lower_while_produces_backedge() {
+        let stmt = Stmt::While(
+            ident("keep_going"),
+            Box::new(Stmt::VarDecl(
+                int_ty(),
+                "x".to_string(),
+                Some(int(1)),
+                span(),
+            )),
+            span(),
+        );
+        let mut lowerer = Lowerer::new();
+
+        lowerer.lower_stmt(&stmt);
+        let instrs = lowerer.finish();
+
+        assert_eq!(instrs[0], TacInstr::Label(LabelId(0)));
+        assert!(matches!(
+            instrs[1],
+            TacInstr::CondJump {
+                then_label: LabelId(1),
+                else_label: LabelId(2),
+                ..
+            }
+        ));
+        assert_eq!(instrs[2], TacInstr::Label(LabelId(1)));
+        assert_eq!(instrs[4], TacInstr::Jump { label: LabelId(0) });
+        assert_eq!(instrs[5], TacInstr::Label(LabelId(2)));
+    }
+
+    #[test]
+    fn lower_function_call_passes_args() {
+        let arg0 = Expr::Binary(Box::new(int(1)), BinOp::Add, Box::new(int(2)), span());
+        let expr = Expr::Call(Box::new(ident("sum")), vec![arg0, int(3)], span());
+        let mut lowerer = Lowerer::new();
+
+        let result = lowerer.lower_expr(&expr);
+        let instrs = lowerer.finish();
+
+        assert_eq!(result, Operand::Temp(TempId(1)));
+        assert_eq!(
+            instrs[1],
+            TacInstr::Call {
+                dst: Some(TempId(1)),
+                fn_name: "sum".to_string(),
+                args: vec![Operand::Temp(TempId(0)), Operand::Const(ConstValue::Int(3))],
+            }
+        );
+    }
+
+    #[test]
+    fn lower_nested_expr_correct_temp_order() {
+        let rhs = Expr::Binary(Box::new(int(3)), BinOp::Mul, Box::new(int(4)), span());
+        let expr = Expr::Binary(Box::new(int(2)), BinOp::Add, Box::new(rhs), span());
+        let mut lowerer = Lowerer::new();
+
+        let result = lowerer.lower_expr(&expr);
+
+        assert_eq!(result, Operand::Temp(TempId(1)));
+        assert_eq!(
+            lowerer.finish(),
+            vec![
+                TacInstr::BinOp {
+                    dst: TempId(0),
+                    op: BinOp::Mul,
+                    lhs: Operand::Const(ConstValue::Int(3)),
+                    rhs: Operand::Const(ConstValue::Int(4)),
+                },
+                TacInstr::BinOp {
+                    dst: TempId(1),
+                    op: BinOp::Add,
+                    lhs: Operand::Const(ConstValue::Int(2)),
+                    rhs: Operand::Temp(TempId(0)),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn lower_function_keeps_name_params_and_body() {
+        let decl = Decl::Function(
+            int_ty(),
+            "main".to_string(),
+            vec![(int_ty(), "argc".to_string())],
+            vec![Stmt::Return(Some(ident("argc")), span())],
+            span(),
+        );
+
+        let func = lower_function(&decl);
+
+        assert_eq!(func.name, "main");
+        assert_eq!(func.params, vec!["argc"]);
+        assert_eq!(
+            func.instrs,
+            vec![TacInstr::Return {
+                val: Some(Operand::Var("argc".to_string()))
+            }]
+        );
+    }
+}
