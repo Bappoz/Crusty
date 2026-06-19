@@ -100,6 +100,25 @@ impl Lowerer {
                 }
                 self.instrs.push(TacInstr::Label(end_label));
             }
+            Stmt::While(cond, body, _) => {
+                let cond_label = self.labels.fresh();
+                let body_label = self.labels.fresh();
+                let end_label = self.labels.fresh();
+
+                self.instrs.push(TacInstr::Label(cond_label));
+                let cond = self.lower_expr(cond);
+                self.instrs.push(TacInstr::CondJump {
+                    cond,
+                    then_label: body_label,
+                    else_label: end_label,
+                });
+
+                self.instrs.push(TacInstr::Label(body_label));
+                self.lower_stmt(body);
+                self.emit_jump_unless_terminated(cond_label);
+
+                self.instrs.push(TacInstr::Label(end_label));
+            }
             Stmt::ExprStmt(expr, _) => {
                 self.lower_expr(expr);
             }
