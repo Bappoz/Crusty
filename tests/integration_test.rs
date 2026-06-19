@@ -6,11 +6,7 @@ use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
 
-struct CompileResult {
-    diagnostics: Vec<Diagnostic>,
-}
-
-fn compile_file(rel: &str) -> CompileResult {
+fn compile_file(rel: &str) -> Vec<Diagnostic> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
     let src = SourceFile::from_path(path)
         .unwrap_or_else(|e| panic!("failed to read fixture '{rel}': {:?}", e.to_report()));
@@ -28,7 +24,7 @@ fn compile_file(rel: &str) -> CompileResult {
         Err(parse_errs) => diagnostics.extend(parse_errs.into_iter().map(Diagnostic::Error)),
     }
 
-    CompileResult { diagnostics }
+    diagnostics
 }
 
 fn has_semantic_error(diags: &[Diagnostic], pred: impl Fn(&SemanticErrorKind) -> bool) -> bool {
@@ -39,20 +35,20 @@ fn has_semantic_error(diags: &[Diagnostic], pred: impl Fn(&SemanticErrorKind) ->
 }
 
 fn compile_valid(name: &str) {
-    let result = compile_file(&format!("tests/integration/valid/{name}.c"));
+    let diagnostics = compile_file(&format!("tests/integration/valid/{name}.c"));
     assert!(
-        result.diagnostics.is_empty(),
+        diagnostics.is_empty(),
         "valid program '{name}' should produce zero diagnostics, got: {:#?}",
-        result.diagnostics
+        diagnostics
     );
 }
 
 fn assert_invalid(name: &str, pred: impl Fn(&SemanticErrorKind) -> bool, label: &str) {
-    let result = compile_file(&format!("tests/integration/invalid/{name}.c"));
+    let diagnostics = compile_file(&format!("tests/integration/invalid/{name}.c"));
     assert!(
-        has_semantic_error(&result.diagnostics, pred),
+        has_semantic_error(&diagnostics, pred),
         "invalid program '{name}' should emit {label}, got: {:#?}",
-        result.diagnostics
+        diagnostics
     );
 }
 
