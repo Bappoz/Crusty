@@ -71,8 +71,28 @@ impl Lowerer {
         }
     }
 
-    pub fn lower_stmt(&mut self, _stmt: &Stmt) {
-        panic!("lowering ainda nao suporta esse statement");
+    pub fn lower_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Block(stmts, _) => {
+                for stmt in stmts {
+                    self.lower_stmt(stmt);
+                }
+            }
+            Stmt::ExprStmt(expr, _) => {
+                self.lower_expr(expr);
+            }
+            Stmt::Return(expr, _) => {
+                let val = expr.as_ref().map(|expr| self.lower_expr(expr));
+                self.instrs.push(TacInstr::Return { val });
+            }
+            Stmt::VarDecl(_, name, init, _) => {
+                if let Some(init) = init {
+                    let src = self.lower_expr(init);
+                    self.emit_copy(Operand::Var(name.clone()), src);
+                }
+            }
+            _ => panic!("lowering ainda nao suporta esse statement"),
+        }
     }
 
     pub fn finish(self) -> Vec<TacInstr> {
