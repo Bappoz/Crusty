@@ -2,7 +2,7 @@ use crate::common::ast::{
     expr::{Expr, Literal},
     stmt::Stmt,
 };
-use crate::ir::tac::{ConstValue, LabelGen, Operand, TacInstr, TempGen, TempId};
+use crate::ir::tac::{ConstValue, LabelGen, LabelId, Operand, TacInstr, TempGen, TempId};
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {
@@ -78,6 +78,28 @@ impl Lowerer {
                     self.lower_stmt(stmt);
                 }
             }
+            Stmt::If(cond, then_branch, else_branch, _) => {
+                let cond = self.lower_expr(cond);
+                let then_label = self.labels.fresh();
+                let else_label = self.labels.fresh();
+                let end_label = self.labels.fresh();
+
+                self.instrs.push(TacInstr::CondJump {
+                    cond,
+                    then_label,
+                    else_label,
+                });
+
+                self.instrs.push(TacInstr::Label(then_label));
+                self.lower_stmt(then_branch);
+                self.emit_jump_unless_terminated(end_label);
+
+                self.instrs.push(TacInstr::Label(else_label));
+                if let Some(else_branch) = else_branch {
+                    self.lower_stmt(else_branch);
+                }
+                self.instrs.push(TacInstr::Label(end_label));
+            }
             Stmt::ExprStmt(expr, _) => {
                 self.lower_expr(expr);
             }
@@ -114,6 +136,15 @@ impl Lowerer {
         match dst {
             Operand::Temp(_) | Operand::Var(_) => self.instrs.push(TacInstr::Copy { dst, src }),
             Operand::Const(_) => panic!("constante nao pode ser destino de copia"),
+        }
+    }
+
+    fn emit_jump_unless_terminated(&mut self, label: LabelId) {
+        if !matches!(
+            self.instrs.last(),
+            Some(TacInstr::Jump { .. } | TacInstr::Return { .. })
+        ) {
+            self.instrs.push(TacInstr::Jump { label });
         }
     }
 }
