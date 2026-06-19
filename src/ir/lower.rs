@@ -2,7 +2,7 @@ use crate::common::ast::{
     expr::{Expr, Literal},
     stmt::Stmt,
 };
-use crate::ir::tac::{ConstValue, LabelGen, Operand, TacInstr, TempGen};
+use crate::ir::tac::{ConstValue, LabelGen, Operand, TacInstr, TempGen, TempId};
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {
@@ -24,6 +24,18 @@ impl Lowerer {
         match expr {
             Expr::Literal(value, _) => Operand::Const(lower_literal(value)),
             Expr::Ident(name, _) => Operand::Var(name.clone()),
+            Expr::Binary(lhs, op, rhs, _) => {
+                let lhs = self.lower_expr(lhs);
+                let rhs = self.lower_expr(rhs);
+                let dst = self.fresh_temp();
+                self.instrs.push(TacInstr::BinOp {
+                    dst,
+                    op: op.clone(),
+                    lhs,
+                    rhs,
+                });
+                Operand::Temp(dst)
+            }
             _ => panic!("lowering ainda nao suporta essa expressao"),
         }
     }
@@ -34,6 +46,10 @@ impl Lowerer {
 
     pub fn finish(self) -> Vec<TacInstr> {
         self.instrs
+    }
+
+    fn fresh_temp(&mut self) -> TempId {
+        self.temps.fresh()
     }
 }
 
