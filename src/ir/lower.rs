@@ -15,6 +15,12 @@ pub struct Lowerer {
     instrs: Vec<TacInstr>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ControlLabels {
+    break_label: Option<LabelId>,
+    continue_label: Option<LabelId>,
+}
+
 impl Lowerer {
     pub fn new() -> Self {
         Self {
@@ -76,10 +82,14 @@ impl Lowerer {
     }
 
     pub fn lower_stmt(&mut self, stmt: &Stmt) {
+        self.lower_stmt_with_control(stmt, ControlLabels::default());
+    }
+
+    fn lower_stmt_with_control(&mut self, stmt: &Stmt, control: ControlLabels) {
         match stmt {
             Stmt::Block(stmts, _) => {
                 for stmt in stmts {
-                    self.lower_stmt(stmt);
+                    self.lower_stmt_with_control(stmt, control);
                 }
             }
             Stmt::If(cond, then_branch, else_branch, _) => {
@@ -95,12 +105,12 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(then_label));
-                self.lower_stmt(then_branch);
+                self.lower_stmt_with_control(then_branch, control);
                 self.emit_jump_unless_terminated(end_label);
 
                 self.instrs.push(TacInstr::Label(else_label));
                 if let Some(else_branch) = else_branch {
-                    self.lower_stmt(else_branch);
+                    self.lower_stmt_with_control(else_branch, control);
                 }
                 self.instrs.push(TacInstr::Label(end_label));
             }
@@ -118,10 +128,28 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(body_label));
-                self.lower_stmt(body);
+                self.lower_stmt_with_control(
+                    body,
+                    ControlLabels {
+                        break_label: Some(end_label),
+                        continue_label: Some(cond_label),
+                    },
+                );
                 self.emit_jump_unless_terminated(cond_label);
 
                 self.instrs.push(TacInstr::Label(end_label));
+            }
+            Stmt::Break(_) => {
+                let label = control
+                    .break_label
+                    .expect("break fora de loop/switch nao pode ser baixado");
+                self.instrs.push(TacInstr::Jump { label });
+            }
+            Stmt::Continue(_) => {
+                let label = control
+                    .continue_label
+                    .expect("continue fora de loop nao pode ser baixado");
+                self.instrs.push(TacInstr::Jump { label });
             }
             Stmt::ExprStmt(expr, _) => {
                 self.lower_expr(expr);
