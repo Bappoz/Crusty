@@ -1,8 +1,12 @@
 use crate::common::ast::{
+    ast::Program,
+    decl::Decl,
     expr::{Expr, Literal},
     stmt::Stmt,
 };
-use crate::ir::tac::{ConstValue, LabelGen, LabelId, Operand, TacInstr, TempGen, TempId};
+use crate::ir::tac::{
+    ConstValue, LabelGen, LabelId, Operand, TacFunction, TacInstr, TacProgram, TempGen, TempId,
+};
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {
@@ -171,6 +175,35 @@ impl Lowerer {
 impl Default for Lowerer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub fn lower_function(decl: &Decl) -> TacFunction {
+    match decl {
+        Decl::Function(_, name, params, body, _) => {
+            let mut lowerer = Lowerer::new();
+            for stmt in body {
+                lowerer.lower_stmt(stmt);
+            }
+
+            TacFunction {
+                name: name.clone(),
+                params: params.iter().map(|(_, name)| name.clone()).collect(),
+                instrs: lowerer.finish(),
+            }
+        }
+        _ => panic!("lower_function espera Decl::Function"),
+    }
+}
+
+pub fn lower_program(prog: &Program) -> TacProgram {
+    TacProgram {
+        functions: prog
+            .decls
+            .iter()
+            .filter(|decl| matches!(decl, Decl::Function(..)))
+            .map(lower_function)
+            .collect(),
     }
 }
 
