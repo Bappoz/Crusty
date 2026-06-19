@@ -46,6 +46,21 @@ impl Lowerer {
                 });
                 Operand::Temp(dst)
             }
+            Expr::Call(callee, args, _) => {
+                let fn_name = match callee.as_ref() {
+                    Expr::Ident(name, _) => name.clone(),
+                    _ => panic!("lowering ainda nao suporta chamada por expressao"),
+                };
+                let args = args.iter().map(|arg| self.lower_expr(arg)).collect();
+                let dst = self.fresh_temp();
+                self.instrs.push(TacInstr::Call {
+                    dst: Some(dst),
+                    fn_name,
+                    args,
+                });
+                Operand::Temp(dst)
+            }
+            Expr::Cast(_, inner, _) => self.lower_expr(inner),
             _ => panic!("lowering ainda nao suporta essa expressao"),
         }
     }
