@@ -61,6 +61,12 @@ impl Lowerer {
                 Operand::Temp(dst)
             }
             Expr::Cast(_, inner, _) => self.lower_expr(inner),
+            Expr::Assign(lhs, rhs, _) => {
+                let src = self.lower_expr(rhs);
+                let dst = self.lower_assignment_target(lhs);
+                self.emit_copy(dst.clone(), src);
+                dst
+            }
             _ => panic!("lowering ainda nao suporta essa expressao"),
         }
     }
@@ -75,6 +81,20 @@ impl Lowerer {
 
     fn fresh_temp(&mut self) -> TempId {
         self.temps.fresh()
+    }
+
+    fn lower_assignment_target(&mut self, expr: &Expr) -> Operand {
+        match expr {
+            Expr::Ident(name, _) => Operand::Var(name.clone()),
+            _ => panic!("lowering ainda nao suporta esse destino de atribuicao"),
+        }
+    }
+
+    fn emit_copy(&mut self, dst: Operand, src: Operand) {
+        match dst {
+            Operand::Temp(_) | Operand::Var(_) => self.instrs.push(TacInstr::Copy { dst, src }),
+            Operand::Const(_) => panic!("constante nao pode ser destino de copia"),
+        }
     }
 }
 
