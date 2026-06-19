@@ -36,6 +36,16 @@ impl Lowerer {
                 });
                 Operand::Temp(dst)
             }
+            Expr::Unary(op, src, _) => {
+                let src = self.lower_expr(src);
+                let dst = self.fresh_temp();
+                self.instrs.push(TacInstr::UnOp {
+                    dst,
+                    op: op.clone(),
+                    src,
+                });
+                Operand::Temp(dst)
+            }
             _ => panic!("lowering ainda nao suporta essa expressao"),
         }
     }
