@@ -184,11 +184,11 @@ mod tests {
     fn straight_line_code_is_one_block() {
         let f = func(vec![
             TacInstr::Copy {
-                dst: TempId(0),
+                dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
             },
             TacInstr::Copy {
-                dst: TempId(1),
+                dst: Operand::Temp(TempId(1)),
                 src: Operand::Const(ConstValue::Int(2)),
             },
             TacInstr::Return {
@@ -216,13 +216,13 @@ mod tests {
             },
             TacInstr::Label(then_label),
             TacInstr::Copy {
-                dst: TempId(0),
+                dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
             },
             TacInstr::Jump { label: merge_label },
             TacInstr::Label(else_label),
             TacInstr::Copy {
-                dst: TempId(0),
+                dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(2)),
             },
             TacInstr::Label(merge_label),
@@ -252,7 +252,7 @@ mod tests {
             },
             TacInstr::Label(body_label),
             TacInstr::Copy {
-                dst: TempId(0),
+                dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
             },
             TacInstr::Jump { label: cond_label },
