@@ -83,7 +83,7 @@ pub enum TacInstr {
         src: Operand,
     },
     Copy {
-        dst: TempId,
+        dst: Operand,
         src: Operand,
     },
     Jump {
