@@ -2,7 +2,7 @@
 mod tests {
     use crate::common::ast::ast::{QualifierType, Type};
     use crate::common::ast::decl::Decl;
-    use crate::common::ast::expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp};
+    use crate::common::ast::expr::{BinOp, Expr, Literal, MemberAccess, PostfixOp, PrefixOp};
     use crate::common::ast::stmt::{Stmt, SwitchLabel};
     use crate::common::input::span::ByteSpan;
     use crate::lexer::tokens::token::Token;
@@ -138,6 +138,46 @@ mod tests {
             panic!("esperava chamada de função");
         };
         assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn parses_deep_member_access_chain_left_associative() {
+        // a.b.c.d deve produzir Member(Member(Member(a, b), c), d),
+        // encadeamento left-assoc que cresce em O(n) (regressão do issue #86).
+        let tokens = vec![
+            ident("a", 1),
+            tk(TokenKind::Dot, 2),
+            ident("b", 3),
+            tk(TokenKind::Dot, 4),
+            ident("c", 5),
+            tk(TokenKind::Dot, 6),
+            ident("d", 7),
+            eof(8),
+        ];
+
+        let expr = Parser::new(tokens)
+            .parse_expr(0)
+            .expect("encadeamento de membros válido");
+
+        let Expr::Member(inner, MemberAccess::Direct, field, _) = expr else {
+            panic!("esperava Member no topo do encadeamento");
+        };
+        assert_eq!(field, "d");
+
+        let Expr::Member(inner, MemberAccess::Direct, field, _) = *inner else {
+            panic!("esperava Member intermediário");
+        };
+        assert_eq!(field, "c");
+
+        let Expr::Member(inner, MemberAccess::Direct, field, _) = *inner else {
+            panic!("esperava Member intermediário");
+        };
+        assert_eq!(field, "b");
+
+        assert!(matches!(*inner, Expr::Ident(..)));
+        if let Expr::Ident(name, _) = *inner {
+            assert_eq!(name, "a");
+        }
     }
 
     #[test]
