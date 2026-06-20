@@ -102,7 +102,7 @@ fn instr_uses(instr: &TacInstr) -> Vec<TempId> {
 ///
 /// **Não** dobra `ConstValue::Double` (evitar divergência de precisão host vs target).
 /// **Não** dobra shift com rhs inválido, nem divisão por zero (UB em C).
-pub fn constant_fold(instrs: &mut Vec<TacInstr>) -> bool {
+pub fn constant_fold(instrs: &mut [TacInstr]) -> bool {
     let mut changed = false;
 
     for instr in instrs.iter_mut() {
@@ -177,13 +177,13 @@ fn fold_binop(op: &BinOp, lhs: &Operand, rhs: &Operand) -> Option<ConstValue> {
 
         // Shift — UB se rhs < 0 ou rhs >= 64
         BinOp::Shl => {
-            if r < 0 || r >= 64 {
+            if !(0..64).contains(&r) {
                 return None;
             }
             l.checked_shl(r as u32)?
         }
         BinOp::Shr => {
-            if r < 0 || r >= 64 {
+            if !(0..64).contains(&r) {
                 return None;
             }
             l.checked_shr(r as u32)?
@@ -220,7 +220,7 @@ fn fold_unop(op: &UnOp, src: &Operand) -> Option<ConstValue> {
 /// invalida a entrada do mapa.
 ///
 /// Retorna `true` se alguma substituição foi feita.
-pub fn constant_propagation(instrs: &mut Vec<TacInstr>) -> bool {
+pub fn constant_propagation(instrs: &mut [TacInstr]) -> bool {
     let mut changed = false;
     let mut const_map: HashMap<TempId, ConstValue> = HashMap::new();
 
