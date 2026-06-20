@@ -1,14 +1,14 @@
 # Análise Semântica
 
-**Status:** Em desenvolvimento
+## Visão Geral
 
-Recebe o `Program` (AST) produzido pelo parser e verifica restrições que a gramática não captura:
-variáveis não declaradas, redeclarações, atribuição a `const`, incompatibilidades de tipo,
-acesso a campos inexistentes.
+O analisador semântico recebe o `Program` (AST) produzido pelo parser e verifica restrições que a gramática não captura: variáveis não declaradas, redeclarações, atribuição a `const`, incompatibilidades de tipo, acesso a campos inexistentes.
+
+O ponto de entrada público é `analyse(prog)`, que cria um `SemanticAnalyser` e retorna `Vec<CompilerError>`. Erros não interrompem a análise — todos são acumulados para relatório completo.
 
 ---
 
-## Estrutura do Analisador
+## Estrutura
 
 ```rust
 struct SemanticAnalyser {
@@ -18,20 +18,27 @@ struct SemanticAnalyser {
 }
 ```
 
-O ponto de entrada público é `analyse(prog)`, que retorna `Vec<CompilerError>`.
-Erros não interrompem a análise — todos são acumulados.
+O fluxo é:
+
+```
+analyse_program(prog)
+└── analyse_decl(decl)*
+    ├── analyse_stmt(stmt)*     (dentro de Function)
+    │   └── analyse_expr(expr)
+    └── analyse_expr(expr)      (inicializadores)
+```
 
 ---
 
-## Tabela de Símbolos
+## Tabela de Símbolos (`SymbolTable`)
 
-A tabela de símbolos é uma **pilha de escopos**. Cada escopo é um `HashMap<String, Symbol>`.
+A tabela de símbolos é uma pilha de escopos. Cada escopo é um `HashMap<String, Symbol>`.
 
 ```rust
 struct Symbol {
     name: String,
     ty: QualifierType,
-    mutable: bool,      // false para declarações const
+    mutable: bool,         // false se declarado com const
     decl_span: Span,
 }
 ```
@@ -40,90 +47,136 @@ struct Symbol {
 
 | Método | Comportamento |
 |---|---|
-| `enter_scope()` | Empilha novo escopo vazio |
-| `exit_scope()` | Desempilha escopo atual |
-| `declare(symbol)` | Insere no escopo corrente; erro se duplicado no mesmo escopo |
+| `enter_scope()` | Empilha um novo escopo vazio |
+| `exit_scope()` | Desempilha o escopo atual |
+| `declare(symbol)` | Insere no escopo corrente; erro se já existir no mesmo escopo |
 | `lookup(name)` | Busca do escopo mais interno ao mais externo |
-| `register_struct(name, fields)` | Armazena definição de struct |
-| `lookup_struct(name)` | Recupera campos de uma struct |
+| `lookup_current_scope(name)` | Busca apenas no escopo corrente |
+| `register_struct(name, fields)` | Armazena definição de struct (separado dos símbolos) |
+| `lookup_struct(name)` | Recupera os campos de uma struct |
 | `register_type_alias(name, qty)` | Armazena alias de typedef |
 | `lookup_type_alias(name)` | Recupera o tipo subjacente de um alias |
 
 ### Ciclo de vida dos escopos
 
 ```
-analyse_program()         → escopo global
-analyse_decl::Function    → escopo da função + parâmetros
-analyse_stmt::Block       → bloco aninhado
-analyse_stmt::For         → init pode declarar variável
-```
-
----
-
-## Resolução de Tipos
-
-Antes de declarar um símbolo, o tipo passa por `resolve_type()`, que substitui
-`Type::Alias(name)` pelo tipo concreto registrado via typedef. A resolução é recursiva:
-
-```
-typedef int myint_t;
-
-myint_t*    →  int*
-myint_t[10] →  int[10]
+analyse_program       → enter_scope / exit_scope  (escopo global)
+analyse_decl::Function → enter_scope / exit_scope  (escopo da função + params)
+analyse_stmt::Block   → enter_scope / exit_scope  (bloco aninhado)
+analyse_stmt::For     → enter_scope / exit_scope  (init pode declarar variável)
 ```
 
 ---
 
 ## Análise de Declarações
 
-| Declaração | Ação |
-|---|---|
-| `GlobalVar` / `VarDecl` | Resolve tipo, chama `declare` |
-| `Function` | `enter_scope`, declara params, analisa body, `exit_scope` |
-| `StructDecl` | Chama `register_struct` |
-| `EnumDecl` | Declara cada variante como símbolo `const int` |
-| `Typedef` | Resolve tipo base, chama `register_type_alias` |
+### Variável Global / Local (`VarDecl`)
+
+1. Analisa o inicializador (se houver)
+2. Resolve aliases de typedef no tipo
+3. Chama `declare(symbol)` — emite `Redeclaration` se duplicado no mesmo escopo
+
+### Função
+
+1. `enter_scope`
+2. Salva `current_fn_ret` com o tipo de retorno resolvido
+3. Declara cada parâmetro no novo escopo
+4. Analisa todos os statements do corpo
+5. Restaura `current_fn_ret`; `exit_scope`
+
+### Struct
+
+Chama `register_struct(name, fields)` — armazena a definição para uso posterior em acesso a membro.
+
+### Enum
+
+Cada variante é declarada como um símbolo `const int`. Variantes com valor explícito têm o inicializador analisado.
+
+### Typedef
+
+Resolve o tipo-base e chama `register_type_alias(alias, resolved_type)`.
 
 ---
 
-## Inferência e Verificação de Tipos
+## Resolução de Tipos (`resolve_type`)
 
-`analyse_expr` analisa recursivamente e **retorna o tipo inferido** da expressão.
+Antes de declarar um símbolo, o tipo passa por `resolve_type()`, que substitui `Type::Alias(name)` pelo tipo concreto registrado:
 
-### Literais
+```
+const unsigned myint_t x
+    → resolve_type → const unsigned int x   (se typedef myint_t = int)
+```
+
+A resolução é recursiva para ponteiros e arrays:
+
+```
+myint_t* p   →   int* p
+myint_t[10]  →   int[10]
+```
+
+Aliases não encontrados são mantidos como `Type::Alias` (diagnóstico emitido mais tarde quando usados em contexto de tipo).
+
+---
+
+## Análise de Expressões e Inferência de Tipos
+
+`analyse_expr` analisa recursivamente e **retorna o tipo inferido** da expressão. Tipos não resolvíveis retornam `Type::Void` como sentinela.
+
+### Inferência de literais
 
 | Literal | Tipo inferido |
 |---|---|
-| `IntLiteral` | `int` |
-| `FloatLiteral` | `double` |
-| `CharLiteral` | `char` |
-| `StringLiteral` | `char*` |
+| `IntLiteral(v)` | `int` |
+| `FloatLiteral(v)` | `double` |
+| `CharLiteral(v)` | `char` |
+| `StringLiteral(v)` | `char*` |
+
+### Identificador
+
+Busca na tabela de símbolos. Se não encontrado → `UndefinedVariable(name)`.
 
 ### Atribuição
 
-1. Verifica se o LHS é `const` → `AssignToConst`
+1. Verifica se o LHS é `const` → `AssignToConst(name)`
 2. Infere tipos de LHS e RHS
-3. Verifica compatibilidade → `TypeMismatch`
-4. Retorna tipo do LHS
+3. Verifica compatibilidade via `types_compatible_for_assign` → `TypeMismatch`
+4. Retorna o tipo do LHS
 
 ### Operações Binárias
 
-| Operadores | Regra |
-|---|---|
-| `+` `-` | numérico OP numérico → promoção; ponteiro ± inteiro → ponteiro |
-| `*` `/` | numérico OP numérico → promoção |
-| `%` `&` `\|` `^` `<<` `>>` | **inteiro** OP **inteiro** |
-| `==` `!=` `<` `>` `<=` `>=` | num↔num ou ptr↔ptr → `int` |
-| `&&` `\|\|` | escalar OP escalar → `int` |
+`binary_result_type(lhs_ty, op, rhs_ty)` define as regras:
 
-**Promoção numérica:** `Double > Float > Long > Int > Short/Char`
+| Operador | Regra |
+|---|---|
+| `+`, `-` | numérico OP numérico → promoção; ponteiro ± inteiro → ponteiro |
+| `*`, `/` | numérico OP numérico → promoção |
+| `%` | **inteiro** OP **inteiro** (float proibido) |
+| `&`, `\|`, `^`, `<<`, `>>` | **inteiro** OP **inteiro** |
+| `==`, `!=`, `<`, `>`, `<=`, `>=` | num↔num ou ptr↔ptr → `int` |
+| `&&`, `\|\|` | escalar OP escalar → `int` |
+
+Promoção numérica: `Double > Float > Long > Int > Short/Char`.
 
 ### Acesso a Membro (`.`, `->`)
 
 1. Infere o tipo do objeto
-2. `.` espera `Struct(name)`; `->` espera `Pointer(Struct(name))`
-3. Busca `name` via `lookup_struct` → `UndefinedStruct` se ausente
-4. Busca `field_name` nos campos → `FieldNotFound` se ausente
+2. Para `.`: espera `Type::Struct(name)` — caso contrário `TypeMismatch`
+3. Para `->`: espera `Type::Pointer(Struct(name))` — caso contrário `TypeMismatch`
+4. Busca `name` em `lookup_struct` → `UndefinedStruct` se ausente
+5. Busca `field_name` nos campos → `FieldNotFound` se ausente
+6. Retorna o tipo do campo
+
+### Outros nós
+
+| Nó | Tipo retornado |
+|---|---|
+| `Unary`, `Prefix`, `Postfix` | mesmo tipo do operando |
+| `CompoundAssign` | tipo do LHS |
+| `Cast(qty, _)` | `qty` resolvido |
+| `Sizeof(_)`, `SizeofType(_)` | `unsigned int` |
+| `Call(callee, args)` | `void` (sentinela — lookup de retorno não implementado) |
+| `Index(arr, idx)` | tipo do elemento (desreferencia `Array(T)` ou `Pointer(T)`) |
+| `Ternary(cond, then, else)` | tipo do ramo `then` |
 
 ---
 
@@ -131,12 +184,12 @@ myint_t[10] →  int[10]
 
 Todos são do tipo `CompilerError::Semantic(SemanticError { span, kind })`:
 
-| Variante | Causa |
+| Kind | Causa |
 |---|---|
 | `Redeclaration(name)` | Nome já declarado no escopo atual |
 | `UndefinedVariable(name)` | Identificador não encontrado em nenhum escopo |
-| `AssignToConst(name)` | Atribuição a variável `const` |
-| `TypeMismatch { expected, found }` | Tipos incompatíveis em atribuição ou operação |
+| `AssignToConst(name)` | Atribuição a variável declarada com `const` |
+| `TypeMismatch { expected, found }` | Tipos incompatíveis em atribuição ou operação binária |
 | `UndefinedStruct(name)` | Acesso a membro de struct não registrada |
 | `FieldNotFound { struct_name, field_name }` | Campo não existe na struct |
 
@@ -145,7 +198,7 @@ Todos são do tipo `CompilerError::Semantic(SemanticError { span, kind })`:
 ## Limitações atuais
 
 !!! warning "Ainda não implementado"
-    - Verificação de compatibilidade do tipo de retorno de funções
-    - Lookup do tipo de retorno em chamadas de função (`Call` retorna `void` sentinela)
+    - Verificação de tipo de retorno de função (`return expr` vs. tipo declarado)
+    - Lookup de tipo de retorno em chamadas de função (`Call` retorna `void` sentinela)
     - Verificação de compatibilidade entre ramos `then`/`else` no ternário
-    - Aritmética de ponteiro para subtração ponteiro−ponteiro (`ptrdiff_t`)
+    - Aritmética de ponteiro para `Sub` (ponteiro − ponteiro → `ptrdiff_t`)
