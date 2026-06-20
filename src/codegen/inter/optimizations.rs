@@ -433,13 +433,25 @@ mod tests {
         ];
         // Após fold: t0 = 12, t1 = 2 + t0 (t0 ainda é temp, precisa de propagation)
         constant_fold(&mut instrs);
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(12) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(12)
+            }
+        );
 
         // Após propagation: t1 = 2 + 12
         constant_propagation(&mut instrs);
         // Após segundo fold: t1 = 14
         constant_fold(&mut instrs);
-        assert_eq!(instrs[1], TacInstr::Copy { dst: temp(1), src: int(14) });
+        assert_eq!(
+            instrs[1],
+            TacInstr::Copy {
+                dst: temp(1),
+                src: int(14)
+            }
+        );
     }
 
     #[test]
@@ -451,7 +463,13 @@ mod tests {
             rhs: int(5),
         }];
         assert!(constant_fold(&mut instrs));
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(1) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(1)
+            }
+        );
     }
 
     #[test]
@@ -463,7 +481,13 @@ mod tests {
             rhs: int(5),
         }];
         assert!(constant_fold(&mut instrs));
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(0) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(0)
+            }
+        );
     }
 
     #[test]
@@ -476,7 +500,13 @@ mod tests {
             rhs: int(0b1100),
         }];
         assert!(constant_fold(&mut instrs));
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(8) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(8)
+            }
+        );
     }
 
     #[test]
@@ -487,19 +517,45 @@ mod tests {
             src: int(7),
         }];
         assert!(constant_fold(&mut instrs));
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(-7) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(-7)
+            }
+        );
     }
 
     #[test]
     fn fold_unary_not() {
         // !0 = 1, !5 = 0
         let mut instrs = vec![
-            TacInstr::UnOp { dst: TempId(0), op: UnOp::Not, src: int(0) },
-            TacInstr::UnOp { dst: TempId(1), op: UnOp::Not, src: int(5) },
+            TacInstr::UnOp {
+                dst: TempId(0),
+                op: UnOp::Not,
+                src: int(0),
+            },
+            TacInstr::UnOp {
+                dst: TempId(1),
+                op: UnOp::Not,
+                src: int(5),
+            },
         ];
         constant_fold(&mut instrs);
-        assert_eq!(instrs[0], TacInstr::Copy { dst: temp(0), src: int(1) });
-        assert_eq!(instrs[1], TacInstr::Copy { dst: temp(1), src: int(0) });
+        assert_eq!(
+            instrs[0],
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(1)
+            }
+        );
+        assert_eq!(
+            instrs[1],
+            TacInstr::Copy {
+                dst: temp(1),
+                src: int(0)
+            }
+        );
     }
 
     #[test]
@@ -560,7 +616,10 @@ mod tests {
     fn propagation_simple_chain() {
         // t0 = 5; t1 = t0 + 3  →  t1 = 5 + 3  →  (fold) t1 = 8
         let mut instrs = vec![
-            TacInstr::Copy { dst: temp(0), src: int(5) },
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(5),
+            },
             TacInstr::BinOp {
                 dst: TempId(1),
                 op: BinOp::Add,
@@ -580,14 +639,23 @@ mod tests {
         );
         // Após fold: t1 = 8
         constant_fold(&mut instrs);
-        assert_eq!(instrs[1], TacInstr::Copy { dst: temp(1), src: int(8) });
+        assert_eq!(
+            instrs[1],
+            TacInstr::Copy {
+                dst: temp(1),
+                src: int(8)
+            }
+        );
     }
 
     #[test]
     fn propagation_invalidated_by_redefinition() {
         // t0 = 5; t0 = call f(); t1 = t0 + 1  →  t1 NÃO deve ser dobrado
         let mut instrs = vec![
-            TacInstr::Copy { dst: temp(0), src: int(5) },
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(5),
+            },
             TacInstr::Call {
                 dst: Some(TempId(0)),
                 fn_name: "f".to_string(),
@@ -604,7 +672,10 @@ mod tests {
         constant_propagation(&mut instrs);
         assert!(matches!(
             &instrs[2],
-            TacInstr::BinOp { lhs: Operand::Temp(_), .. }
+            TacInstr::BinOp {
+                lhs: Operand::Temp(_),
+                ..
+            }
         ));
     }
 
@@ -653,7 +724,10 @@ mod tests {
     fn dce_keeps_used_temp() {
         // t0 = 5; return t0  →  t0 está vivo, não deve ser removido
         let mut instrs = vec![
-            TacInstr::Copy { dst: temp(0), src: int(5) },
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(5),
+            },
             TacInstr::Return { val: Some(temp(0)) },
         ];
         let liveness = compute_liveness(&instrs);
@@ -730,10 +804,7 @@ mod tests {
 
     #[test]
     fn optimize_function_side_effect_label_preserved() {
-        let mut instrs = vec![
-            TacInstr::Label(LabelId(0)),
-            TacInstr::Return { val: None },
-        ];
+        let mut instrs = vec![TacInstr::Label(LabelId(0)), TacInstr::Return { val: None }];
         optimize_function(&mut instrs);
         assert_eq!(instrs.len(), 2);
     }
