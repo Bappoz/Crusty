@@ -10,7 +10,7 @@ Seu objetivo é transformar código-fonte C em código executável passando por 
 | 01 | [Análise Léxica](lexical-analysis.md) | Concluída |
 | 02 | [Análise Sintática](syntax-analysis.md) | Concluída |
 | 03 | [Análise Semântica](semantic-analysis.md) | Em desenvolvimento |
-| 04 | [Representação Intermediária](intermediate-representation.md) | Planejada |
+| 04 | [Representação Intermediária](intermediate-representation.md) | Em desenvolvimento |
 | 05 | [Geração de Código](code-generation.md) | Planejada |
 
 ## Estrutura do Projeto
@@ -28,7 +28,11 @@ src/
 ├── analyser/       # Análise Semântica (tabela de símbolos, tipos)
 │   ├── semantic.rs
 │   └── symbol_table.rs
-├── codegen/        # Geração de Código (não implementado)
+├── ir/             # Representação Intermediária (TAC, lowering, CFG)
+│   ├── tac.rs
+│   ├── lower.rs
+│   └── cfg.rs
+├── codegen/        # Geração de Código (inter: pipeline de otimização sobre TAC)
 └── common/         # Estruturas compartilhadas
     ├── ast/        # AST: decl, expr, stmt
     ├── errors/
