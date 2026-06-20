@@ -9,8 +9,8 @@ use crusty::ir::lower::lower_program;
 use crusty::lexer::scanner::Scanner;
 use crusty::parser::Parser;
 use std::env;
-use std::path::PathBuf;
-use std::process::exit;
+use std::path::{Path, PathBuf};
+use std::process::{exit, Command};
 
 fn main() -> std::io::Result<()> {
     let raw: Vec<_> = env::args().collect();
@@ -27,7 +27,11 @@ fn main() -> std::io::Result<()> {
             eprintln!("  --only-lex             Stop after lexing");
             eprintln!("  --only-parse           Stop after parsing");
             eprintln!("  --only-semantic        Stop after semantic analysis");
-            eprintln!("  -S, --emit-asm         Emit x86-64 assembly (AT&T) to <file>.s");
+            eprintln!("  -o <file>              Set the output file path");
+            eprintln!("  --emit=asm             Stop after emitting x86-64 assembly (.s)");
+            eprintln!("  --emit=obj             Stop after assembling an object file (.o)");
+            eprintln!("  --emit=exe             Link a runnable executable (default)");
+            eprintln!("  -S, --emit-asm         Alias for --emit=asm");
             eprintln!("  -O0|-O1|-O2|-O3        Set optimization level");
             eprintln!("  --opt-level 0|1|2|3    Set optimization level");
             exit(64);
@@ -47,15 +51,39 @@ fn main() -> std::io::Result<()> {
 
 // ── CLI arg parsing ──────────────────────────────────────────────────────────
 
+/// O que o pipeline deve produzir como artefato final.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EmitKind {
+    /// Para após gerar o assembly x86-64 (`.s`).
+    Asm,
+    /// Monta o assembly em um objeto ELF (`.o`) via `gcc -c`, sem linkar.
+    Obj,
+    /// Monta e linka um executável ELF rodável (padrão).
+    #[default]
+    Exe,
+}
+
+impl EmitKind {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "asm" => Some(Self::Asm),
+            "obj" => Some(Self::Obj),
+            "exe" => Some(Self::Exe),
+            _ => None,
+        }
+    }
+}
+
 struct CliArgs {
     input_file: Option<String>,
+    output_file: Option<String>,
     dump_tokens: bool,
     dump_ast: bool,
     dump_ir: bool,
     only_lex: bool,
     only_parse: bool,
     only_semantic: bool,
-    emit_asm: bool,
+    emit: EmitKind,
     opt_level: OptLevel,
 }
 
@@ -63,13 +91,14 @@ impl CliArgs {
     fn parse(args: &[String]) -> Self {
         let mut cli = CliArgs {
             input_file: None,
+            output_file: None,
             dump_tokens: false,
             dump_ast: false,
             dump_ir: false,
             only_lex: false,
             only_parse: false,
             only_semantic: false,
-            emit_asm: false,
+            emit: EmitKind::default(),
             opt_level: OptLevel::default(),
         };
 
@@ -84,7 +113,22 @@ impl CliArgs {
                 "--only-lex" => cli.only_lex = true,
                 "--only-parse" => cli.only_parse = true,
                 "--only-semantic" => cli.only_semantic = true,
-                "-S" | "--emit-asm" => cli.emit_asm = true,
+                "-S" | "--emit-asm" => cli.emit = EmitKind::Asm,
+                "-o" => {
+                    i += 1;
+                    let Some(path) = args.get(i) else {
+                        eprintln!("error: missing value for -o");
+                        exit(64);
+                    };
+                    cli.output_file = Some(path.clone());
+                }
+                _ if arg.starts_with("--emit=") => {
+                    let value = arg.strip_prefix("--emit=").unwrap();
+                    cli.emit = EmitKind::parse(value).unwrap_or_else(|| {
+                        eprintln!("error: invalid --emit value: {value} (expected asm|obj|exe)");
+                        exit(64);
+                    });
+                }
                 "-O" | "--opt-level" => {
                     i += 1;
                     let Some(level) = args.get(i) else {
@@ -146,6 +190,15 @@ struct IoError(String);
 impl ToReport for IoError {
     fn to_report(&self) -> Report {
         Report::new(&format!("I/O error: {}", self.0))
+    }
+}
+
+#[derive(Debug)]
+struct LinkError(String);
+
+impl ToReport for LinkError {
+    fn to_report(&self) -> Report {
+        Report::new(&format!("link/assemble error: {}", self.0))
     }
 }
 
@@ -220,24 +273,100 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     opt_pipeline.run(&mut cfg, 10);
 
     // ── Stage 5: Code generation (x86-64 / AT&T) ─────────────────────────────
-    if args.emit_asm {
-        let tac_program = lower_program(&program);
-        let asm = last::emit_program(&tac_program);
+    let tac_program = lower_program(&program);
+    let asm = last::emit_program(&tac_program);
 
-        let output_path = asm_output_path(&args.input_file);
-        std::fs::write(&output_path, asm)
-            .map_err(|e| Box::new(IoError(e.to_string())) as Box<dyn ToReport>)?;
-        eprintln!("emitted assembly: {}", output_path.display());
-    }
+    let output_path = output_path_for(&args.input_file, &args.output_file, args.emit);
+    emit_artifact(&asm, &output_path, args.emit)?;
+    eprintln!(
+        "emitted {}: {}",
+        emit_kind_label(args.emit),
+        output_path.display()
+    );
 
     Ok(())
 }
 
-fn asm_output_path(input: &Option<String>) -> PathBuf {
-    let input = input.clone().unwrap_or_else(|| "crusty.out".to_string());
-    let mut path = PathBuf::from(input);
-    path.set_extension("s");
-    path
+/// Resolve o caminho de saída final, respeitando `-o` quando fornecido e
+/// caindo para um default específico de cada `EmitKind` caso contrário.
+fn output_path_for(
+    input: &Option<String>,
+    output_override: &Option<String>,
+    emit: EmitKind,
+) -> PathBuf {
+    if let Some(path) = output_override {
+        return PathBuf::from(path);
+    }
+
+    match emit {
+        EmitKind::Exe => PathBuf::from("a.out"),
+        EmitKind::Asm | EmitKind::Obj => {
+            let input = input.clone().unwrap_or_else(|| "crusty.out".to_string());
+            let mut path = PathBuf::from(input);
+            path.set_extension(if emit == EmitKind::Asm { "s" } else { "o" });
+            path
+        }
+    }
+}
+
+fn emit_kind_label(emit: EmitKind) -> &'static str {
+    match emit {
+        EmitKind::Asm => "assembly",
+        EmitKind::Obj => "object file",
+        EmitKind::Exe => "executable",
+    }
+}
+
+/// Escreve o assembly gerado no destino final, invocando `gcc` para montar
+/// (`--emit=obj`) ou montar+linkar (`--emit=exe`) quando necessário.
+fn emit_artifact(asm: &str, output_path: &Path, emit: EmitKind) -> Result<(), Box<dyn ToReport>> {
+    if emit == EmitKind::Asm {
+        return std::fs::write(output_path, asm)
+            .map_err(|e| Box::new(IoError(e.to_string())) as Box<dyn ToReport>);
+    }
+
+    let asm_path = write_temp_asm(asm)?;
+    let result = match emit {
+        EmitKind::Obj => run_gcc(&["-c", "-x", "assembler-with-cpp"], &asm_path, output_path),
+        EmitKind::Exe => run_gcc(&[], &asm_path, output_path),
+        EmitKind::Asm => unreachable!(),
+    };
+    let _ = std::fs::remove_file(&asm_path);
+    result
+}
+
+/// Grava o assembly em um arquivo temporário único, usado como entrada do `gcc`.
+fn write_temp_asm(asm: &str) -> Result<PathBuf, Box<dyn ToReport>> {
+    let mut path = env::temp_dir();
+    path.push(format!("crusty_{}.s", std::process::id()));
+    std::fs::write(&path, asm)
+        .map_err(|e| Box::new(IoError(e.to_string())) as Box<dyn ToReport>)?;
+    Ok(path)
+}
+
+/// Invoca `gcc` com flags extras (ex.: `-c -x assembler-with-cpp` para gerar
+/// objeto) sobre `asm_path`, escrevendo o resultado em `output_path`.
+fn run_gcc(
+    extra_args: &[&str],
+    asm_path: &Path,
+    output_path: &Path,
+) -> Result<(), Box<dyn ToReport>> {
+    let status = Command::new("gcc")
+        .args(extra_args)
+        .arg(asm_path)
+        .arg("-o")
+        .arg(output_path)
+        .status()
+        .map_err(|e| {
+            Box::new(LinkError(format!("falha ao invocar gcc: {e}"))) as Box<dyn ToReport>
+        })?;
+
+    if !status.success() {
+        return Err(Box::new(LinkError(format!(
+            "gcc terminou com status {status}"
+        ))));
+    }
+    Ok(())
 }
 
 // ── Dump helpers ─────────────────────────────────────────────────────────────
@@ -319,5 +448,72 @@ mod tests {
     fn parses_long_opt_level_form() {
         let parsed = CliArgs::parse(&args(&["crusty", "--opt-level", "1", "main.c"]));
         assert_eq!(parsed.opt_level, OptLevel::O1);
+    }
+
+    #[test]
+    fn defaults_to_emit_exe() {
+        let parsed = CliArgs::parse(&args(&["crusty", "main.c"]));
+        assert_eq!(parsed.emit, EmitKind::Exe);
+        assert_eq!(parsed.output_file, None);
+    }
+
+    #[test]
+    fn parses_output_flag() {
+        let parsed = CliArgs::parse(&args(&["crusty", "-o", "prog", "main.c"]));
+        assert_eq!(parsed.output_file, Some("prog".to_string()));
+        assert_eq!(parsed.input_file, Some("main.c".to_string()));
+    }
+
+    #[test]
+    fn parses_emit_flag_variants() {
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "--emit=asm", "main.c"])).emit,
+            EmitKind::Asm
+        );
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "--emit=obj", "main.c"])).emit,
+            EmitKind::Obj
+        );
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "--emit=exe", "main.c"])).emit,
+            EmitKind::Exe
+        );
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "-S", "main.c"])).emit,
+            EmitKind::Asm
+        );
+        assert_eq!(
+            CliArgs::parse(&args(&["crusty", "--emit-asm", "main.c"])).emit,
+            EmitKind::Asm
+        );
+    }
+
+    #[test]
+    fn output_path_defaults_per_emit_kind() {
+        let input = Some("foo/main.c".to_string());
+        assert_eq!(
+            output_path_for(&input, &None, EmitKind::Asm),
+            PathBuf::from("foo/main.s")
+        );
+        assert_eq!(
+            output_path_for(&input, &None, EmitKind::Obj),
+            PathBuf::from("foo/main.o")
+        );
+        assert_eq!(
+            output_path_for(&input, &None, EmitKind::Exe),
+            PathBuf::from("a.out")
+        );
+    }
+
+    #[test]
+    fn output_path_respects_override() {
+        let input = Some("main.c".to_string());
+        let output = Some("custom_out".to_string());
+        for emit in [EmitKind::Asm, EmitKind::Obj, EmitKind::Exe] {
+            assert_eq!(
+                output_path_for(&input, &output, emit),
+                PathBuf::from("custom_out")
+            );
+        }
     }
 }
