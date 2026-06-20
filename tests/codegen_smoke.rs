@@ -170,6 +170,116 @@ fn smoke_simple_return_const_runs() {
 }
 
 #[test]
+fn smoke_call_with_more_than_six_args_runs() {
+    require_gcc!();
+
+    // sum9(1..9) = 45, exercitando 3 argumentos passados pela stack (alem
+    // dos 6 em registrador) e o padding de alinhamento de 8 bytes.
+    let sum9 = TacFunction {
+        name: "sum9".to_string(),
+        params: (1..=9).map(|n| format!("a{n}")).collect(),
+        instrs: vec![
+            TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::Add,
+                lhs: Operand::Var("a1".to_string()),
+                rhs: Operand::Var("a2".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(1),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(0)),
+                rhs: Operand::Var("a3".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(2),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(1)),
+                rhs: Operand::Var("a4".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(3),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(2)),
+                rhs: Operand::Var("a5".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(4),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(3)),
+                rhs: Operand::Var("a6".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(5),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(4)),
+                rhs: Operand::Var("a7".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(6),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(5)),
+                rhs: Operand::Var("a8".to_string()),
+            },
+            TacInstr::BinOp {
+                dst: TempId(7),
+                op: BinOp::Add,
+                lhs: Operand::Temp(TempId(6)),
+                rhs: Operand::Var("a9".to_string()),
+            },
+            TacInstr::Return {
+                val: Some(Operand::Temp(TempId(7))),
+            },
+        ],
+    };
+
+    let main = TacFunction {
+        name: "main".to_string(),
+        params: Vec::new(),
+        instrs: vec![
+            TacInstr::Call {
+                dst: Some(TempId(0)),
+                fn_name: "sum9".to_string(),
+                args: (1..=9)
+                    .map(|n| Operand::Const(ConstValue::Int(n)))
+                    .collect(),
+            },
+            TacInstr::Return {
+                val: Some(Operand::Temp(TempId(0))),
+            },
+        ],
+    };
+
+    let prog = TacProgram {
+        functions: vec![sum9, main],
+    };
+
+    let asm = emit_program(&prog);
+    let source = write_temp_source("manyargs", &asm);
+    let exe = source.with_extension("bin");
+
+    let link = Command::new("gcc")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .status()
+        .expect("falha ao invocar gcc");
+    assert!(link.success());
+
+    let exit = Command::new(&exe).status().expect("falha ao executar");
+
+    #[cfg(unix)]
+    assert_eq!(
+        exit.code(),
+        Some(45),
+        "esperava exit code 45 (soma de 1..=9)"
+    );
+
+    let _ = std::fs::remove_file(&source);
+    let _ = std::fs::remove_file(&exe);
+}
+
+#[test]
 fn smoke_control_flow_if_else_runs() {
     require_gcc!();
 

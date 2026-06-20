@@ -355,23 +355,34 @@ fn emit_call(
     dst: Option<crate::ir::tac::TempId>,
     frame: &Frame,
 ) {
-    // Apenas a convencao de registradores esta implementada (ate 6 inteiros).
-    // A stack permanece 16-alinhada no `call` porque o prologue a alinha e nao
-    // empurramos nada aqui.
-    for (index, arg) in args.iter().enumerate() {
-        match abi::arg_register(index) {
-            Some(reg) => {
-                load_op(em, frame, arg, "rax");
-                em.insn(&format!("movq %rax, %{reg}"));
-            }
-            None => panic!(
-                "codegen atual suporta ate {} argumentos por registrador",
-                abi::MAX_REG_ARGS
-            ),
-        }
+    // Argumentos alem de `MAX_REG_ARGS` vao para a stack do chamador, na
+    // ordem inversa (o primeiro arg de stack fica no topo, mais proximo do
+    // endereco de retorno), espelhando `abi::stack_arg_offset`.
+    let stack_arg_count = args.len().saturating_sub(abi::MAX_REG_ARGS);
+    // Mantem a stack 16-alinhada no `call`: cada push usa 8 bytes, entao uma
+    // quantidade impar de argumentos de stack precisa de 8 bytes de padding.
+    let padding = if stack_arg_count % 2 == 1 { 8 } else { 0 };
+    if padding > 0 {
+        em.insn(&format!("subq ${padding}, %rsp"));
+    }
+    let stack_args = &args[args.len().min(abi::MAX_REG_ARGS)..];
+    for arg in stack_args.iter().rev() {
+        load_op(em, frame, arg, "rax");
+        em.insn("pushq %rax");
+    }
+
+    for (index, arg) in args.iter().take(abi::MAX_REG_ARGS).enumerate() {
+        let reg = abi::arg_register(index).expect("index < MAX_REG_ARGS sempre tem registrador");
+        load_op(em, frame, arg, "rax");
+        em.insn(&format!("movq %rax, %{reg}"));
     }
 
     em.insn(&format!("call {fn_name}"));
+
+    let cleanup = (stack_arg_count as i64) * 8 + padding;
+    if cleanup > 0 {
+        em.insn(&format!("addq ${cleanup}, %rsp"));
+    }
 
     if let Some(dst) = dst {
         store_op(em, frame, &Operand::Temp(dst), "rax");
@@ -583,6 +594,77 @@ mod tests {
         assert!(out.contains("movq %rax, %rdi"));
         assert!(out.contains("movq %rax, %rsi"));
         assert!(out.contains("call soma"));
+    }
+
+    #[test]
+    fn call_with_seven_args_pushes_one_stack_arg() {
+        let args = (1..=7)
+            .map(|n| Operand::Const(ConstValue::Int(n)))
+            .collect();
+        let f = func(
+            "caller7",
+            Vec::new(),
+            vec![
+                TacInstr::Call {
+                    dst: Some(TempId(0)),
+                    fn_name: "sum7".to_string(),
+                    args,
+                },
+                TacInstr::Return {
+                    val: Some(Operand::Temp(TempId(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        // 7th arg (index 6) e o unico passado pela stack; aligna a stack com
+        // 8 bytes de padding (1 arg de stack e impar) antes do push.
+        assert!(out.contains("subq $8, %rsp"));
+        assert!(out.contains("pushq %rax"));
+        assert!(out.contains("call sum7"));
+        assert!(out.contains("addq $16, %rsp"));
+    }
+
+    #[test]
+    fn call_with_eight_args_needs_no_padding() {
+        let args = (1..=8)
+            .map(|n| Operand::Const(ConstValue::Int(n)))
+            .collect();
+        let f = func(
+            "caller8",
+            Vec::new(),
+            vec![TacInstr::Call {
+                dst: Some(TempId(0)),
+                fn_name: "sum8".to_string(),
+                args,
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        // 2 args de stack (indices 6 e 7): par, sem padding necessario.
+        assert!(!out.contains("subq $8, %rsp"));
+        assert!(out.contains("addq $16, %rsp"));
+    }
+
+    #[test]
+    fn call_with_two_args_emits_no_stack_cleanup() {
+        let out = emit_function(&func(
+            "caller2",
+            Vec::new(),
+            vec![TacInstr::Call {
+                dst: Some(TempId(0)),
+                fn_name: "soma".to_string(),
+                args: vec![
+                    Operand::Const(ConstValue::Int(1)),
+                    Operand::Const(ConstValue::Int(2)),
+                ],
+            }],
+        ));
+
+        assert!(!out.contains("pushq %rax"));
+        assert!(!out.contains("addq $16, %rsp"));
     }
 
     #[test]
