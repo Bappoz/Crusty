@@ -1,0 +1,756 @@
+//! Selecao de instrucoes e emissao de assembly x86-64 (sintaxe AT&T / GAS).
+//!
+//! O backend traduz cada instrucao da TAC para uma ou mais instrucoes x86-64.
+//! A estrategia adotada e a geracao "naive" (sem alocacao de registradores):
+//! todo temp e variavel vive em um slot da stack, e usamos `%rax`/`%rcx` como
+//! scratch para computar cada operacao. Isso mantem a correcao enquanto o
+//! alocador (`codegen::reg_alloc`) nao esta integrado ao fluxo de TAC.
+//!
+//! Convencao de chamada: System V AMD64 ABI.
+//! - Argumentos inteiros: `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`
+//! - Retorno: `rax`
+//! - Stack alinhada em 16 bytes no ponto de `call`.
+//!
+//! A saida pode ser montada diretamente com `gcc -x assembler-with-cpp` ou
+//! `as`.
+
+use crate::codegen::last::abi;
+use crate::codegen::last::frame::{Frame, SlotKey};
+use crate::common::ast::expr::{BinOp, UnOp};
+use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
+
+/// Acumulador de linhas de assembly com indentacao controlada.
+struct Emitter {
+    out: String,
+}
+
+impl Emitter {
+    fn new() -> Self {
+        Self { out: String::new() }
+    }
+
+    /// Instrucao: indentada em 4 espacos.
+    fn insn(&mut self, text: &str) {
+        self.out.push_str("    ");
+        self.out.push_str(text);
+        self.out.push('\n');
+    }
+
+    /// Diretiva/rotulo: sem indentacao (ex.: `.text`, `main:`).
+    fn raw(&mut self, text: &str) {
+        self.out.push_str(text);
+        self.out.push('\n');
+    }
+
+    fn comment(&mut self, text: &str) {
+        self.out.push_str("    # ");
+        self.out.push_str(text);
+        self.out.push('\n');
+    }
+
+    fn blank(&mut self) {
+        self.out.push('\n');
+    }
+
+    fn append_str(&mut self, text: &str) {
+        self.out.push_str(text);
+    }
+
+    fn into_string(self) -> String {
+        self.out
+    }
+}
+
+/// Emite o assembly de um programa TAC completo, prefixando a diretiva de
+/// secao `.text`.
+pub fn emit_program(prog: &TacProgram) -> String {
+    let mut em = Emitter::new();
+    em.raw(".text");
+    for func in &prog.functions {
+        em.blank();
+        em.append_str(&emit_function(func));
+    }
+    // Marca a stack como nao-executavel (boa pratica; evita aviso do linker e
+    // e o que o proprio GCC adiciona a saida assembly).
+    em.blank();
+    em.raw(".section .note.GNU-stack,\"\",@progbits");
+    em.into_string()
+}
+
+/// Emite o assembly de uma unica funcao: directiva `.globl`, rotulo,
+/// prologue, corpo e epilogue.
+pub fn emit_function(func: &TacFunction) -> String {
+    let mut em = Emitter::new();
+    em.comment(&format!("function {}", func.name));
+    em.raw(&format!(".globl {}", func.name));
+    em.raw(&format!("{}:", func.name));
+
+    let frame = build_frame(func);
+
+    // Prologue
+    em.insn("pushq %rbp");
+    em.insn("movq %rsp, %rbp");
+    let frame_size = frame.frame_size();
+    if frame_size > 0 {
+        em.insn(&format!("subq ${frame_size}, %rsp"));
+    }
+
+    // Spill dos argumentos recebidos em registrador para seus slots locais.
+    for (index, name) in func.params.iter().enumerate() {
+        if let Some(reg) = abi::arg_register(index) {
+            let offset = frame
+                .offset_of(&SlotKey::Var(name.clone()))
+                .expect("slot do parametro deve estar alocado");
+            em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
+        }
+    }
+
+    // Corpo
+    let epilogue_label = format!(".L_{}_epilogue", func.name);
+    for instr in &func.instrs {
+        emit_instr(&mut em, instr, &frame, &func.name, &epilogue_label);
+    }
+
+    // Epilogue (alvo de todos os `return`). Caso a funcao nao tenha `return`
+    // explicito, a queda natural chega aqui e retorna o que estiver em %rax.
+    em.raw(&format!("{epilogue_label}:"));
+    em.insn("movq %rbp, %rsp");
+    em.insn("popq %rbp");
+    em.insn("ret");
+
+    em.into_string()
+}
+
+/// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
+/// slot para cada temp/variavel e mapear os parametros para suas posicoes.
+fn build_frame(func: &TacFunction) -> Frame {
+    let mut frame = Frame::new();
+
+    for (index, name) in func.params.iter().enumerate() {
+        let key = SlotKey::Var(name.clone());
+        match abi::arg_register(index) {
+            Some(_) => {
+                frame.allocate_local(key);
+            }
+            None => {
+                // Argumento passado via stack do chamador: ja esta disponivel
+                // em offset positivo a partir de %rbp.
+                frame.set_offset(key, abi::stack_arg_offset(index));
+            }
+        }
+    }
+
+    for instr in &func.instrs {
+        for key in slot_keys_of(instr) {
+            // Nao realoca stack-args (offsets positivos) que ja foram mapeados.
+            if frame.offset_of(&key).is_some() {
+                continue;
+            }
+            frame.allocate_local(key);
+        }
+    }
+
+    frame
+}
+
+/// Coleta todas as chaves de slot referenciadas por uma instrucao (dst,
+/// fontes e operandos de leitura).
+fn slot_keys_of(instr: &TacInstr) -> Vec<SlotKey> {
+    let mut keys = Vec::new();
+
+    let consider = |keys: &mut Vec<SlotKey>, op: &Operand| {
+        if let Some(key) = SlotKey::from_operand(op) {
+            keys.push(key);
+        }
+    };
+
+    match instr {
+        TacInstr::BinOp { dst, lhs, rhs, .. } => {
+            keys.push(SlotKey::Temp(dst.0));
+            consider(&mut keys, lhs);
+            consider(&mut keys, rhs);
+        }
+        TacInstr::UnOp { dst, src, .. } => {
+            keys.push(SlotKey::Temp(dst.0));
+            consider(&mut keys, src);
+        }
+        TacInstr::Copy { dst, src } => {
+            consider(&mut keys, dst);
+            consider(&mut keys, src);
+        }
+        TacInstr::CondJump { cond, .. } => consider(&mut keys, cond),
+        TacInstr::Call { dst, args, .. } => {
+            if let Some(dst) = dst {
+                keys.push(SlotKey::Temp(dst.0));
+            }
+            for arg in args {
+                consider(&mut keys, arg);
+            }
+        }
+        TacInstr::Return { val } => {
+            if let Some(val) = val {
+                consider(&mut keys, val);
+            }
+        }
+        TacInstr::Jump { .. } | TacInstr::Label(_) => {}
+    }
+
+    keys
+}
+
+fn emit_instr(
+    em: &mut Emitter,
+    instr: &TacInstr,
+    frame: &Frame,
+    func_name: &str,
+    epilogue_label: &str,
+) {
+    match instr {
+        TacInstr::Label(label) => {
+            em.raw(&format!("{}:", local_label(func_name, label)));
+        }
+        TacInstr::Jump { label } => {
+            em.insn(&format!("jmp {}", local_label(func_name, label)));
+        }
+        TacInstr::CondJump {
+            cond,
+            then_label,
+            else_label,
+        } => {
+            load_op(em, frame, cond, "rax");
+            em.insn("testq %rax, %rax");
+            em.insn(&format!("jne {}", local_label(func_name, then_label)));
+            em.insn(&format!("jmp {}", local_label(func_name, else_label)));
+        }
+        TacInstr::Copy { dst, src } => {
+            load_op(em, frame, src, "rax");
+            store_op(em, frame, dst, "rax");
+        }
+        TacInstr::BinOp { dst, op, lhs, rhs } => {
+            emit_binop(em, op, lhs, rhs, *dst, frame);
+        }
+        TacInstr::UnOp { dst, op, src } => {
+            emit_unop(em, op, src, *dst, frame);
+        }
+        TacInstr::Call { dst, fn_name, args } => emit_call(em, fn_name, args, *dst, frame),
+        TacInstr::Return { val } => {
+            if let Some(val) = val {
+                load_op(em, frame, val, "rax");
+            }
+            em.insn(&format!("jmp {epilogue_label}"));
+        }
+    }
+}
+
+fn emit_binop(
+    em: &mut Emitter,
+    op: &BinOp,
+    lhs: &Operand,
+    rhs: &Operand,
+    dst: crate::ir::tac::TempId,
+    frame: &Frame,
+) {
+    // Operacoes logicas short-circuit-like precisam normalizar cada operando
+    // para 0/1 individualmente.
+    if matches!(op, BinOp::And | BinOp::Or) {
+        emit_logical(em, matches!(op, BinOp::Or), lhs, rhs, dst, frame);
+        return;
+    }
+
+    load_op(em, frame, lhs, "rax");
+    load_op(em, frame, rhs, "rcx");
+
+    match op {
+        BinOp::Add => em.insn("addq %rcx, %rax"),
+        BinOp::Sub => em.insn("subq %rcx, %rax"),
+        BinOp::Mul => em.insn("imulq %rcx, %rax"),
+        BinOp::Div => {
+            em.insn("cqto");
+            em.insn("idivq %rcx");
+        }
+        BinOp::Mod => {
+            em.insn("cqto");
+            em.insn("idivq %rcx");
+            em.insn("movq %rdx, %rax");
+        }
+        BinOp::BitAnd => em.insn("andq %rcx, %rax"),
+        BinOp::BitOr => em.insn("orq %rcx, %rax"),
+        BinOp::BitXor => em.insn("xorq %rcx, %rax"),
+        BinOp::Shl => em.insn("shlq %cl, %rax"),
+        BinOp::Shr => em.insn("sarq %cl, %rax"),
+        BinOp::Less => emit_comparison(em, "setl"),
+        BinOp::Greater => emit_comparison(em, "setg"),
+        BinOp::Leq => emit_comparison(em, "setle"),
+        BinOp::Geq => emit_comparison(em, "setge"),
+        BinOp::Eq => emit_comparison(em, "sete"),
+        BinOp::Neq => emit_comparison(em, "setne"),
+        BinOp::And | BinOp::Or => unreachable!("tratado em emit_logical"),
+    }
+
+    store_op(em, frame, &Operand::Temp(dst), "rax");
+}
+
+fn emit_comparison(em: &mut Emitter, setcc: &str) {
+    em.insn("cmpq %rcx, %rax");
+    em.insn(&format!("{setcc} %al"));
+    em.insn("movzbq %al, %rax");
+}
+
+fn emit_logical(
+    em: &mut Emitter,
+    is_or: bool,
+    lhs: &Operand,
+    rhs: &Operand,
+    dst: crate::ir::tac::TempId,
+    frame: &Frame,
+) {
+    // Normaliza lhs para 0/1 em %rdx.
+    load_op(em, frame, lhs, "rax");
+    em.insn("testq %rax, %rax");
+    em.insn("setne %al");
+    em.insn("movzbq %al, %rax");
+    em.insn("movq %rax, %rdx");
+
+    // Normaliza rhs para 0/1 em %rax.
+    load_op(em, frame, rhs, "rax");
+    em.insn("testq %rax, %rax");
+    em.insn("setne %al");
+    em.insn("movzbq %al, %rax");
+
+    if is_or {
+        em.insn("orq %rdx, %rax");
+    } else {
+        em.insn("andq %rdx, %rax");
+    }
+
+    store_op(em, frame, &Operand::Temp(dst), "rax");
+}
+
+fn emit_unop(
+    em: &mut Emitter,
+    op: &UnOp,
+    src: &Operand,
+    dst: crate::ir::tac::TempId,
+    frame: &Frame,
+) {
+    load_op(em, frame, src, "rax");
+    match op {
+        UnOp::Neg => em.insn("negq %rax"),
+        UnOp::BitNot => em.insn("notq %rax"),
+        UnOp::Not => {
+            em.insn("testq %rax, %rax");
+            em.insn("sete %al");
+            em.insn("movzbq %al, %rax");
+        }
+        UnOp::Deref => panic!("codegen de deref (*) nao suportado neste backend"),
+        UnOp::AddrOf => panic!("codegen de address-of (&) nao suportado neste backend"),
+    }
+    store_op(em, frame, &Operand::Temp(dst), "rax");
+}
+
+fn emit_call(
+    em: &mut Emitter,
+    fn_name: &str,
+    args: &[Operand],
+    dst: Option<crate::ir::tac::TempId>,
+    frame: &Frame,
+) {
+    // Argumentos alem de `MAX_REG_ARGS` vao para a stack do chamador, na
+    // ordem inversa (o primeiro arg de stack fica no topo, mais proximo do
+    // endereco de retorno), espelhando `abi::stack_arg_offset`.
+    let stack_arg_count = args.len().saturating_sub(abi::MAX_REG_ARGS);
+    // Mantem a stack 16-alinhada no `call`: cada push usa 8 bytes, entao uma
+    // quantidade impar de argumentos de stack precisa de 8 bytes de padding.
+    let padding = if stack_arg_count % 2 == 1 { 8 } else { 0 };
+    if padding > 0 {
+        em.insn(&format!("subq ${padding}, %rsp"));
+    }
+    let stack_args = &args[args.len().min(abi::MAX_REG_ARGS)..];
+    for arg in stack_args.iter().rev() {
+        load_op(em, frame, arg, "rax");
+        em.insn("pushq %rax");
+    }
+
+    for (index, arg) in args.iter().take(abi::MAX_REG_ARGS).enumerate() {
+        let reg = abi::arg_register(index).expect("index < MAX_REG_ARGS sempre tem registrador");
+        load_op(em, frame, arg, "rax");
+        em.insn(&format!("movq %rax, %{reg}"));
+    }
+
+    em.insn(&format!("call {fn_name}"));
+
+    let cleanup = (stack_arg_count as i64) * 8 + padding;
+    if cleanup > 0 {
+        em.insn(&format!("addq ${cleanup}, %rsp"));
+    }
+
+    if let Some(dst) = dst {
+        store_op(em, frame, &Operand::Temp(dst), "rax");
+    }
+}
+
+/// Carrega `op` para o registrador nomeado (ex.: "rax", "rcx").
+fn load_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) {
+    match op {
+        Operand::Const(value) => em.insn(&format!("movq ${}, %{reg}", const_immediate(value))),
+        Operand::Temp(temp) => {
+            let offset = frame
+                .offset_of(&SlotKey::Temp(temp.0))
+                .expect("temp sem slot alocado");
+            em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+        }
+        Operand::Var(name) => {
+            let offset = frame
+                .offset_of(&SlotKey::Var(name.clone()))
+                .expect("var sem slot alocado");
+            em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+        }
+    }
+}
+
+/// Armazena o registrador nomeado em `op` (que deve ser temp ou var).
+fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) {
+    let offset = match op {
+        Operand::Temp(temp) => frame
+            .offset_of(&SlotKey::Temp(temp.0))
+            .expect("temp sem slot alocado"),
+        Operand::Var(name) => frame
+            .offset_of(&SlotKey::Var(name.clone()))
+            .expect("var sem slot alocado"),
+        Operand::Const(_) => panic!("nao e possivel armazenar em uma constante"),
+    };
+    em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
+}
+
+fn const_immediate(value: &ConstValue) -> String {
+    match value {
+        ConstValue::Int(v) => v.to_string(),
+        ConstValue::Char(c) => (*c as i64).to_string(),
+        ConstValue::Double(_) => panic!("codegen de double nao suportado neste backend"),
+        ConstValue::String(_) => panic!("codegen de string literal nao suportado neste backend"),
+    }
+}
+
+fn local_label(func_name: &str, label: &LabelId) -> String {
+    format!(".L_{func_name}_L{}", label.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::tac::{ConstValue, Operand, TacFunction, TacInstr, TempId};
+
+    fn func(name: &str, params: Vec<&str>, instrs: Vec<TacInstr>) -> TacFunction {
+        TacFunction {
+            name: name.to_string(),
+            params: params.into_iter().map(String::from).collect(),
+            instrs,
+        }
+    }
+
+    fn asm_simple_return_const() -> TacFunction {
+        func(
+            "main",
+            Vec::new(),
+            vec![TacInstr::Return {
+                val: Some(Operand::Const(ConstValue::Int(42))),
+            }],
+        )
+    }
+
+    #[test]
+    fn emit_function_prologue_pushes_rbp_and_sets_frame() {
+        let out = emit_function(&asm_simple_return_const());
+
+        assert!(out.contains("pushq %rbp"));
+        assert!(out.contains("movq %rsp, %rbp"));
+        assert!(out.contains("ret"));
+    }
+
+    #[test]
+    fn emit_function_declares_global_symbol() {
+        let out = emit_function(&asm_simple_return_const());
+
+        assert!(out.contains(".globl main"));
+        assert!(out.contains("main:\n"));
+    }
+
+    #[test]
+    fn return_const_loads_immediate_into_rax() {
+        let out = emit_function(&asm_simple_return_const());
+
+        assert!(out.contains("movq $42, %rax"));
+    }
+
+    #[test]
+    fn binary_add_emits_load_add_store() {
+        let f = func(
+            "add",
+            vec!["a", "b"],
+            vec![
+                TacInstr::BinOp {
+                    dst: TempId(0),
+                    op: BinOp::Add,
+                    lhs: Operand::Var("a".to_string()),
+                    rhs: Operand::Var("b".to_string()),
+                },
+                TacInstr::Return {
+                    val: Some(Operand::Temp(TempId(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("movq %rdi, -8(%rbp)")); // spill arg a
+        assert!(out.contains("movq %rsi, -16(%rbp)")); // spill arg b
+        assert!(out.contains("addq %rcx, %rax"));
+    }
+
+    #[test]
+    fn division_uses_cqto_and_idivq() {
+        let f = func(
+            "divmod",
+            Vec::new(),
+            vec![
+                TacInstr::BinOp {
+                    dst: TempId(0),
+                    op: BinOp::Div,
+                    lhs: Operand::Const(ConstValue::Int(10)),
+                    rhs: Operand::Const(ConstValue::Int(3)),
+                },
+                TacInstr::Return {
+                    val: Some(Operand::Temp(TempId(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("cqto"));
+        assert!(out.contains("idivq %rcx"));
+    }
+
+    #[test]
+    fn modulo_moves_rdx_into_rax() {
+        let f = func(
+            "mod",
+            Vec::new(),
+            vec![TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::Mod,
+                lhs: Operand::Const(ConstValue::Int(10)),
+                rhs: Operand::Const(ConstValue::Int(3)),
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("movq %rdx, %rax"));
+    }
+
+    #[test]
+    fn less_than_emits_setl() {
+        let f = func(
+            "less",
+            Vec::new(),
+            vec![TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::Less,
+                lhs: Operand::Const(ConstValue::Int(1)),
+                rhs: Operand::Const(ConstValue::Int(2)),
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("cmpq %rcx, %rax"));
+        assert!(out.contains("setl %al"));
+        assert!(out.contains("movzbq %al, %rax"));
+    }
+
+    #[test]
+    fn call_sets_up_arg_registers() {
+        let f = func(
+            "caller",
+            Vec::new(),
+            vec![
+                TacInstr::Call {
+                    dst: Some(TempId(0)),
+                    fn_name: "soma".to_string(),
+                    args: vec![
+                        Operand::Const(ConstValue::Int(2)),
+                        Operand::Const(ConstValue::Int(3)),
+                    ],
+                },
+                TacInstr::Return {
+                    val: Some(Operand::Temp(TempId(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("movq %rax, %rdi"));
+        assert!(out.contains("movq %rax, %rsi"));
+        assert!(out.contains("call soma"));
+    }
+
+    #[test]
+    fn call_with_seven_args_pushes_one_stack_arg() {
+        let args = (1..=7)
+            .map(|n| Operand::Const(ConstValue::Int(n)))
+            .collect();
+        let f = func(
+            "caller7",
+            Vec::new(),
+            vec![
+                TacInstr::Call {
+                    dst: Some(TempId(0)),
+                    fn_name: "sum7".to_string(),
+                    args,
+                },
+                TacInstr::Return {
+                    val: Some(Operand::Temp(TempId(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        // 7th arg (index 6) e o unico passado pela stack; aligna a stack com
+        // 8 bytes de padding (1 arg de stack e impar) antes do push.
+        assert!(out.contains("subq $8, %rsp"));
+        assert!(out.contains("pushq %rax"));
+        assert!(out.contains("call sum7"));
+        assert!(out.contains("addq $16, %rsp"));
+    }
+
+    #[test]
+    fn call_with_eight_args_needs_no_padding() {
+        let args = (1..=8)
+            .map(|n| Operand::Const(ConstValue::Int(n)))
+            .collect();
+        let f = func(
+            "caller8",
+            Vec::new(),
+            vec![TacInstr::Call {
+                dst: Some(TempId(0)),
+                fn_name: "sum8".to_string(),
+                args,
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        // 2 args de stack (indices 6 e 7): par, sem padding necessario.
+        assert!(!out.contains("subq $8, %rsp"));
+        assert!(out.contains("addq $16, %rsp"));
+    }
+
+    #[test]
+    fn call_with_two_args_emits_no_stack_cleanup() {
+        let out = emit_function(&func(
+            "caller2",
+            Vec::new(),
+            vec![TacInstr::Call {
+                dst: Some(TempId(0)),
+                fn_name: "soma".to_string(),
+                args: vec![
+                    Operand::Const(ConstValue::Int(1)),
+                    Operand::Const(ConstValue::Int(2)),
+                ],
+            }],
+        ));
+
+        assert!(!out.contains("pushq %rax"));
+        assert!(!out.contains("addq $16, %rsp"));
+    }
+
+    #[test]
+    fn cond_jump_uses_test_and_jne() {
+        let f = func(
+            "cond",
+            Vec::new(),
+            vec![
+                TacInstr::CondJump {
+                    cond: Operand::Const(ConstValue::Int(1)),
+                    then_label: LabelId(0),
+                    else_label: LabelId(1),
+                },
+                TacInstr::Label(LabelId(0)),
+                TacInstr::Return {
+                    val: Some(Operand::Const(ConstValue::Int(1))),
+                },
+                TacInstr::Label(LabelId(1)),
+                TacInstr::Return {
+                    val: Some(Operand::Const(ConstValue::Int(0))),
+                },
+            ],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("testq %rax, %rax"));
+        assert!(out.contains("jne .L_cond_L0"));
+        assert!(out.contains("jmp .L_cond_L1"));
+        assert!(out.contains(".L_cond_L0:"));
+        assert!(out.contains(".L_cond_L1:"));
+    }
+
+    #[test]
+    fn epilogue_label_is_emitted_once() {
+        let out = emit_function(&asm_simple_return_const());
+
+        assert_eq!(out.matches(".L_main_epilogue:").count(), 1);
+    }
+
+    #[test]
+    fn emit_program_prepends_text_section() {
+        let prog = TacProgram {
+            functions: vec![asm_simple_return_const()],
+        };
+
+        let out = emit_program(&prog);
+
+        assert!(out.starts_with(".text"));
+        assert!(out.contains(".globl main"));
+    }
+
+    #[test]
+    fn logical_and_normalizes_operands() {
+        let f = func(
+            "land",
+            Vec::new(),
+            vec![TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::And,
+                lhs: Operand::Const(ConstValue::Int(1)),
+                rhs: Operand::Const(ConstValue::Int(0)),
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("setne %al"));
+        assert!(out.contains("andq %rdx, %rax"));
+    }
+
+    #[test]
+    fn logical_or_emits_orq() {
+        let f = func(
+            "lor",
+            Vec::new(),
+            vec![TacInstr::BinOp {
+                dst: TempId(0),
+                op: BinOp::Or,
+                lhs: Operand::Const(ConstValue::Int(1)),
+                rhs: Operand::Const(ConstValue::Int(0)),
+            }],
+        );
+
+        let out = emit_function(&f);
+
+        assert!(out.contains("orq %rdx, %rax"));
+    }
+}
