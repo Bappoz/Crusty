@@ -108,10 +108,10 @@ fn split_into_blocks(instrs: &[TacInstr]) -> Vec<std::ops::Range<usize>> {
     for (i, instr) in instrs.iter().enumerate() {
         match instr {
             TacInstr::Label(_) => starts.push(i),
-            TacInstr::Jump { .. } | TacInstr::CondJump { .. } | TacInstr::Return { .. } => {
-                if i + 1 < n {
-                    starts.push(i + 1);
-                }
+            TacInstr::Jump { .. } | TacInstr::CondJump { .. } | TacInstr::Return { .. }
+                if i + 1 < n =>
+            {
+                starts.push(i + 1);
             }
             _ => {}
         }
