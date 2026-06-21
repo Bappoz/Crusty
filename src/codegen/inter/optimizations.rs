@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     common::ast::expr::{BinOp, UnOp},
-    ir::tac::{ConstValue, Operand, TacInstr, TempId},
+    ir::tac::{ConstValue, LabelId, Operand, TacInstr, TempId},
 };
 
 // ─── Liveness ────────────────────────────────────────────────────────────────
@@ -15,36 +15,184 @@ pub struct LivenessInfo {
     pub live_before: Vec<HashSet<TempId>>,
 }
 
-/// Calcula `LivenessInfo` para uma sequência plana de instruções TAC.
+/// Calcula `LivenessInfo` para uma sequência de instruções TAC, respeitando
+/// o fluxo de controle (`Jump`/`CondJump`/`Label`).
 ///
-/// Algoritmo: varredura *backward* (de trás para frente).
-/// ```text
-/// live = {}
-/// para i de (n-1) até 0:
-///     live_before[i] = live.clone()
-///     remover de live: TempId *definido* por instrs[i]
-///     adicionar a live: TempId *usados* como operandos de instrs[i]
-/// ```
+/// A análise é feita em dois níveis:
+/// 1. Particiona `instrs` em blocos básicos e monta os sucessores de cada
+///    bloco a partir da última instrução (`Jump`, `CondJump`, `Return` ou
+///    fall-through).
+/// 2. Resolve as equações de liveness por ponto fixo entre blocos:
+///    `live_out(B) = ⋃ live_in(S)` para `S` sucessor de `B`, e
+///    `live_in(B) = use(B) ∪ (live_out(B) - def(B))`.
+///
+/// Em seguida, refina `live_before` por instrução dentro de cada bloco via
+/// varredura backward, partindo de `live_out(B)`.
+///
+/// Sem essa atenção ao fluxo de controle, uma definição feita em um ramo de
+/// `if/else` e usada somente após o merge poderia parecer morta na varredura
+/// puramente linear — levando o DCE a remover código observável.
 pub fn compute_liveness(instrs: &[TacInstr]) -> LivenessInfo {
     let n = instrs.len();
-    let mut live_before = vec![HashSet::new(); n];
-    let mut live: HashSet<TempId> = HashSet::new();
+    if n == 0 {
+        return LivenessInfo {
+            live_before: Vec::new(),
+        };
+    }
 
-    for i in (0..n).rev() {
-        live_before[i] = live.clone();
+    let blocks = split_into_blocks(instrs);
+    let label_to_block = label_block_map(instrs, &blocks);
+    let successors = compute_successors(instrs, &blocks, &label_to_block);
 
-        // Remover o temporário definido pela instrução.
-        if let Some(def) = instr_def(&instrs[i]) {
-            live.remove(&def);
+    let (use_b, def_b) = blocks
+        .iter()
+        .map(|range| local_use_def(&instrs[range.clone()]))
+        .collect::<(Vec<_>, Vec<_>)>();
+
+    let mut live_in = vec![HashSet::new(); blocks.len()];
+    let mut live_out = vec![HashSet::new(); blocks.len()];
+
+    loop {
+        let mut changed = false;
+
+        for b in (0..blocks.len()).rev() {
+            let mut out = HashSet::new();
+            for &succ in &successors[b] {
+                out.extend(live_in[succ].iter().copied());
+            }
+
+            let mut inb = use_b[b].clone();
+            for t in &out {
+                if !def_b[b].contains(t) {
+                    inb.insert(*t);
+                }
+            }
+
+            if out != live_out[b] || inb != live_in[b] {
+                changed = true;
+            }
+            live_out[b] = out;
+            live_in[b] = inb;
         }
 
-        // Adicionar todos os temporários usados como operandos.
-        for used in instr_uses(&instrs[i]) {
-            live.insert(used);
+        if !changed {
+            break;
+        }
+    }
+
+    let mut live_before = vec![HashSet::new(); n];
+    for (b, range) in blocks.iter().enumerate() {
+        let mut live = live_out[b].clone();
+
+        for i in range.clone().rev() {
+            live_before[i] = live.clone();
+
+            if let Some(def) = instr_def(&instrs[i]) {
+                live.remove(&def);
+            }
+            for used in instr_uses(&instrs[i]) {
+                live.insert(used);
+            }
         }
     }
 
     LivenessInfo { live_before }
+}
+
+/// Particiona as instruções em blocos básicos. Um bloco começa em `instrs[0]`,
+/// em todo `Label`, e logo após `Jump`/`CondJump`/`Return`.
+fn split_into_blocks(instrs: &[TacInstr]) -> Vec<std::ops::Range<usize>> {
+    let n = instrs.len();
+    let mut starts: Vec<usize> = vec![0];
+
+    for (i, instr) in instrs.iter().enumerate() {
+        match instr {
+            TacInstr::Label(_) => starts.push(i),
+            TacInstr::Jump { .. } | TacInstr::CondJump { .. } | TacInstr::Return { .. } => {
+                if i + 1 < n {
+                    starts.push(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    starts.sort_unstable();
+    starts.dedup();
+
+    let mut blocks = Vec::with_capacity(starts.len());
+    for (idx, &start) in starts.iter().enumerate() {
+        let end = starts.get(idx + 1).copied().unwrap_or(n);
+        if start < end {
+            blocks.push(start..end);
+        }
+    }
+    blocks
+}
+
+/// Mapeia cada `LabelId` para o índice do bloco que ele inicia.
+fn label_block_map(
+    instrs: &[TacInstr],
+    blocks: &[std::ops::Range<usize>],
+) -> HashMap<LabelId, usize> {
+    let mut map = HashMap::new();
+    for (b, range) in blocks.iter().enumerate() {
+        if let TacInstr::Label(l) = &instrs[range.start] {
+            map.insert(*l, b);
+        }
+    }
+    map
+}
+
+/// Calcula os blocos sucessores de cada bloco, a partir de sua última instrução.
+fn compute_successors(
+    instrs: &[TacInstr],
+    blocks: &[std::ops::Range<usize>],
+    label_to_block: &HashMap<LabelId, usize>,
+) -> Vec<Vec<usize>> {
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(b, range)| match &instrs[range.end - 1] {
+            TacInstr::Jump { label } => label_to_block.get(label).copied().into_iter().collect(),
+            TacInstr::CondJump {
+                then_label,
+                else_label,
+                ..
+            } => [then_label, else_label]
+                .into_iter()
+                .filter_map(|l| label_to_block.get(l).copied())
+                .collect(),
+            TacInstr::Return { .. } => Vec::new(),
+            _ => {
+                if b + 1 < blocks.len() {
+                    vec![b + 1]
+                } else {
+                    Vec::new()
+                }
+            }
+        })
+        .collect()
+}
+
+/// Calcula `use(B)` (usos não precedidos de definição dentro de `B`, i.e.
+/// "upward-exposed") e `def(B)` (todo `TempId` definido em `B`) via varredura
+/// backward local ao bloco.
+fn local_use_def(block: &[TacInstr]) -> (HashSet<TempId>, HashSet<TempId>) {
+    let mut use_b = HashSet::new();
+    let mut def_b = HashSet::new();
+
+    for instr in block.iter().rev() {
+        if let Some(def) = instr_def(instr) {
+            def_b.insert(def);
+            use_b.remove(&def);
+        }
+        for used in instr_uses(instr) {
+            use_b.insert(used);
+        }
+    }
+
+    (use_b, def_b)
 }
 
 /// Retorna o `TempId` definido pela instrução, se houver.
@@ -733,6 +881,42 @@ mod tests {
         let liveness = compute_liveness(&instrs);
         assert!(!dead_code_eliminate(&mut instrs, &liveness));
         assert_eq!(instrs.len(), 2);
+    }
+
+    // ── Liveness com fluxo de controle ──
+
+    #[test]
+    fn dce_keeps_def_used_only_after_if_else_merge() {
+        // if (cond) t0 = 5; else t0 = 10;
+        // return t0;
+        //
+        // Sem considerar o fluxo de controle, uma varredura puramente linear
+        // marcaria `t0 = 5` (no ramo then) como morto, pois nada entre ele e
+        // o fim do bloco then o lê — mas `t0` é lido após o merge.
+        let mut instrs = vec![
+            TacInstr::CondJump {
+                cond: temp(9),
+                then_label: LabelId(1),
+                else_label: LabelId(2),
+            },
+            TacInstr::Label(LabelId(1)),
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(5),
+            },
+            TacInstr::Jump { label: LabelId(3) },
+            TacInstr::Label(LabelId(2)),
+            TacInstr::Copy {
+                dst: temp(0),
+                src: int(10),
+            },
+            TacInstr::Label(LabelId(3)),
+            TacInstr::Return { val: Some(temp(0)) },
+        ];
+
+        let liveness = compute_liveness(&instrs);
+        assert!(!dead_code_eliminate(&mut instrs, &liveness));
+        assert_eq!(instrs.len(), 8);
     }
 
     // ── Pipeline / Ponto Fixo ──
