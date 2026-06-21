@@ -371,6 +371,20 @@ pub fn lower_program(prog: &Program) -> TacProgram {
     }
 }
 
+/// Gera o TAC e aplica todas as otimizações básicas (constant folding,
+/// constant propagation e dead code elimination) até ponto fixo.
+///
+/// Este é o ponto de entrada recomendado para a pipeline de compilação.
+pub fn lower_and_optimize(prog: &Program) -> TacProgram {
+    use crate::codegen::inter::optimizations::optimize_function;
+
+    let mut tac = lower_program(prog);
+    for func in &mut tac.functions {
+        optimize_function(&mut func.instrs);
+    }
+    tac
+}
+
 fn lower_literal(value: &Literal) -> ConstValue {
     match value {
         Literal::Int(value) => ConstValue::Int(*value),
