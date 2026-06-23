@@ -12,6 +12,9 @@ AST → Lowerer (src/ir/lower.rs) → TacFunction/TacProgram (src/ir/tac.rs)
                                         │
                                         ▼
                               build_cfg (src/ir/cfg.rs)
+                                        │
+                                        ▼
+                   optimize_function (src/codegen/inter/optimizations.rs)
 ```
 
 ---
@@ -53,6 +56,9 @@ implementam `Display`, usado para depuração (`t0 = t1 + t2`, `if t3 goto L0 el
 pública é `lower_program(prog)` / `lower_function(decl)`, usadas a partir de `lower_expr`/`lower_stmt`
 internamente.
 
+O ponto de entrada recomendado para a pipeline de compilação é `lower_and_optimize(prog)`, que
+invoca `lower_program` seguido de `optimize_function` para cada função.
+
 ### Expressões (`lower_expr` → `Operand`)
 
 | Expressão | Tradução |
@@ -66,6 +72,7 @@ internamente.
 | `Call` | Baixa os argumentos em ordem, emite `Call` com destino em temporário fresco |
 | `Ternary` | Expandido em `CondJump` + dois blocos rotulados, cada um copiando seu valor para um temporário comum |
 | `Cast` | Repassado (a baixa não preserva a anotação de tipo) |
+| `SizeofType` | Resolvido estaticamente via `type_size` para `Operand::Const(Int)` |
 
 ### Comandos (`lower_stmt`)
 
@@ -105,23 +112,45 @@ sucessores. `Cfg` também guarda `entry`/`exit` e implementa `Display` (formato 
 
 ---
 
-## Pipeline de Otimização (`src/codegen/inter/opt/`)
+## Pipeline de Otimização (`src/codegen/inter/optimizations.rs`)
 
-Os passes de otimização operam sobre uma representação de CFG simplificada própria
-(`codegen::inter::{Cfg, BasicBlock, Instruction, Value, BinaryOp}`), com apenas `Assign`, `Binary`
-e `Nop` como instruções — **ainda não é a mesma estrutura de `src/ir::tac::TacInstr`** descrita
-acima; a integração entre o TAC "completo" (lowering) e o CFG de otimização é um trabalho futuro.
+Os passes de otimização operam **diretamente sobre `Vec<TacInstr>`** — a mesma representação
+produzida pelo lowering — através das funções de nível de módulo em `optimizations.rs`. Esta é a
+integração efetiva entre o TAC gerado por `src/ir` e a etapa de otimização; o modelo de CFG
+alternativo em `src/codegen/inter/opt/` (com `Assign`/`Binary`/`Nop`) é utilizado apenas pelos
+passes registrados no `PassManager` (nível de abstração legado, não conectado ao pipeline principal).
 
 ```rust
-trait OptPass {
-    fn name(&self) -> &'static str;
-    fn run(&self, cfg: &mut Cfg) -> bool;  // true se alterou o CFG
-}
+// Ponto de entrada da pipeline de otimização sobre TacInstr:
+pub fn optimize_function(instrs: &mut Vec<TacInstr>)
 ```
 
-`PassManager::run(cfg, max_iter)` executa todos os passes registrados repetidamente até ponto fixo
-(nenhum pass reporta mudança) ou até `max_iter` iterações. `OptLevel` (`O0`–`O3`, selecionável via
-flags `-O0`..`-O3`/`--opt-level`) define o pipeline:
+`optimize_function` executa constant folding, constant propagation e dead-code elimination até
+ponto fixo, nessa ordem, repetindo enquanto houver mudanças.
+
+### Análise de Vivacidade (`compute_liveness`)
+
+`compute_liveness(instrs)` constrói um `LivenessInfo` com consciência de fluxo de controle:
+internamente divide a lista linear em blocos básicos via `split_into_blocks` (mesmos critérios de
+líder de `build_cfg`), propaga conjuntos *live-in*/*live-out* entre blocos por ponto fixo e retorna
+os temporários vivos em cada ponto do programa. Isso garante que o DCE preserve definições cujo
+valor é consumido apenas após um merge de branches (`if`/`else`).
+
+### Passes implementados (`optimizations.rs`)
+
+- **`constant_fold`** — substitui `BinOp` por `Copy` quando ambos operandos são `ConstValue::Int`,
+  usando aritmética `checked_*` (divisão/módulo por zero, shifts negativos ou ≥ 64 bits não são
+  dobrados).
+- **`constant_propagation`** — rastreia atribuições `Copy { dst: Temp, src: Const }` e substitui
+  usos subsequentes do temporário pela constante, invalidando entradas ao redefinir o temporário.
+- **`dead_code_eliminate`** — remove `BinOp`/`UnOp`/`Copy` cujo destino é um `Temp` nunca lido
+  após o ponto de definição; preserva `Call`, `Return`, `Jump`/`CondJump`, `Label` e atribuições
+  para `Var` (efeitos observáveis).
+
+### Passes no `PassManager` (`src/codegen/inter/opt/`)
+
+O `PassManager` e o trait `OptPass` orquestram passes sobre o CFG alternativo. `OptLevel`
+(`O0`–`O3`, selecionável via flags `-O0`..`-O3`/`--opt-level`) define o pipeline registrado:
 
 | Nível | Passes |
 |---|---|
@@ -130,31 +159,23 @@ flags `-O0`..`-O3`/`--opt-level`) define o pipeline:
 | `O2` | O1 + copy-propagation, common-subexpression-elimination |
 | `O3` | O2 + loop-invariant-code-motion, inlining |
 
-### Passes implementados
+- **`constant-fold`** (implementado) — mesma semântica de `constant_fold` acima, sobre o modelo de CFG legado.
+- **`dead-code-elimination`** (implementado) — remove instruções `Nop` de cada bloco.
+- **`copy-propagation`** (implementado) — substitui usos de temporários por suas cópias de constantes dentro de cada bloco.
+- **`common-subexpression-elimination`** (implementado) — eliminação **local** (intra-bloco): mantém cache `(lhs, op, rhs) → destino`; ao repetir uma expressão, remove a instrução redundante e renomeia usos futuros. Redefinições invalidam entradas do cache.
 
-- **`constant-fold`** — substitui `Binary` por `Assign` quando ambos operandos são `Value::Int`,
-  usando aritmética `checked_*` (divisão/módulo por zero não são dobrados).
-- **`dead-code-elimination`** — remove instruções `Nop` de cada bloco.
-- **`common-subexpression-elimination`** — eliminação **local** (intra-bloco) de subexpressões
-  repetidas. Mantém um cache `(lhs, op, rhs) → destino` por bloco; ao repetir uma expressão, remove
-  a instrução redundante e propaga (renomeia) usos futuros do destino antigo para o já calculado.
-  Qualquer redefinição de variável/temporário invalida as entradas do cache que a referenciam, seja
-  como operando ou como destino já calculado.
-
-### Passes ainda não implementados (stubs que retornam `false`)
-
-!!! warning "Ainda não implementado"
-    - `copy-propagation`
+!!! warning "Ainda não implementado (stubs que retornam `false`)"
     - `loop-invariant-code-motion`
     - `inlining`
-    - CSE **global** (entre blocos, via análise de *available expressions* com dominadores) — fora
-      de escopo do CSE local atual
+    - CSE **global** (entre blocos, via análise de *available expressions* com dominadores)
 
 ---
 
 ## Integração com a CLI
 
-`main.rs` aceita `-O0|-O1|-O2|-O3` / `--opt-level 0|1|2|3` para selecionar o pipeline. A flag
-`--dump-ir` (dump do TAC) está reservada na ajuda da CLI mas **ainda não implementada** — o
-lowering e o CFG de otimização não estão conectados ao `main` em nenhum nível ainda; hoje são
-exercitados apenas pelos testes unitários de cada módulo.
+`main.rs` aceita `-O0|-O1|-O2|-O3` / `--opt-level 0|1|2|3` para selecionar o pipeline do
+`PassManager`. A flag `--dump-ir` (dump do TAC) está reservada na ajuda da CLI mas **ainda não
+implementada** — o lowering e o pipeline de otimização sobre `TacInstr` não estão conectados ao
+`main` em nenhum nível ainda; hoje são exercitados apenas pelos testes unitários de cada módulo.
+O ponto de entrada `lower_and_optimize` em `src/ir/lower.rs` está disponível para uso futuro pela
+pipeline principal.
