@@ -5,6 +5,7 @@ mod tests {
     use crate::common::ast::decl::Decl;
     use crate::common::ast::expr::{Expr, Literal, MemberAccess};
     use crate::common::ast::stmt::Stmt;
+    use crate::common::builtins::BuiltinsLibs;
     use crate::common::errors::error_data::Span;
     use crate::common::errors::types::{
         CompilerError, Diagnostic, SemanticErrorKind, SemanticWarningKind,
@@ -41,6 +42,10 @@ mod tests {
 
     fn ident(name: &str) -> Expr {
         Expr::Ident(name.to_string(), span())
+    }
+
+    fn call(name: &str, args: Vec<Expr>) -> Expr {
+        Expr::Call(Box::new(ident(name)), args, span())
     }
 
     fn program(stmts: Vec<Stmt>) -> Program {
@@ -391,6 +396,55 @@ mod tests {
         };
 
         assert!(analyse(&prog).is_empty());
+    }
+
+    #[test]
+    fn printf_without_stdio_header_emits_missing_header_error() {
+        let prog = program(vec![Stmt::ExprStmt(
+            call(
+                "printf",
+                vec![
+                    Expr::Literal(Literal::String("%d".into()), span()),
+                    int_lit(1),
+                ],
+            ),
+            span(),
+        )]);
+
+        let mut analyser = SemanticAnalyser::with_builtins(BuiltinsLibs::default());
+        analyser.analyse_program(&prog);
+
+        assert!(analyser.diagnostics.iter().any(|e| matches!(
+            e,
+            CompilerError::Semantic(se)
+                if matches!(&se.kind, SemanticErrorKind::MissingLibraryHeader { header, symbol }
+                    if header == "stdio.h" && symbol == "printf")
+        )));
+    }
+
+    #[test]
+    fn printf_with_stdio_header_accepts_basic_call() {
+        let prog = program(vec![Stmt::ExprStmt(
+            call(
+                "printf",
+                vec![
+                    Expr::Literal(Literal::String("%d".into()), span()),
+                    int_lit(1),
+                ],
+            ),
+            span(),
+        )]);
+
+        let mut analyser = SemanticAnalyser::with_builtins(BuiltinsLibs {
+            stdbool: false,
+            stdio: true,
+        });
+        analyser.analyse_program(&prog);
+
+        assert!(
+            analyser.diagnostics.is_empty(),
+            "printf com stdio.h deve ser aceito"
+        );
     }
 
     // ── Assign: verificação de compatibilidade de tipo ────────────────────────

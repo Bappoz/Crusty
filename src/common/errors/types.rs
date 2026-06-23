@@ -214,6 +214,10 @@ pub enum SemanticErrorKind {
     BreakOutsideLoop,
     /// `continue` usado fora de loop.
     ContinueOutsideLoop,
+    MissingLibraryHeader {
+        header: String,
+        symbol: String,
+    },
 }
 
 #[derive(Debug)]
@@ -343,6 +347,15 @@ impl ToReport for SemanticError {
                     "'continue' só pode ser usado dentro de loop".to_string(),
                 )
                 .with_help("mova o 'continue' para dentro de um for, while ou do-while"),
+            SemanticErrorKind::MissingLibraryHeader { header, symbol } => {
+                Report::new("missing library header")
+                    .with_span(self.span.clone())
+                    .with_label(
+                        self.span.clone(),
+                        format!("'{}' requires <{}>", symbol, header),
+                    )
+                    .with_help("adiciona o #include correto antes de usar esse simbolo")
+            }
         }
     }
 }
