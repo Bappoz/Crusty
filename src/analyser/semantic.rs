@@ -512,22 +512,18 @@ impl SemanticAnalyser {
                         is_const: false,
                         is_unsigned: false,
                     },
-                    crate::common::ast::expr::UnOp::Deref => {
-                        match inner_ty.ty {
-                            Type::Pointer(base) | Type::Array(base) => QualifierType {
-                                ty: *base,
-                                is_const: inner_ty.is_const,
-                                is_unsigned: inner_ty.is_unsigned,
-                            },
-                            _ => inner_ty,
-                        }
-                    }
+                    crate::common::ast::expr::UnOp::Deref => match inner_ty.ty {
+                        Type::Pointer(base) | Type::Array(base) => QualifierType {
+                            ty: *base,
+                            is_const: inner_ty.is_const,
+                            is_unsigned: inner_ty.is_unsigned,
+                        },
+                        _ => inner_ty,
+                    },
                     _ => inner_ty,
                 }
             }
-            Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => {
-                self.analyse_expr(e)
-            }
+            Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => self.analyse_expr(e),
             Expr::CompoundAssign(_, lhs, rhs, _) => {
                 let lhs_ty = self.analyse_expr(lhs);
                 self.analyse_expr(rhs);
