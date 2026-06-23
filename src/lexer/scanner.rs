@@ -1,3 +1,4 @@
+use crate::common::builtins::BuiltinsLibs;
 use crate::common::errors::{
     error_data::Span,
     types::{CompilerError, LexicalError, LexicalErrorKind},
@@ -13,6 +14,7 @@ pub struct Scanner {
     pub src: SourceFile,
     pub tokens: Vec<Token>,
     pub diagnostics: Vec<CompilerError>,
+    pub builtins: BuiltinsLibs,
     /// Pilha de delimitadores abertos ainda não fechados: (char, linha, coluna)
     delimiter_stack: Vec<(char, usize, usize)>,
     /// Posição (em bytes) do início do token sendo reconhecido; capturada antes de consumir o primeiro char.
@@ -26,6 +28,7 @@ impl Scanner {
             src,
             tokens: Vec::new(),
             diagnostics: Vec::new(),
+            builtins: BuiltinsLibs::default(),
             delimiter_stack: Vec::new(),
             token_start: 0,
         }
@@ -33,6 +36,8 @@ impl Scanner {
 
     /// Executa o scanner até o fim do arquivo, populando `tokens` e `diagnostics`, e retorna os tokens produzidos.
     pub fn scan(&mut self) -> &[Token] {
+        self.preprocess_builtin_includes();
+
         while !self.src.is_at_end() {
             self.skip_whitespaces_and_comments();
             if self.src.is_at_end() {
@@ -59,6 +64,32 @@ impl Scanner {
         self.token_start = self.src.pos;
         self.emit_at(TokenKind::Eof, self.src.line(), self.src.col());
         &self.tokens
+    }
+
+    fn preprocess_builtin_includes(&mut self) {
+        let source = self.src.source.as_str();
+        if !source.contains("#include <stdbool.h>") && !source.contains("#include <stdio.h>") {
+            return;
+        }
+
+        let mut rewritten = String::new();
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if trimmed == "#include <stdbool.h>" {
+                self.builtins.stdbool = true;
+                rewritten.push_str("typedef int bool;\n");
+            } else if trimmed == "#include <stdio.h>" {
+                self.builtins.stdio = true;
+                rewritten.push('\n');
+            } else {
+                rewritten.push_str(line);
+                rewritten.push('\n');
+            }
+        }
+
+        let old_path = self.src.path.clone();
+        self.src = SourceFile::from_string(rewritten);
+        self.src.path = old_path;
     }
 
     /// Lê o próximo char e despacha para o método de lexing correto conforme o caractere.
