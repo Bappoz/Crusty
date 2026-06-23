@@ -46,7 +46,7 @@ mod tests {
     fn program(stmts: Vec<Stmt>) -> Program {
         Program {
             decls: vec![Decl::Function(
-                qty(Type::Int),
+                qty(Type::Void),
                 "main".into(),
                 vec![],
                 stmts,
@@ -524,11 +524,13 @@ mod tests {
 
     #[test]
     fn unused_variable_emits_warning() {
-        // int x = 5; return 0;   -> x declarada mas nunca lida
-        let prog = program(vec![
-            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(5)), span()),
-            Stmt::Return(Some(int_lit(0)), span()),
-        ]);
+        // int x = 5;   -> x declarada mas nunca lida
+        let prog = program(vec![Stmt::VarDecl(
+            qty(Type::Int),
+            "x".into(),
+            Some(int_lit(5)),
+            span(),
+        )]);
         let diags = analyse(&prog);
         assert!(errors(&diags).is_empty(), "não deve haver erros");
         assert!(
@@ -545,7 +547,7 @@ mod tests {
     fn used_variable_emits_no_warning() {
         let prog = program(vec![
             Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(5)), span()),
-            Stmt::Return(Some(ident("x")), span()),
+            Stmt::ExprStmt(ident("x"), span()),
         ]);
         let diags = analyse(&prog);
         assert!(
@@ -579,10 +581,10 @@ mod tests {
 
     #[test]
     fn uninitialized_use_emits_warning() {
-        // int x; return x;  -> x lida sem inicialização
+        // int x; _ = x;  -> x lida sem inicialização
         let prog = program(vec![
             Stmt::VarDecl(qty(Type::Int), "x".into(), None, span()),
-            Stmt::Return(Some(ident("x")), span()),
+            Stmt::ExprStmt(ident("x"), span()),
         ]);
         let diags = analyse(&prog);
         assert!(errors(&diags).is_empty(), "não deve haver erros");
@@ -598,10 +600,10 @@ mod tests {
 
     #[test]
     fn initialized_then_used_emits_no_warning() {
-        // int x = 0; return x;  -> x inicializada, nenhum warning
+        // int x = 0; _ = x;  -> x inicializada, nenhum warning
         let prog = program(vec![
             Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(0)), span()),
-            Stmt::Return(Some(ident("x")), span()),
+            Stmt::ExprStmt(ident("x"), span()),
         ]);
         assert!(analyse(&prog).is_empty());
     }
@@ -616,7 +618,7 @@ mod tests {
                     qty(Type::Int),
                     "f".into(),
                     vec![(qty(Type::Int), "a".into())],
-                    vec![],
+                    vec![Stmt::Return(Some(ident("a")), span())],
                     span(),
                 ),
                 Decl::Function(
@@ -998,7 +1000,7 @@ mod tests {
     #[test]
     fn prototype_valid_forward_call_is_ok() {
         // int soma(int a, int b);
-        // int main() { return soma(1, 2); }
+        // void main() { soma(1, 2); }
         // int soma(int a, int b) { return a + b; }
         let prog = Program {
             decls: vec![
@@ -1009,15 +1011,15 @@ mod tests {
                     span(),
                 ),
                 Decl::Function(
-                    qty(Type::Int),
+                    qty(Type::Void),
                     "main".into(),
                     vec![],
-                    vec![Stmt::Return(
-                        Some(Expr::Call(
+                    vec![Stmt::ExprStmt(
+                        Expr::Call(
                             Box::new(ident("soma")),
                             vec![int_lit(1), int_lit(2)],
                             span(),
-                        )),
+                        ),
                         span(),
                     )],
                     span(),
@@ -1026,7 +1028,7 @@ mod tests {
                     qty(Type::Int),
                     "soma".into(),
                     vec![(qty(Type::Int), "a".into()), (qty(Type::Int), "b".into())],
-                    vec![],
+                    vec![Stmt::Return(Some(ident("a")), span())],
                     span(),
                 ),
             ],
@@ -1176,6 +1178,315 @@ mod tests {
                     if matches!(w.kind, SemanticWarningKind::MayBeUninitialized(_))
             )),
             "atribuição antes do uso inicializa a variável"
+        );
+    }
+
+    // ── return: verificação de tipo com coerção numérica ──────────────────────
+
+    #[test]
+    fn return_int_from_long_fn_is_ok() {
+        // long f() { return 1; }  → coerção int→long permitida
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Long),
+                "f".into(),
+                vec![],
+                vec![Stmt::Return(Some(int_lit(1)), span())],
+                span(),
+            )],
+        };
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "return int em função long deve ser válido (coerção numérica)"
+        );
+    }
+
+    #[test]
+    fn return_string_from_int_fn_emits_error() {
+        // int f() { return "oi"; }  → incompatível
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "f".into(),
+                vec![],
+                vec![Stmt::Return(
+                    Some(Expr::Literal(Literal::String("oi".into()), span())),
+                    span(),
+                )],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "return char* em função int deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn return_missing_in_non_void_fn_emits_warning() {
+        // int f() { }  → aviso de missing return
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "f".into(),
+                vec![],
+                vec![],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).is_empty(),
+            "missing return não deve ser um erro"
+        );
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(&w.kind, SemanticWarningKind::MissingReturn(n) if n == "f")
+            )),
+            "função int sem return deve emitir MissingReturn"
+        );
+    }
+
+    #[test]
+    fn return_void_fn_no_return_is_ok() {
+        // void f() { }  → sem aviso de missing return
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Void),
+                "f".into(),
+                vec![],
+                vec![],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            !diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(&w.kind, SemanticWarningKind::MissingReturn(_))
+            )),
+            "função void sem return não deve emitir MissingReturn"
+        );
+    }
+
+    #[test]
+    fn return_with_explicit_return_suppresses_missing_return_warning() {
+        // int f() { return 0; }  → sem aviso
+        let prog = Program {
+            decls: vec![Decl::Function(
+                qty(Type::Int),
+                "f".into(),
+                vec![],
+                vec![Stmt::Return(Some(int_lit(0)), span())],
+                span(),
+            )],
+        };
+        let diags = analyse(&prog);
+        assert!(
+            !diags.iter().any(|d| matches!(
+                d,
+                Diagnostic::Warning(crate::common::errors::types::CompilerWarning::Semantic(w))
+                    if matches!(&w.kind, SemanticWarningKind::MissingReturn(_))
+            )),
+            "função com return explícito não deve emitir MissingReturn"
+        );
+    }
+
+    // ── switch: tipo do discriminante ─────────────────────────────────────────
+
+    #[test]
+    fn switch_int_expr_is_ok() {
+        let prog = program(vec![Stmt::Switch(int_lit(1), vec![], span())]);
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "switch(int) deve ser válido"
+        );
+    }
+
+    #[test]
+    fn switch_float_expr_emits_invalid_switch_type() {
+        let prog = program(vec![Stmt::Switch(
+            Expr::Literal(Literal::Double(1.5), span()),
+            vec![],
+            span(),
+        )]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::InvalidSwitchType { .. })
+            )),
+            "switch(double) deve emitir InvalidSwitchType"
+        );
+    }
+
+    #[test]
+    fn switch_case_exprs_are_analysed() {
+        // switch(x) { case y: break; }  onde y é indefinido → UndefinedVariable
+        let prog = program(vec![
+            Stmt::VarDecl(qty(Type::Int), "x".into(), Some(int_lit(0)), span()),
+            Stmt::Switch(
+                ident("x"),
+                vec![crate::common::ast::stmt::SwitchCase {
+                    label: crate::common::ast::stmt::SwitchLabel::Case(ident("y_undefined")),
+                    stmts: vec![Stmt::Break(span())],
+                    span: span(),
+                }],
+                span(),
+            ),
+        ]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::UndefinedVariable(n) if n == "y_undefined")
+            )),
+            "expressão de case indefinida deve emitir UndefinedVariable"
+        );
+    }
+
+    // ── break / continue fora de contexto ────────────────────────────────────
+
+    #[test]
+    fn break_inside_while_is_ok() {
+        let prog = program(vec![Stmt::While(
+            int_lit(1),
+            Box::new(Stmt::Break(span())),
+            span(),
+        )]);
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "break dentro de while deve ser válido"
+        );
+    }
+
+    #[test]
+    fn break_inside_switch_is_ok() {
+        let prog = program(vec![Stmt::Switch(
+            int_lit(0),
+            vec![crate::common::ast::stmt::SwitchCase {
+                label: crate::common::ast::stmt::SwitchLabel::Default,
+                stmts: vec![Stmt::Break(span())],
+                span: span(),
+            }],
+            span(),
+        )]);
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "break dentro de switch deve ser válido"
+        );
+    }
+
+    #[test]
+    fn break_outside_loop_emits_error() {
+        let prog = program(vec![Stmt::Break(span())]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::BreakOutsideLoop)
+            )),
+            "break fora de loop/switch deve emitir BreakOutsideLoop"
+        );
+    }
+
+    #[test]
+    fn continue_inside_for_is_ok() {
+        let prog = program(vec![Stmt::For(
+            None,
+            Some(int_lit(1)),
+            None,
+            Box::new(Stmt::Continue(span())),
+            span(),
+        )]);
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "continue dentro de for deve ser válido"
+        );
+    }
+
+    #[test]
+    fn continue_outside_loop_emits_error() {
+        let prog = program(vec![Stmt::Continue(span())]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::ContinueOutsideLoop)
+            )),
+            "continue fora de loop deve emitir ContinueOutsideLoop"
+        );
+    }
+
+    #[test]
+    fn continue_inside_switch_emits_error() {
+        // `continue` dentro de switch sem loop externo é inválido em C
+        let prog = program(vec![Stmt::Switch(
+            int_lit(0),
+            vec![crate::common::ast::stmt::SwitchCase {
+                label: crate::common::ast::stmt::SwitchLabel::Default,
+                stmts: vec![Stmt::Continue(span())],
+                span: span(),
+            }],
+            span(),
+        )]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::ContinueOutsideLoop)
+            )),
+            "continue dentro de switch (sem loop externo) deve emitir ContinueOutsideLoop"
+        );
+    }
+
+    // ── VarDecl local: verificação de tipo do inicializador ───────────────────
+
+    #[test]
+    fn local_var_init_type_mismatch_emits_error() {
+        // int x = "hello";  → TypeMismatch
+        let prog = program(vec![Stmt::VarDecl(
+            qty(Type::Int),
+            "x".into(),
+            Some(Expr::Literal(Literal::String("hello".into()), span())),
+            span(),
+        )]);
+        let diags = analyse(&prog);
+        assert!(
+            errors(&diags).iter().any(|e| matches!(
+                e,
+                CompilerError::Semantic(se)
+                    if matches!(&se.kind, SemanticErrorKind::TypeMismatch { .. })
+            )),
+            "int x = string deve emitir TypeMismatch"
+        );
+    }
+
+    #[test]
+    fn local_var_init_numeric_coercion_is_ok() {
+        // int x = 1.5;  → coerção double→int, válido em C
+        let prog = program(vec![Stmt::VarDecl(
+            qty(Type::Int),
+            "x".into(),
+            Some(Expr::Literal(Literal::Double(1.5), span())),
+            span(),
+        )]);
+        assert!(
+            errors(&analyse(&prog)).is_empty(),
+            "int x = 1.5 deve ser válido (coerção numérica implícita)"
         );
     }
 }
