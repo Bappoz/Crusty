@@ -17,8 +17,11 @@
 use crate::codegen::last::abi;
 use crate::codegen::last::frame::{Frame, SlotKey};
 use crate::common::ast::expr::{BinOp, UnOp};
+use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
 use std::collections::HashMap;
+
+type EmitResult<T> = Result<T, CodegenError>;
 
 /// Acumulador de linhas de assembly com indentacao controlada.
 struct Emitter {
@@ -125,7 +128,7 @@ impl Emitter {
 
 /// Emite o assembly de um programa TAC completo, prefixando a diretiva de
 /// secao `.text`.
-pub fn emit_program(prog: &TacProgram) -> String {
+pub fn emit_program(prog: &TacProgram) -> EmitResult<String> {
     let strings = StringPool::collect(prog);
     let mut em = Emitter::new();
     if !strings.entries.is_empty() {
@@ -139,18 +142,18 @@ pub fn emit_program(prog: &TacProgram) -> String {
     em.raw(".text");
     for func in &prog.functions {
         em.blank();
-        em.append_str(&emit_function(func, &strings));
+        em.append_str(&emit_function(func, &strings)?);
     }
     // Marca a stack como nao-executavel (boa pratica; evita aviso do linker e
     // e o que o proprio GCC adiciona a saida assembly).
     em.blank();
     em.raw(".section .note.GNU-stack,\"\",@progbits");
-    em.into_string()
+    Ok(em.into_string())
 }
 
 /// Emite o assembly de uma unica funcao: directiva `.globl`, rotulo,
 /// prologue, corpo e epilogue.
-fn emit_function(func: &TacFunction, strings: &StringPool) -> String {
+fn emit_function(func: &TacFunction, strings: &StringPool) -> EmitResult<String> {
     let mut em = Emitter::new();
     em.comment(&format!("function {}", func.name));
     em.raw(&format!(".globl {}", func.name));
@@ -179,7 +182,7 @@ fn emit_function(func: &TacFunction, strings: &StringPool) -> String {
     // Corpo
     let epilogue_label = format!(".L_{}_epilogue", func.name);
     for instr in &func.instrs {
-        emit_instr(&mut em, instr, &frame, &func.name, &epilogue_label, strings);
+        emit_instr(&mut em, instr, &frame, &func.name, &epilogue_label, strings)?;
     }
 
     // Epilogue (alvo de todos os `return`). Caso a funcao nao tenha `return`
@@ -189,7 +192,7 @@ fn emit_function(func: &TacFunction, strings: &StringPool) -> String {
     em.insn("popq %rbp");
     em.insn("ret");
 
-    em.into_string()
+    Ok(em.into_string())
 }
 
 /// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
@@ -276,40 +279,41 @@ fn emit_instr(
     func_name: &str,
     epilogue_label: &str,
     strings: &StringPool,
-) {
+) -> EmitResult<()> {
     match instr {
         TacInstr::Label(label) => {
             em.raw(&format!("{}:", local_label(func_name, label)));
+            Ok(())
         }
         TacInstr::Jump { label } => {
             em.insn(&format!("jmp {}", local_label(func_name, label)));
+            Ok(())
         }
         TacInstr::CondJump {
             cond,
             then_label,
             else_label,
         } => {
-            load_op(em, frame, cond, "rax", strings);
+            load_op(em, frame, cond, "rax", strings)?;
             em.insn("testq %rax, %rax");
             em.insn(&format!("jne {}", local_label(func_name, then_label)));
             em.insn(&format!("jmp {}", local_label(func_name, else_label)));
+            Ok(())
         }
         TacInstr::Copy { dst, src } => {
-            load_op(em, frame, src, "rax", strings);
-            store_op(em, frame, dst, "rax");
+            load_op(em, frame, src, "rax", strings)?;
+            store_op(em, frame, dst, "rax")?;
+            Ok(())
         }
-        TacInstr::BinOp { dst, op, lhs, rhs } => {
-            emit_binop(em, op, lhs, rhs, *dst, frame, strings);
-        }
-        TacInstr::UnOp { dst, op, src } => {
-            emit_unop(em, op, src, *dst, frame, strings);
-        }
+        TacInstr::BinOp { dst, op, lhs, rhs } => emit_binop(em, op, lhs, rhs, *dst, frame, strings),
+        TacInstr::UnOp { dst, op, src } => emit_unop(em, op, src, *dst, frame, strings),
         TacInstr::Call { dst, fn_name, args } => emit_call(em, fn_name, args, *dst, frame, strings),
         TacInstr::Return { val } => {
             if let Some(val) = val {
-                load_op(em, frame, val, "rax", strings);
+                load_op(em, frame, val, "rax", strings)?;
             }
             em.insn(&format!("jmp {epilogue_label}"));
+            Ok(())
         }
     }
 }
@@ -322,16 +326,16 @@ fn emit_binop(
     dst: crate::ir::tac::TempId,
     frame: &Frame,
     strings: &StringPool,
-) {
+) -> EmitResult<()> {
     // Operacoes logicas short-circuit-like precisam normalizar cada operando
     // para 0/1 individualmente.
     if matches!(op, BinOp::And | BinOp::Or) {
-        emit_logical(em, matches!(op, BinOp::Or), lhs, rhs, dst, frame, strings);
-        return;
+        emit_logical(em, matches!(op, BinOp::Or), lhs, rhs, dst, frame, strings)?;
+        return Ok(());
     }
 
-    load_op(em, frame, lhs, "rax", strings);
-    load_op(em, frame, rhs, "rcx", strings);
+    load_op(em, frame, lhs, "rax", strings)?;
+    load_op(em, frame, rhs, "rcx", strings)?;
 
     match op {
         BinOp::Add => em.insn("addq %rcx, %rax"),
@@ -357,10 +361,16 @@ fn emit_binop(
         BinOp::Geq => emit_comparison(em, "setge"),
         BinOp::Eq => emit_comparison(em, "sete"),
         BinOp::Neq => emit_comparison(em, "setne"),
-        BinOp::And | BinOp::Or => unreachable!("tratado em emit_logical"),
+        BinOp::And | BinOp::Or => {
+            return Err(codegen_error(
+                "operacao logica deveria ter sido tratada antes",
+                Some("binop"),
+            ))
+        }
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax");
+    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    Ok(())
 }
 
 fn emit_comparison(em: &mut Emitter, setcc: &str) {
@@ -377,16 +387,16 @@ fn emit_logical(
     dst: crate::ir::tac::TempId,
     frame: &Frame,
     strings: &StringPool,
-) {
+) -> EmitResult<()> {
     // Normaliza lhs para 0/1 em %rdx.
-    load_op(em, frame, lhs, "rax", strings);
+    load_op(em, frame, lhs, "rax", strings)?;
     em.insn("testq %rax, %rax");
     em.insn("setne %al");
     em.insn("movzbq %al, %rax");
     em.insn("movq %rax, %rdx");
 
     // Normaliza rhs para 0/1 em %rax.
-    load_op(em, frame, rhs, "rax", strings);
+    load_op(em, frame, rhs, "rax", strings)?;
     em.insn("testq %rax, %rax");
     em.insn("setne %al");
     em.insn("movzbq %al, %rax");
@@ -397,7 +407,8 @@ fn emit_logical(
         em.insn("andq %rdx, %rax");
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax");
+    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    Ok(())
 }
 
 fn emit_unop(
@@ -407,8 +418,8 @@ fn emit_unop(
     dst: crate::ir::tac::TempId,
     frame: &Frame,
     strings: &StringPool,
-) {
-    load_op(em, frame, src, "rax", strings);
+) -> EmitResult<()> {
+    load_op(em, frame, src, "rax", strings)?;
     match op {
         UnOp::Neg => em.insn("negq %rax"),
         UnOp::BitNot => em.insn("notq %rax"),
@@ -417,10 +428,21 @@ fn emit_unop(
             em.insn("sete %al");
             em.insn("movzbq %al, %rax");
         }
-        UnOp::Deref => panic!("codegen de deref (*) nao suportado neste backend"),
-        UnOp::AddrOf => panic!("codegen de address-of (&) nao suportado neste backend"),
+        UnOp::Deref => {
+            return Err(codegen_error(
+                "codegen de deref (*) nao suportado neste backend",
+                Some("unop"),
+            ))
+        }
+        UnOp::AddrOf => {
+            return Err(codegen_error(
+                "codegen de address-of (&) nao suportado neste backend",
+                Some("unop"),
+            ))
+        }
     }
-    store_op(em, frame, &Operand::Temp(dst), "rax");
+    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    Ok(())
 }
 
 fn emit_call(
@@ -430,7 +452,7 @@ fn emit_call(
     dst: Option<crate::ir::tac::TempId>,
     frame: &Frame,
     strings: &StringPool,
-) {
+) -> EmitResult<()> {
     // Argumentos alem de `MAX_REG_ARGS` vao para a stack do chamador, na
     // ordem inversa (o primeiro arg de stack fica no topo, mais proximo do
     // endereco de retorno), espelhando `abi::stack_arg_offset`.
@@ -443,13 +465,13 @@ fn emit_call(
     }
     let stack_args = &args[args.len().min(abi::MAX_REG_ARGS)..];
     for arg in stack_args.iter().rev() {
-        load_op(em, frame, arg, "rax", strings);
+        load_op(em, frame, arg, "rax", strings)?;
         em.insn("pushq %rax");
     }
 
     for (index, arg) in args.iter().take(abi::MAX_REG_ARGS).enumerate() {
         let reg = abi::arg_register(index).expect("index < MAX_REG_ARGS sempre tem registrador");
-        load_op(em, frame, arg, "rax", strings);
+        load_op(em, frame, arg, "rax", strings)?;
         em.insn(&format!("movq %rax, %{reg}"));
     }
 
@@ -461,12 +483,19 @@ fn emit_call(
     }
 
     if let Some(dst) = dst {
-        store_op(em, frame, &Operand::Temp(dst), "rax");
+        store_op(em, frame, &Operand::Temp(dst), "rax")?;
     }
+    Ok(())
 }
 
 /// Carrega `op` para o registrador nomeado (ex.: "rax", "rcx").
-fn load_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str, strings: &StringPool) {
+fn load_op(
+    em: &mut Emitter,
+    frame: &Frame,
+    op: &Operand,
+    reg: &str,
+    strings: &StringPool,
+) -> EmitResult<()> {
     match op {
         Operand::Const(ConstValue::String(value)) => {
             let label = strings
@@ -474,25 +503,31 @@ fn load_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str, strings: &S
                 .get(value)
                 .expect("string literal deve ter sido coletada");
             em.insn(&format!("leaq {label}(%rip), %{reg}"));
+            Ok(())
         }
-        Operand::Const(value) => em.insn(&format!("movq ${}, %{reg}", const_immediate(value))),
+        Operand::Const(value) => {
+            em.insn(&format!("movq ${}, %{reg}", const_immediate(value)?));
+            Ok(())
+        }
         Operand::Temp(temp) => {
             let offset = frame
                 .offset_of(&SlotKey::Temp(temp.0))
                 .expect("temp sem slot alocado");
             em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+            Ok(())
         }
         Operand::Var(name) => {
             let offset = frame
                 .offset_of(&SlotKey::Var(name.clone()))
                 .expect("var sem slot alocado");
             em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+            Ok(())
         }
     }
 }
 
 /// Armazena o registrador nomeado em `op` (que deve ser temp ou var).
-fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) {
+fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) -> EmitResult<()> {
     let offset = match op {
         Operand::Temp(temp) => frame
             .offset_of(&SlotKey::Temp(temp.0))
@@ -500,17 +535,33 @@ fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) {
         Operand::Var(name) => frame
             .offset_of(&SlotKey::Var(name.clone()))
             .expect("var sem slot alocado"),
-        Operand::Const(_) => panic!("nao e possivel armazenar em uma constante"),
+        Operand::Const(_) => {
+            return Err(codegen_error(
+                "nao e possivel armazenar em uma constante",
+                Some("store"),
+            ))
+        }
     };
     em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
+    Ok(())
 }
 
-fn const_immediate(value: &ConstValue) -> String {
+fn const_immediate(value: &ConstValue) -> EmitResult<String> {
     match value {
-        ConstValue::Int(v) => v.to_string(),
-        ConstValue::Char(c) => (*c as i64).to_string(),
-        ConstValue::Double(_) => panic!("codegen de double nao suportado neste backend"),
+        ConstValue::Int(v) => Ok(v.to_string()),
+        ConstValue::Char(c) => Ok((*c as i64).to_string()),
+        ConstValue::Double(_) => Err(codegen_error(
+            "codegen de double nao suportado neste backend",
+            Some("const"),
+        )),
         ConstValue::String(_) => unreachable!("string literals are emitted through rodata"),
+    }
+}
+
+fn codegen_error(message: &str, instruction: Option<&str>) -> CodegenError {
+    CodegenError {
+        message: message.to_string(),
+        instruction: instruction.map(str::to_string),
     }
 }
 
@@ -561,7 +612,7 @@ mod tests {
 
     #[test]
     fn emit_function_prologue_pushes_rbp_and_sets_frame() {
-        let out = emit_function(&asm_simple_return_const(), &StringPool::default());
+        let out = emit_function(&asm_simple_return_const(), &StringPool::default()).unwrap();
 
         assert!(out.contains("pushq %rbp"));
         assert!(out.contains("movq %rsp, %rbp"));
@@ -570,7 +621,7 @@ mod tests {
 
     #[test]
     fn emit_function_declares_global_symbol() {
-        let out = emit_function(&asm_simple_return_const(), &StringPool::default());
+        let out = emit_function(&asm_simple_return_const(), &StringPool::default()).unwrap();
 
         assert!(out.contains(".globl main"));
         assert!(out.contains("main:\n"));
@@ -578,7 +629,7 @@ mod tests {
 
     #[test]
     fn return_const_loads_immediate_into_rax() {
-        let out = emit_function(&asm_simple_return_const(), &StringPool::default());
+        let out = emit_function(&asm_simple_return_const(), &StringPool::default()).unwrap();
 
         assert!(out.contains("movq $42, %rax"));
     }
@@ -601,7 +652,7 @@ mod tests {
             ],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("movq %rdi, -8(%rbp)")); // spill arg a
         assert!(out.contains("movq %rsi, -16(%rbp)")); // spill arg b
@@ -626,7 +677,7 @@ mod tests {
             ],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("cqto"));
         assert!(out.contains("idivq %rcx"));
@@ -645,7 +696,7 @@ mod tests {
             }],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("movq %rdx, %rax"));
     }
@@ -663,7 +714,7 @@ mod tests {
             }],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("cmpq %rcx, %rax"));
         assert!(out.contains("setl %al"));
@@ -690,7 +741,7 @@ mod tests {
             ],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("movq %rax, %rdi"));
         assert!(out.contains("movq %rax, %rsi"));
@@ -717,10 +768,8 @@ mod tests {
             ],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
-        // 7th arg (index 6) e o unico passado pela stack; aligna a stack com
-        // 8 bytes de padding (1 arg de stack e impar) antes do push.
         assert!(out.contains("subq $8, %rsp"));
         assert!(out.contains("pushq %rax"));
         assert!(out.contains("call sum7"));
@@ -742,9 +791,8 @@ mod tests {
             }],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
-        // 2 args de stack (indices 6 e 7): par, sem padding necessario.
         assert!(!out.contains("subq $8, %rsp"));
         assert!(out.contains("addq $16, %rsp"));
     }
@@ -765,7 +813,8 @@ mod tests {
                 }],
             ),
             &StringPool::default(),
-        );
+        )
+        .unwrap();
 
         assert!(!out.contains("pushq %rax"));
         assert!(!out.contains("addq $16, %rsp"));
@@ -793,7 +842,7 @@ mod tests {
             ],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("testq %rax, %rax"));
         assert!(out.contains("jne .L_cond_L0"));
@@ -804,7 +853,7 @@ mod tests {
 
     #[test]
     fn epilogue_label_is_emitted_once() {
-        let out = emit_function(&asm_simple_return_const(), &StringPool::default());
+        let out = emit_function(&asm_simple_return_const(), &StringPool::default()).unwrap();
 
         assert_eq!(out.matches(".L_main_epilogue:").count(), 1);
     }
@@ -815,7 +864,7 @@ mod tests {
             functions: vec![asm_simple_return_const()],
         };
 
-        let out = emit_program(&prog);
+        let out = emit_program(&prog).unwrap();
 
         assert!(out.starts_with(".text"));
         assert!(out.contains(".globl main"));
@@ -834,7 +883,7 @@ mod tests {
             }],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("setne %al"));
         assert!(out.contains("andq %rdx, %rax"));
@@ -853,7 +902,7 @@ mod tests {
             }],
         );
 
-        let out = emit_function(&f, &StringPool::default());
+        let out = emit_function(&f, &StringPool::default()).unwrap();
 
         assert!(out.contains("orq %rdx, %rax"));
     }
