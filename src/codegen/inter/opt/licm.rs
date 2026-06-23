@@ -1,6 +1,6 @@
 use super::OptPass;
 use crate::codegen::inter::{Cfg, BlockId};
-use crate::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 pub struct LoopInvariantCodeMotionPass;
 
@@ -9,18 +9,18 @@ impl OptPass for LoopInvariantCodeMotionPass {
         "loop-invariant-code-motion"
     }
 
-    fn run(&self, _cfg: &mut Cfg) -> bool {
+    fn run(&self, cfg: &mut Cfg) -> bool {
         let dominators = self.compute_dominators(cfg);
 
         let mut mutated = false;
         let mut back_edge = Vec::new(); // aresta que liga o bloco dominante a dominado
 
-        for &block in cfg.block.keys(){
+        for &block in cfg.blocks.keys(){
             if let Some(cfg_block) = cfg.blocks.get(&block){
-                for &succ in &cfg_block.succesors {
+                for &succ in &cfg_block.successors {
                     if let Some(doms) = dominators.get(&block){
                         if doms.contains(&succ){
-                            back_edges.push((succ, block));
+                            back_edge.push((succ, block));
                         }
                     }
                 }
@@ -28,24 +28,25 @@ impl OptPass for LoopInvariantCodeMotionPass {
             }
         }
 
-        for (header, tail) in back_edges {
+        for (header, tail) in back_edge {
             let loop_body = self.get_loop_body(cfg, header, tail);
 
-            prtinln("Laço detectado! Header {:?}", header, tail);
-            println("Blocos pertencentes ao laço: {:?}", loop_body);
+            prtinln!("Laço detectado! Header {:?} Tail {:?}", header, tail);
+            println!("Blocos pertencentes ao laço: {:?}", loop_body);
 
-            TODO:
+            todo!();
         }
+        mutated
     }
 }
 
 impl LoopInvariantCodeMotionPass{
-    fn compute_dominators(&self, cfg: &Cfg) -> HashMap<BLockId, HashSet<BlockId>>{
+    fn compute_dominators(&self, cfg: &Cfg) -> HashMap<BlockId, HashSet<BlockId>>{
         let mut dominators: HashMap<BlockId, HashSet<BlockId>> = HashMap::new();
-        let all_blocks: HashSet<BlockId> = cfg.blocks.key().cloned().collect();
+        let all_blocks: HashSet<BlockId> = cfg.blocks.keys().cloned().collect();
         let entry = cfg.entry_block;
 
-        dominators.insert(entry, vec![entry].intro_iter().collect());
+        dominators.insert(entry, vec![entry].into_iter().collect());
 
         for &block in &all_blocks{
             if block != entry {
@@ -77,9 +78,29 @@ impl LoopInvariantCodeMotionPass{
                 if &current_intersection != old_doms {
                     dominators.insert(block, current_intersection);
                     changed = true;
+                }
+            }
+
+        }   
+        dominators
+    
+    }
+
+    fn get_loop_body(&self, cfg: &Cfg, header: BlockId, tail: BlockId) -> HashSet<BlockId> {
+        let mut loop_body = HashSet::new();
+        loop_body.insert(header);
+        loop_body.insert(tail);
+
+        let mut stack = vec![tail];
+
+        while let Some(node) = stack.pop(){
+            for pred in cfg.get_predecessors(node){
+                if !loop_body.contains(&pred){
+                    loop_body.insert(&pred);
+                    stack.push(pred);
+                }
             }
         }
-
+        loop_body
     }
-    
 }
