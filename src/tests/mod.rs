@@ -10,3 +10,4 @@ mod semantic_test;
 mod source_test;
 mod symbol_test;
 mod token_test;
+mod peephole_test;
