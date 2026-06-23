@@ -273,8 +273,8 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     opt_pipeline.run(&mut cfg, 10);
 
     // ── Stage 5: Code generation (x86-64 / AT&T) ─────────────────────────────
-    let tac_program = lower_program(&program);
-    let asm = last::emit_program(&tac_program);
+    let tac_program = lower_program(&program).map_err(|e| Box::new(e) as Box<dyn ToReport>)?;
+    let asm = last::emit_program(&tac_program).map_err(|e| Box::new(e) as Box<dyn ToReport>)?;
 
     let output_path = output_path_for(&args.input_file, &args.output_file, args.emit);
     emit_artifact(&asm, &output_path, args.emit)?;

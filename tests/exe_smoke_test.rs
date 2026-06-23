@@ -60,8 +60,8 @@ fn compile_to_asm(source: &str) -> String {
         "erros semanticos inesperados: {sem_errors:?}"
     );
 
-    let tac_program = lower_program(&program);
-    emit_program(&tac_program)
+    let tac_program = lower_program(&program).unwrap();
+    emit_program(&tac_program).unwrap()
 }
 
 /// Compila `source` (C) ate um executavel real via `gcc` e o executa,
