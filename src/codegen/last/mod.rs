@@ -11,4 +11,4 @@ pub mod abi;
 pub mod frame;
 pub mod x86_64;
 
-pub use x86_64::{emit_function, emit_program};
+pub use x86_64::emit_program;

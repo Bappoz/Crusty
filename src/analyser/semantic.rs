@@ -3,6 +3,7 @@ use crate::common::ast::ast::{Program, QualifierType, Type};
 use crate::common::ast::decl::Decl;
 use crate::common::ast::expr::{Expr, Literal, MemberAccess};
 use crate::common::ast::stmt::Stmt;
+use crate::common::builtins::BuiltinsLibs;
 use crate::common::errors::error_data::Span;
 use crate::common::errors::types::{
     CompilerError, CompilerWarning, Diagnostic, SemanticError, SemanticErrorKind, SemanticWarning,
@@ -16,6 +17,7 @@ pub struct SemanticAnalyser {
     pub current_fn_ret: Option<QualifierType>,
     pub diagnostics: Vec<CompilerError>,
     pub warnings: Vec<CompilerWarning>,
+    pub stdio_enabled: bool,
 }
 
 impl SemanticAnalyser {
@@ -25,6 +27,14 @@ impl SemanticAnalyser {
             current_fn_ret: None,
             diagnostics: Vec::new(),
             warnings: Vec::new(),
+            stdio_enabled: false,
+        }
+    }
+
+    pub fn with_builtins(builtins: BuiltinsLibs) -> Self {
+        Self {
+            stdio_enabled: builtins.stdio,
+            ..Self::new()
         }
     }
 
@@ -441,6 +451,25 @@ impl SemanticAnalyser {
             Expr::SizeofType(_, _) => uint_type(),
             Expr::Call(callee, args, span) => {
                 if let Expr::Ident(name, id_span) = callee.as_ref() {
+                    if name == "printf" {
+                        if !self.stdio_enabled {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: id_span.clone(),
+                                    kind: SemanticErrorKind::MissingLibraryHeader {
+                                        header: "stdio.h".to_string(),
+                                        symbol: "printf".to_string(),
+                                    },
+                                }));
+                            for a in args {
+                                self.analyse_expr(a);
+                            }
+                            return unknown_type();
+                        }
+
+                        return self.analyse_printf_call(args, span, id_span);
+                    }
+
                     match self.sym.lookup(name) {
                         None => {
                             self.diagnostics
@@ -732,12 +761,101 @@ impl SemanticAnalyser {
             }
         }
     }
+
+    fn analyse_printf_call(&mut self, args: &[Expr], span: &Span, id_span: &Span) -> QualifierType {
+        if args.is_empty() {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: span.clone(),
+                    kind: SemanticErrorKind::ArityMismatch {
+                        expected: 1,
+                        found: 0,
+                    },
+                }));
+            return unknown_type();
+        }
+
+        let fmt_ty = self.analyse_expr(&args[0]);
+        if !is_string_like(&fmt_ty.ty) {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: args[0].span(),
+                    kind: SemanticErrorKind::TypeMismatch {
+                        expected: "char*".to_string(),
+                        found: type_name(&fmt_ty.ty),
+                    },
+                }));
+        }
+
+        match args.len() {
+            1 => {}
+            2 => {
+                let arg_ty = self.analyse_expr(&args[1]);
+                if let Expr::Literal(Literal::String(fmt), _) = &args[0] {
+                    let needs_pointer = fmt.contains("%s");
+                    let needs_scalar = fmt.contains("%d")
+                        || fmt.contains("%i")
+                        || fmt.contains("%u")
+                        || fmt.contains("%c");
+
+                    if needs_pointer && !is_string_like(&arg_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: args[1].span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: "char*".to_string(),
+                                    found: type_name(&arg_ty.ty),
+                                },
+                            }));
+                    } else if needs_scalar && !is_scalar(&arg_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: args[1].span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: "scalar".to_string(),
+                                    found: type_name(&arg_ty.ty),
+                                },
+                            }));
+                    }
+                } else if !is_scalar(&arg_ty.ty) && !is_string_like(&arg_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: args[1].span(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: "scalar".to_string(),
+                                found: type_name(&arg_ty.ty),
+                            },
+                        }));
+                }
+            }
+            n => {
+                self.diagnostics
+                    .push(CompilerError::Semantic(SemanticError {
+                        span: id_span.clone(),
+                        kind: SemanticErrorKind::ArityMismatch {
+                            expected: 2,
+                            found: n,
+                        },
+                    }));
+            }
+        }
+
+        QualifierType {
+            ty: Type::Int,
+            is_const: false,
+            is_unsigned: false,
+        }
+    }
 }
 
 /// API pública: analisa o programa e retorna todos os diagnósticos semânticos
 /// (erros e avisos) como `Vec<Diagnostic>`.
 pub fn analyse(prog: &Program) -> Vec<Diagnostic> {
-    let mut analyser = SemanticAnalyser::new();
+    analyse_with_builtins(prog, BuiltinsLibs::default())
+}
+
+pub fn analyse_with_builtins(prog: &Program, builtins: BuiltinsLibs) -> Vec<Diagnostic> {
+    let mut analyser = SemanticAnalyser::with_builtins(builtins);
     analyser.analyse_program(prog);
     analyser
         .diagnostics
@@ -775,6 +893,10 @@ fn uint_type() -> QualifierType {
         is_const: false,
         is_unsigned: true,
     }
+}
+
+fn is_string_like(ty: &Type) -> bool {
+    matches!(ty, Type::Pointer(inner) if matches!(&**inner, Type::Char))
 }
 
 // ── Type helpers ────────────────────────────────────────────────────────────

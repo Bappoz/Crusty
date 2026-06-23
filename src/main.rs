@@ -1,4 +1,4 @@
-use crusty::analyser::analyse;
+use crusty::analyser::analyse_with_builtins;
 use crusty::codegen::inter::opt::{pipeline_for_level, OptLevel};
 use crusty::codegen::inter::Cfg;
 use crusty::codegen::last;
@@ -273,7 +273,7 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     }
 
     // ── Stage 3: Semantic ────────────────────────────────────────────────────
-    let sem_errors = analyse(&program);
+    let sem_errors = analyse_with_builtins(&program, scanner.builtins);
     let sem_count = sem_errors.len();
     if sem_count > 0 {
         eprintln!("\n=== Semantic Errors ({sem_count}) ===");
