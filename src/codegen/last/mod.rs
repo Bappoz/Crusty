@@ -10,5 +10,6 @@
 pub mod abi;
 pub mod frame;
 pub mod x86_64;
+pub mod peephole;
 
 pub use x86_64::{emit_function, emit_program};
