@@ -206,6 +206,10 @@ pub enum SemanticErrorKind {
     NotIndexable {
         found: String,
     },
+    MissingLibraryHeader {
+        header: String,
+        symbol: String,
+    },
 }
 
 #[derive(Debug)]
@@ -309,6 +313,15 @@ impl ToReport for SemanticError {
                     self.span.clone(),
                     format!("'{}' não é indexável (esperado array ou ponteiro)", found),
                 ),
+            SemanticErrorKind::MissingLibraryHeader { header, symbol } => {
+                Report::new("missing library header")
+                    .with_span(self.span.clone())
+                    .with_label(
+                        self.span.clone(),
+                        format!("'{}' requires <{}>", symbol, header),
+                    )
+                    .with_help("adiciona o #include correto antes de usar esse simbolo")
+            }
         }
     }
 }
