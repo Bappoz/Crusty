@@ -38,3 +38,48 @@ impl OptPass for LoopInvariantCodeMotionPass {
         }
     }
 }
+
+impl LoopInvariantCodeMotionPass{
+    fn compute_dominators(&self, cfg: &Cfg) -> HashMap<BLockId, HashSet<BlockId>>{
+        let mut dominators: HashMap<BlockId, HashSet<BlockId>> = HashMap::new();
+        let all_blocks: HashSet<BlockId> = cfg.blocks.key().cloned().collect();
+        let entry = cfg.entry_block;
+
+        dominators.insert(entry, vec![entry].intro_iter().collect());
+
+        for &block in &all_blocks{
+            if block != entry {
+                dominators.insert(block, all_blocks.clone()); // (key, value) se já existi no dicionario subtitui
+            }
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &block in &all_blocks{
+                if block == entry {continue;}
+
+                let preds = cfg.get_predecessors(block);
+                if preds.is_empty() {continue;}
+
+                let mut current_intersection = dominators.get(&preds[0]).cloned().unwrap_or_default();
+                for pred in preds.iter().skip(1) {
+                    if let Some(pred_doms) = dominators.get(pred) {
+                        current_intersection = current_intersection
+                            .intersection(pred_doms)
+                            .cloned()
+                            .collect();
+                    }
+                }
+                current_intersection.insert(block);
+
+                let old_doms = dominators.get(&block).unwrap();
+                if &current_intersection != old_doms {
+                    dominators.insert(block, current_intersection);
+                    changed = true;
+            }
+        }
+
+    }
+    
+}
