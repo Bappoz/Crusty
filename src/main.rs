@@ -273,11 +273,19 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     }
 
     // ── Stage 3: Semantic ────────────────────────────────────────────────────
-    let sem_errors = analyse_with_builtins(&program, scanner.builtins);
-    let sem_count = sem_errors.len();
+    let sem_diagnostics = analyse_with_builtins(&program, scanner.builtins);
+    let sem_warnings: Vec<_> = sem_diagnostics.iter().filter(|d| d.is_warning()).collect();
+    if !sem_warnings.is_empty() {
+        eprintln!("\n=== Semantic Warnings ({}) ===", sem_warnings.len());
+        for w in &sem_warnings {
+            print_warning_report(&w.to_report());
+        }
+    }
+
+    let sem_count = sem_diagnostics.iter().filter(|d| d.is_error()).count();
     if sem_count > 0 {
         eprintln!("\n=== Semantic Errors ({sem_count}) ===");
-        for e in &sem_errors {
+        for e in sem_diagnostics.iter().filter(|d| d.is_error()) {
             print_report(&e.to_report());
         }
         return Err(Box::new(DiagnosticError { count: sem_count }));
@@ -435,7 +443,15 @@ fn dump_ast(program: &crusty::common::ast::ast::Program) {
 // ── Error reporting ───────────────────────────────────────────────────────────
 
 fn print_report(report: &Report) {
-    eprintln!("  error: {}", report.message);
+    print_report_with_prefix(report, "error");
+}
+
+fn print_warning_report(report: &Report) {
+    print_report_with_prefix(report, "warning");
+}
+
+fn print_report_with_prefix(report: &Report, prefix: &str) {
+    eprintln!("  {prefix}: {}", report.message);
     if let Some(span) = &report.span {
         eprintln!("    --> {}:{}", span.line, span.column_start);
     }
