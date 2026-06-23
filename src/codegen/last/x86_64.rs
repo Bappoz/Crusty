@@ -18,6 +18,7 @@ use crate::codegen::last::abi;
 use crate::codegen::last::frame::{Frame, SlotKey};
 use crate::common::ast::expr::{BinOp, UnOp};
 use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
+use crate::codegen::last::peephole::PeepholePass;
 
 /// Acumulador de linhas de assembly com indentacao controlada.
 struct Emitter {
@@ -118,7 +119,18 @@ pub fn emit_function(func: &TacFunction) -> String {
     em.insn("popq %rbp");
     em.insn("ret");
 
-    em.into_string()
+    // === PEEPHOLE ===
+    // 1. Pega a string inteira gerada e divide em linhas
+    let raw_asm = em.into_string();
+    let mut instrs: Vec<String> = raw_asm.lines().map(|s| s.to_string()).collect();
+
+    // 2. Roda a Otimização Peephole
+    let peephole = crate::codegen::last::peephole::PeepholePass::new();
+    peephole.run(&mut instrs);
+
+    // 3. Junta tudo de volta em uma String com quebras de linha e retorna
+    instrs.join("\n")
+    //======
 }
 
 /// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
