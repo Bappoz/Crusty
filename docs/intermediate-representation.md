@@ -1,6 +1,6 @@
 # Representação Intermediária
 
-**Status:** Em desenvolvimento
+**Status:** Concluída
 
 Geração de uma forma intermediária independente de arquitetura (TAC — *Three-Address Code*),
 ponte entre a AST anotada e a geração de código de máquina. A etapa cobre três responsabilidades:
