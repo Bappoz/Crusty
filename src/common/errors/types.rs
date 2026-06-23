@@ -206,6 +206,14 @@ pub enum SemanticErrorKind {
     NotIndexable {
         found: String,
     },
+    /// Expressão do `switch` não é de tipo inteiro.
+    InvalidSwitchType {
+        found: String,
+    },
+    /// `break` usado fora de loop ou `switch`.
+    BreakOutsideLoop,
+    /// `continue` usado fora de loop.
+    ContinueOutsideLoop,
     MissingLibraryHeader {
         header: String,
         symbol: String,
@@ -313,6 +321,32 @@ impl ToReport for SemanticError {
                     self.span.clone(),
                     format!("'{}' não é indexável (esperado array ou ponteiro)", found),
                 ),
+            SemanticErrorKind::InvalidSwitchType { found } => {
+                Report::new("invalid switch expression type")
+                    .with_span(self.span.clone())
+                    .with_label(
+                        self.span.clone(),
+                        format!(
+                            "expressão do switch deve ser inteira, encontrado '{}'",
+                            found
+                        ),
+                    )
+                    .with_help("use int, char, short, long ou enum como discriminante do switch")
+            }
+            SemanticErrorKind::BreakOutsideLoop => Report::new("break outside loop or switch")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    "'break' só pode ser usado dentro de loop ou switch".to_string(),
+                )
+                .with_help("mova o 'break' para dentro de um for, while, do-while ou switch"),
+            SemanticErrorKind::ContinueOutsideLoop => Report::new("continue outside loop")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    "'continue' só pode ser usado dentro de loop".to_string(),
+                )
+                .with_help("mova o 'continue' para dentro de um for, while ou do-while"),
             SemanticErrorKind::MissingLibraryHeader { header, symbol } => {
                 Report::new("missing library header")
                     .with_span(self.span.clone())
@@ -339,6 +373,8 @@ pub enum SemanticWarningKind {
     UnusedVariable(String),
     /// Variável lida antes de receber qualquer inicializador ou atribuição.
     MayBeUninitialized(String),
+    /// Função não-void sem `return` detectado no caminho de saída principal.
+    MissingReturn(String),
 }
 
 #[derive(Debug)]
@@ -368,6 +404,16 @@ impl ToReport for SemanticWarning {
                     )
                     .with_help("inicialize a variavel antes de usa-la")
             }
+            SemanticWarningKind::MissingReturn(fn_name) => Report::new("missing return")
+                .with_span(self.span.clone())
+                .with_label(
+                    self.span.clone(),
+                    format!(
+                        "função '{}' não-void pode encerrar sem retornar valor",
+                        fn_name
+                    ),
+                )
+                .with_help("adicione um 'return <expr>;' ao final da função"),
         }
     }
 }

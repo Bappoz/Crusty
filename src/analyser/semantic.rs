@@ -17,6 +17,12 @@ pub struct SemanticAnalyser {
     pub current_fn_ret: Option<QualifierType>,
     pub diagnostics: Vec<CompilerError>,
     pub warnings: Vec<CompilerWarning>,
+    /// Profundidade de loops aninhados (for/while/do-while).
+    /// Usada para validar `continue` e `break`.
+    pub loop_depth: usize,
+    /// Profundidade de `switch` aninhados.
+    /// Usada para validar `break` (switch aceita break, mas não continue).
+    pub switch_depth: usize,
     pub stdio_enabled: bool,
 }
 
@@ -27,11 +33,13 @@ impl SemanticAnalyser {
             current_fn_ret: None,
             diagnostics: Vec::new(),
             warnings: Vec::new(),
+            loop_depth: 0,
+            switch_depth: 0,
             stdio_enabled: false,
         }
     }
 
-    pub fn with_builtins(builtins: BuiltinsLibs) -> Self {
+    pub fn with_builtins(builtins: crate::common::builtins::BuiltinsLibs) -> Self {
         Self {
             stdio_enabled: builtins.stdio,
             ..Self::new()
@@ -178,7 +186,7 @@ impl SemanticAnalyser {
                 }
 
                 self.sym.enter_scope();
-                let prev_ret = self.current_fn_ret.replace(resolved_ret);
+                let prev_ret = self.current_fn_ret.replace(resolved_ret.clone());
 
                 for (qty, name) in params {
                     let resolved_qty = self.resolve_type(qty);
@@ -201,6 +209,15 @@ impl SemanticAnalyser {
 
                 for stmt in body {
                     self.analyse_stmt(stmt);
+                }
+
+                // Aviso conservador: função não-void cujo corpo não termina com return.
+                if resolved_ret.ty != Type::Void && !body_always_returns(body) {
+                    self.warnings
+                        .push(CompilerWarning::Semantic(SemanticWarning {
+                            span: span.clone(),
+                            kind: SemanticWarningKind::MissingReturn(name.clone()),
+                        }));
                 }
 
                 self.current_fn_ret = prev_ret;
@@ -254,10 +271,23 @@ impl SemanticAnalyser {
     pub fn analyse_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl(qty, name, init, span) => {
-                if let Some(expr) = init {
-                    self.analyse_expr(expr);
-                }
                 let resolved_qty = self.resolve_type(qty);
+                let initialized = if let Some(expr) = init {
+                    let init_ty = self.analyse_expr(expr);
+                    if !types_compatible_for_assign(&resolved_qty.ty, &init_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: expr.span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&resolved_qty.ty),
+                                    found: type_name(&init_ty.ty),
+                                },
+                            }));
+                    }
+                    true
+                } else {
+                    false
+                };
                 let symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_qty.clone(),
@@ -267,7 +297,7 @@ impl SemanticAnalyser {
                     prototype_only: false,
                     // Locais começam "não usadas"; a leitura marca `used = true`.
                     used: false,
-                    initialized: init.is_some(),
+                    initialized,
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -297,7 +327,7 @@ impl SemanticAnalyser {
                     }
                     (Some(expected), Some(e)) => {
                         let found_expr_qty = self.analyse_expr(e);
-                        if expected.ty != found_expr_qty.ty {
+                        if !types_compatible_for_assign(&expected.ty, &found_expr_qty.ty) {
                             self.diagnostics
                                 .push(CompilerError::Semantic(SemanticError {
                                     span: span.clone(),
@@ -330,10 +360,14 @@ impl SemanticAnalyser {
             }
             Stmt::While(cond, body, _) => {
                 self.analyse_expr(cond);
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
             }
             Stmt::DoWhile(cond, body, _) => {
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
                 self.analyse_expr(cond);
             }
             Stmt::For(init, cond, inc, body, _) => {
@@ -347,18 +381,56 @@ impl SemanticAnalyser {
                 if let Some(e) = inc {
                     self.analyse_expr(e);
                 }
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
                 self.exit_scope_checking_unused();
             }
-            Stmt::Switch(expr, cases, _) => {
-                self.analyse_expr(expr);
+            Stmt::Switch(expr, cases, span) => {
+                let disc_ty = self.analyse_expr(expr);
+                // Em C, o discriminante do switch deve ser de tipo inteiro ou enum.
+                let is_switch_ok = matches!(
+                    disc_ty.ty,
+                    Type::Int | Type::Long | Type::Short | Type::Char | Type::Enum(_)
+                );
+                if !is_switch_ok {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::InvalidSwitchType {
+                                found: type_name(&disc_ty.ty),
+                            },
+                        }));
+                }
+                self.switch_depth += 1;
                 for case in cases {
+                    if let crate::common::ast::stmt::SwitchLabel::Case(case_expr) = &case.label {
+                        self.analyse_expr(case_expr);
+                    }
                     for s in &case.stmts {
                         self.analyse_stmt(s);
                     }
                 }
+                self.switch_depth -= 1;
             }
-            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Break(span) => {
+                if self.loop_depth == 0 && self.switch_depth == 0 {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::BreakOutsideLoop,
+                        }));
+                }
+            }
+            Stmt::Continue(span) => {
+                if self.loop_depth == 0 {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::ContinueOutsideLoop,
+                        }));
+                }
+            }
         }
     }
 
@@ -432,9 +504,26 @@ impl SemanticAnalyser {
                     }
                 }
             }
-            Expr::Unary(_, e, _) | Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => {
-                self.analyse_expr(e)
+            Expr::Unary(op, e, _) => {
+                let inner_ty = self.analyse_expr(e);
+                match op {
+                    crate::common::ast::expr::UnOp::AddrOf => QualifierType {
+                        ty: Type::Pointer(Box::new(inner_ty.ty)),
+                        is_const: false,
+                        is_unsigned: false,
+                    },
+                    crate::common::ast::expr::UnOp::Deref => match inner_ty.ty {
+                        Type::Pointer(base) | Type::Array(base) => QualifierType {
+                            ty: *base,
+                            is_const: inner_ty.is_const,
+                            is_unsigned: inner_ty.is_unsigned,
+                        },
+                        _ => inner_ty,
+                    },
+                    _ => inner_ty,
+                }
             }
+            Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => self.analyse_expr(e),
             Expr::CompoundAssign(_, lhs, rhs, _) => {
                 let lhs_ty = self.analyse_expr(lhs);
                 self.analyse_expr(rhs);
@@ -863,6 +952,35 @@ pub fn analyse_with_builtins(prog: &Program, builtins: BuiltinsLibs) -> Vec<Diag
         .map(Diagnostic::Error)
         .chain(analyser.warnings.into_iter().map(Diagnostic::Warning))
         .collect()
+}
+
+/// Heurística conservadora: retorna `true` se o último statement do corpo é
+/// `Stmt::Return(Some(_))` ou se algum statement de nível de topo claramente
+/// sempre retorna (ex.: `if` com then E else ambos retornando).
+///
+/// Não tenta análise de fluxo completa; apenas evita falsos positivos nas
+/// situações mais comuns de funções de disciplina.
+fn body_always_returns(stmts: &[Stmt]) -> bool {
+    match stmts.last() {
+        Some(Stmt::Return(Some(_), _)) => true,
+        Some(Stmt::If(_, then, Some(else_), _)) => {
+            stmt_always_returns(then) && stmt_always_returns(else_)
+        }
+        Some(Stmt::Block(inner, _)) => body_always_returns(inner),
+        _ => false,
+    }
+}
+
+/// Verifica se um único statement sempre retorna (auxiliar de `body_always_returns`).
+fn stmt_always_returns(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(Some(_), _) => true,
+        Stmt::Block(stmts, _) => body_always_returns(stmts),
+        Stmt::If(_, then, Some(else_), _) => {
+            stmt_always_returns(then) && stmt_always_returns(else_)
+        }
+        _ => false,
+    }
 }
 
 fn infer_literal_type(lit: &Literal) -> QualifierType {
