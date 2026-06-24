@@ -767,7 +767,7 @@ mod tests {
             .sym
             .declare(crate::analyser::symbol_table::Symbol {
                 name: name.into(),
-                ty: qty(Type::Array(Box::new(inner))),
+                ty: qty(Type::Array(Box::new(inner), Some(4))),
                 mutable: true,
                 params: None,
                 decl_span: span(),

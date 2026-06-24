@@ -1542,7 +1542,7 @@ mod tests {
             panic!("esperava GlobalVar");
         };
         assert_eq!(name, "arr");
-        assert!(matches!(qty.ty, Type::Array(_)));
+        assert!(matches!(qty.ty, Type::Array(_, Some(10))));
     }
 
     #[test]
@@ -1572,7 +1572,7 @@ mod tests {
             panic!("esperava VarDecl");
         };
         assert_eq!(name, "arr");
-        assert!(matches!(qty.ty, Type::Array(_)));
+        assert!(matches!(qty.ty, Type::Array(_, Some(5))));
     }
 
     #[test]
@@ -1595,10 +1595,10 @@ mod tests {
         let Decl::GlobalVar(qty, _, None, _) = &prog.decls[0] else {
             panic!("esperava GlobalVar");
         };
-        let Type::Array(inner) = &qty.ty else {
+        let Type::Array(inner, Some(3)) = &qty.ty else {
             panic!("esperava Array externo");
         };
-        assert!(matches!(**inner, Type::Array(_)));
+        assert!(matches!(**inner, Type::Array(_, Some(4))));
     }
 
     #[test]
@@ -1619,7 +1619,7 @@ mod tests {
         let Decl::GlobalVar(qty, _, _, _) = &prog.decls[0] else {
             panic!("esperava GlobalVar");
         };
-        assert!(matches!(qty.ty, Type::Array(_)));
+        assert!(matches!(qty.ty, Type::Array(_, None)));
     }
     // ── struct ────────────────────────────────────────────────────────────────
 
