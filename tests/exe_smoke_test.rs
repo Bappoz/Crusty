@@ -141,3 +141,20 @@ fn smoke_function_call_runs() {
     #[cfg(unix)]
     assert_eq!(status.code(), Some(42));
 }
+
+/// Garante que o programa-demo da apresentação final (issue #163), em
+/// `src/examples/demo_presentation.c`, continua compilando e produzindo o
+/// exit code documentado no cabeçalho do arquivo.
+#[test]
+fn smoke_presentation_demo_runs() {
+    require_gcc!();
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/examples/demo_presentation.c");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("falha ao ler '{}': {e}", path.display()));
+
+    let status = compile_and_run("presentation_demo", &source);
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(80));
+}
