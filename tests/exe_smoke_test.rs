@@ -54,7 +54,8 @@ fn compile_to_asm(source: &str) -> String {
         .parse_program()
         .unwrap_or_else(|errors| panic!("erros de parser inesperados: {errors:?}"));
 
-    let sem_errors = analyse_with_builtins(&program, scanner.builtins);
+    let sem_diagnostics = analyse_with_builtins(&program, scanner.builtins);
+    let sem_errors: Vec<_> = sem_diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(
         sem_errors.is_empty(),
         "erros semanticos inesperados: {sem_errors:?}"

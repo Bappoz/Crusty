@@ -67,6 +67,10 @@ pub enum Operand {
     Temp(TempId),
     Var(String),
     Const(ConstValue),
+    /// Endereco indireto: o ponteiro guardado em `Operand` interno e lido (ou
+    /// escrito, quando usado como destino de `Copy`) atraves de deref, ex.:
+    /// `*p` como destino de `*p = x;` ou como valor em `*p + 1`.
+    Deref(Box<Operand>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,11 +109,16 @@ pub enum TacInstr {
     Label(LabelId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TacFunction {
     pub name: String,
     pub params: Vec<String>,
     pub instrs: Vec<TacInstr>,
+    /// Tamanho em bytes (ja arredondado para multiplo de 8) de variaveis
+    /// cujo valor nao cabe num slot escalar de 8 bytes — hoje, apenas
+    /// structs locais. Variaveis ausentes daqui usam o tamanho padrao (8
+    /// bytes) no codegen.
+    pub var_sizes: std::collections::HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +155,7 @@ impl fmt::Display for Operand {
             Operand::Temp(temp) => write!(f, "{temp}"),
             Operand::Var(name) => write!(f, "{name}"),
             Operand::Const(value) => write!(f, "{value}"),
+            Operand::Deref(inner) => write!(f, "*{inner}"),
         }
     }
 }

@@ -177,6 +177,7 @@ mod tests {
             name: "test".to_string(),
             params: Vec::new(),
             instrs,
+            var_sizes: Default::default(),
         }
     }
 
