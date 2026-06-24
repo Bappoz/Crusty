@@ -2,7 +2,7 @@ use crate::common::ast::{
     ast::{Program, Type},
     decl::Decl,
     expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp},
-    stmt::Stmt,
+    stmt::{Stmt, SwitchLabel},
 };
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{
@@ -304,10 +304,62 @@ impl Lowerer {
                 }
                 Ok(())
             }
-            Stmt::Switch(_, _, _) => Err(codegen_error(
-                "switch nao suportado no lowering",
-                Some("switch"),
-            )),
+            Stmt::Switch(disc, cases, _) => {
+                let disc_op = self.lower_expr(disc)?;
+                let end_label = self.labels.fresh();
+
+                // Um label por `case`/`default`; serve tanto de alvo da
+                // comparacao quanto de entrada do corpo daquele caso.
+                let case_labels: Vec<LabelId> = cases.iter().map(|_| self.labels.fresh()).collect();
+                let default_index = cases
+                    .iter()
+                    .position(|case| matches!(case.label, SwitchLabel::Default));
+
+                // Cadeia de comparacoes: testa cada `case` (na ordem em que
+                // aparece); `default` nao entra na comparacao, e usado como
+                // fallback ao final da cadeia.
+                for (index, case) in cases.iter().enumerate() {
+                    if let SwitchLabel::Case(case_expr) = &case.label {
+                        let case_val = self.lower_expr(case_expr)?;
+                        let cmp = self.fresh_temp();
+                        self.instrs.push(TacInstr::BinOp {
+                            dst: cmp,
+                            op: BinOp::Eq,
+                            lhs: disc_op.clone(),
+                            rhs: case_val,
+                        });
+                        let next_test = self.labels.fresh();
+                        self.instrs.push(TacInstr::CondJump {
+                            cond: Operand::Temp(cmp),
+                            then_label: case_labels[index],
+                            else_label: next_test,
+                        });
+                        self.instrs.push(TacInstr::Label(next_test));
+                    }
+                }
+                let fallback_label = default_index.map_or(end_label, |i| case_labels[i]);
+                self.instrs.push(TacInstr::Jump {
+                    label: fallback_label,
+                });
+
+                // Corpo dos casos, em ordem, sem break implicito entre eles
+                // (fallthrough real de C); `break` salta para `end_label`.
+                for (index, case) in cases.iter().enumerate() {
+                    self.instrs.push(TacInstr::Label(case_labels[index]));
+                    for stmt in &case.stmts {
+                        self.lower_stmt_with_control(
+                            stmt,
+                            ControlLabels {
+                                break_label: Some(end_label),
+                                continue_label: control.continue_label,
+                            },
+                        )?;
+                    }
+                }
+
+                self.instrs.push(TacInstr::Label(end_label));
+                Ok(())
+            }
         }
     }
 

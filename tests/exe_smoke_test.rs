@@ -141,3 +141,48 @@ fn smoke_function_call_runs() {
     #[cfg(unix)]
     assert_eq!(status.code(), Some(42));
 }
+
+#[test]
+fn smoke_switch_with_default_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "switch_default",
+        "int classify(int n) { \
+            int result = 0; \
+            switch (n) { \
+                case 1: result = 1; break; \
+                case 2: result = 2; break; \
+                default: result = -1; break; \
+            } \
+            return result; \
+        } \
+        int main() { return classify(1) + classify(2) + classify(9) + 100; }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(102));
+}
+
+#[test]
+fn smoke_switch_fallthrough_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "switch_fallthrough",
+        "int main() { \
+            int n = 2; \
+            int total = 0; \
+            switch (n) { \
+                case 1: total = total + 1; \
+                case 2: total = total + 2; \
+                case 3: total = total + 3; break; \
+                case 4: total = total + 100; \
+            } \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(5));
+}
