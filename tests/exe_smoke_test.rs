@@ -239,6 +239,26 @@ fn smoke_deref_increment_operators_run() {
 }
 
 #[test]
+fn smoke_pointer_index_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "pointer_index",
+        "int sum_via_index(int *p) { \
+            p[0] = 10; \
+            return p[0] + 5; \
+        } \
+        int main() { \
+            int x = 1; \
+            return sum_via_index(&x); \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(15));
+}
+
+#[test]
 fn smoke_sizeof_of_variables_runs() {
     require_gcc!();
 

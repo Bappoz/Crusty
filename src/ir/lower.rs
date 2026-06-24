@@ -45,6 +45,77 @@ impl Lowerer {
         self.var_types.insert(name.to_string(), ty.clone());
     }
 
+    /// Infere o tipo estatico de um subconjunto limitado de expressoes
+    /// (identificadores, deref, indice via ponteiro e cast) — o suficiente
+    /// para resolver o tamanho do elemento em `arr[i]`. Nao substitui a
+    /// analise semantica completa; expressoes fora desse subconjunto
+    /// retornam um erro explicito em vez de um palpite.
+    fn infer_type(&self, expr: &Expr) -> LowerResult<Type> {
+        match expr {
+            Expr::Ident(name, _) => self.var_types.get(name).cloned().ok_or_else(|| {
+                codegen_error(
+                    "tipo de variavel desconhecido no lowering",
+                    Some("type"),
+                )
+            }),
+            Expr::Unary(UnOp::Deref, inner, _) => match self.infer_type(inner)? {
+                Type::Pointer(t) | Type::Array(t) => Ok(*t),
+                _ => Err(codegen_error(
+                    "deref de valor que nao e ponteiro/array",
+                    Some("type"),
+                )),
+            },
+            Expr::Index(arr, _, _) => match self.infer_type(arr)? {
+                Type::Pointer(t) => Ok(*t),
+                Type::Array(_) => Err(codegen_error(
+                    "indexacao de array fixo ainda nao suportada (tamanho do array nao e rastreado pelo lowering); indexacao via ponteiro funciona normalmente",
+                    Some("index"),
+                )),
+                _ => Err(codegen_error(
+                    "indexacao de valor que nao e ponteiro/array",
+                    Some("index"),
+                )),
+            },
+            Expr::Cast(qty, _, _) => Ok(qty.ty.clone()),
+            _ => Err(codegen_error(
+                "tipo de expressao nao inferido no lowering (suporte limitado a identificador, deref, indice e cast)",
+                Some("type"),
+            )),
+        }
+    }
+
+    /// Calcula o endereco (em bytes) de `arr[idx]`, assumindo que `arr` e um
+    /// ponteiro: `endereco = lower_expr(arr) + idx * sizeof(elemento)`.
+    fn lower_index_address(&mut self, arr: &Expr, idx: &Expr) -> LowerResult<Operand> {
+        let elem_ty = self.infer_type(arr)?;
+        let elem_size = type_size(&elem_ty)?;
+
+        let base_ptr = self.lower_expr(arr)?;
+        let idx_op = self.lower_expr(idx)?;
+
+        let offset = if elem_size == 1 {
+            idx_op
+        } else {
+            let scaled = self.fresh_temp();
+            self.instrs.push(TacInstr::BinOp {
+                dst: scaled,
+                op: BinOp::Mul,
+                lhs: idx_op,
+                rhs: Operand::Const(ConstValue::Int(elem_size)),
+            });
+            Operand::Temp(scaled)
+        };
+
+        let addr = self.fresh_temp();
+        self.instrs.push(TacInstr::BinOp {
+            dst: addr,
+            op: BinOp::Add,
+            lhs: base_ptr,
+            rhs: offset,
+        });
+        Ok(Operand::Temp(addr))
+    }
+
     pub fn lower_expr(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
             Expr::Literal(value, _) => Ok(Operand::Const(lower_literal(value))),
@@ -141,10 +212,10 @@ impl Lowerer {
                 self.instrs.push(TacInstr::Label(end_label));
                 Ok(Operand::Temp(dst))
             }
-            Expr::Index(_, _, _) => Err(codegen_error(
-                "acesso por indice nao suportado no lowering",
-                Some("index"),
-            )),
+            Expr::Index(arr, idx, _) => {
+                let addr = self.lower_index_address(arr, idx)?;
+                Ok(Operand::Deref(Box::new(addr)))
+            }
             Expr::Member(_, _, _, _) => Err(codegen_error(
                 "acesso a membro nao suportado no lowering",
                 Some("member"),
@@ -438,6 +509,12 @@ impl Lowerer {
             Expr::Unary(UnOp::Deref, inner, _) => {
                 let ptr = self.lower_expr(inner)?;
                 Ok(Operand::Deref(Box::new(ptr)))
+            }
+            // `arr[i] = x;` (com `arr` ponteiro): mesmo enderecamento usado
+            // na leitura, via `lower_index_address`.
+            Expr::Index(arr, idx, _) => {
+                let addr = self.lower_index_address(arr, idx)?;
+                Ok(Operand::Deref(Box::new(addr)))
             }
             _ => Err(codegen_error(
                 "destino de atribuicao nao suportado no lowering",
