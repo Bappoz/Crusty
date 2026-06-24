@@ -6,6 +6,8 @@
 //! execucao. Se o `gcc` nao estiver disponivel no ambiente, os testes sao
 //! ignorados (skip) em vez de falhar.
 
+#![cfg_attr(not(unix), allow(unused_variables))]
+
 use std::path::PathBuf;
 use std::process::Command;
 

@@ -8,6 +8,8 @@
 //! completo. Se `gcc` nao estiver disponivel no ambiente, os testes sao
 //! ignorados (skip) em vez de falhar.
 
+#![cfg_attr(not(unix), allow(unused_variables))]
+
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
@@ -141,6 +143,112 @@ fn smoke_function_call_runs() {
 
     #[cfg(unix)]
     assert_eq!(status.code(), Some(42));
+}
+
+#[test]
+fn smoke_blocks_and_local_scopes_run() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "blocks",
+        "int main() { \
+            int total = 0; \
+            { int a = 5; total = total + a; } \
+            { int b = 7; total = total + b; } \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(12));
+}
+
+#[test]
+fn smoke_if_else_chain_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "if_else_chain",
+        "int classify(int n) { \
+            if (n < 0) { return -1; } \
+            else if (n == 0) { return 0; } \
+            else { return 1; } \
+        } \
+        int main() { return classify(-5) + classify(0) + classify(5) + 10; }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(10));
+}
+
+#[test]
+fn smoke_while_loop_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "while",
+        "int main() { \
+            int i = 0; \
+            int total = 0; \
+            while (i < 5) { total = total + i; i = i + 1; } \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(10));
+}
+
+#[test]
+fn smoke_for_loop_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "for",
+        "int main() { \
+            int total = 0; \
+            for (int i = 0; i < 5; i = i + 1) { total = total + i; } \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(10));
+}
+
+#[test]
+fn smoke_do_while_loop_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "do_while",
+        "int main() { \
+            int i = 0; \
+            int total = 0; \
+            do { total = total + i; i = i + 1; } while (i < 5); \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(10));
+}
+
+#[test]
+fn smoke_recursive_fibonacci_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "fib",
+        "int fib(int n) { \
+            if (n <= 1) { return n; } \
+            return fib(n - 1) + fib(n - 2); \
+        } \
+        int main() { return fib(10); }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(55));
 }
 
 #[test]
