@@ -63,24 +63,41 @@ impl Default for Frame {
 }
 
 impl Frame {
-    /// Cria um frame vazio. Os slots locais comecam em `-8` e decrescem.
+    /// Cria um frame vazio. O primeiro slot local alocado comeca em `-8`
+    /// (ou em `-tamanho`, arredondado para 8, se maior que 8 bytes).
     pub fn new() -> Self {
         Self {
             offsets: HashMap::new(),
-            next_local_offset: -8,
+            next_local_offset: 0,
         }
     }
 
-    /// Aloca (se ainda nao existir) e retorna o offset de `key`.
-    ///
-    /// Slots alocados por aqui sao sempre locais (offsets negativos).
+    /// Aloca (se ainda nao existir) e retorna o offset de `key`, reservando
+    /// exatamente um slot de 8 bytes. Equivalente a
+    /// `allocate_local_sized(key, 8)` — usado por temporarios e variaveis
+    /// escalares/ponteiro, que sempre cabem em 8 bytes neste backend.
     pub fn allocate_local(&mut self, key: SlotKey) -> i64 {
+        self.allocate_local_sized(key, 8)
+    }
+
+    /// Aloca (se ainda nao existir) um bloco contiguo de `size` bytes
+    /// (arredondado para multiplo de 8) e retorna o offset do seu primeiro
+    /// byte (o endereco mais baixo do bloco). Usado para variaveis cujo
+    /// valor nao cabe em 8 bytes, como structs: campos sao acessados como
+    /// `offset_of(var) + offset_do_campo`.
+    ///
+    /// Aloca sempre decrementando primeiro o cursor de offset, depois
+    /// atribuindo: isso preserva a sequencia historica de offsets
+    /// (-8, -16, -24, ...) para alocacoes de 8 bytes, e generaliza de forma
+    /// continua para blocos maiores.
+    pub fn allocate_local_sized(&mut self, key: SlotKey, size: i64) -> i64 {
         if let Some(&offset) = self.offsets.get(&key) {
             return offset;
         }
+        let aligned_size = align_up(size.max(1), 8);
+        self.next_local_offset -= aligned_size;
         let offset = self.next_local_offset;
         self.offsets.insert(key, offset);
-        self.next_local_offset -= 8;
         offset
     }
 
@@ -103,9 +120,12 @@ impl Frame {
     /// Tamanho total do frame em bytes, alinhado em 16.
     ///
     /// Retorna 0 quando nao ha slots locais (funcao "leaf" sem frame).
+    /// Calculado a partir do cursor de alocacao (`next_local_offset`), e
+    /// nao de `local_slot_count() * 8`: blocos maiores que 8 bytes (ex.:
+    /// structs via `allocate_local_sized`) ocupam mais de um "slot" de
+    /// contabilidade, mas devem ser contados pelo numero real de bytes.
     pub fn frame_size(&self) -> i64 {
-        let raw = (self.local_slot_count() as i64) * 8;
-        align_up(raw, 16)
+        align_up(-self.next_local_offset, 16)
     }
 }
 
