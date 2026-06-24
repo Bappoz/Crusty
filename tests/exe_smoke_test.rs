@@ -368,6 +368,25 @@ fn smoke_pointer_index_read_and_write_runs() {
 }
 
 #[test]
+fn smoke_fixed_array_index_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "fixed_array_index",
+        "int main() { \
+            int arr[3]; \
+            arr[0] = 1; \
+            arr[1] = 2; \
+            arr[2] = 3; \
+            return arr[0] + arr[1] + arr[2]; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(6));
+}
+
+#[test]
 fn smoke_struct_member_read_and_write_runs() {
     require_gcc!();
 
