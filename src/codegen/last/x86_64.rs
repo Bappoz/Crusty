@@ -427,6 +427,24 @@ fn emit_unop(
     frame: &Frame,
     strings: &StringPool,
 ) -> EmitResult<()> {
+    // `&x` precisa do *endereco* do slot de `src`, nao do seu valor: nao
+    // passa por `load_op` (que faria `movq slot(%rbp), %reg`, carregando o
+    // conteudo em vez do endereco).
+    if matches!(op, UnOp::AddrOf) {
+        let key = SlotKey::from_operand(src).ok_or_else(|| {
+            codegen_error(
+                "endereco-de (&) requer uma variavel ou temporario com slot",
+                Some("unop"),
+            )
+        })?;
+        let offset = frame
+            .offset_of(&key)
+            .expect("operando de & deve ter slot alocado no frame");
+        em.insn(&format!("leaq {offset}(%rbp), %rax"));
+        store_op(em, frame, &Operand::Temp(dst), "rax")?;
+        return Ok(());
+    }
+
     load_op(em, frame, src, "rax", strings)?;
     match op {
         UnOp::Neg => em.insn("negq %rax"),
@@ -437,17 +455,9 @@ fn emit_unop(
             em.insn("movzbq %al, %rax");
         }
         UnOp::Deref => {
-            return Err(codegen_error(
-                "codegen de deref (*) nao suportado neste backend",
-                Some("unop"),
-            ))
+            em.insn("movq (%rax), %rax");
         }
-        UnOp::AddrOf => {
-            return Err(codegen_error(
-                "codegen de address-of (&) nao suportado neste backend",
-                Some("unop"),
-            ))
-        }
+        UnOp::AddrOf => unreachable!("tratado antes do load_op acima"),
     }
     store_op(em, frame, &Operand::Temp(dst), "rax")?;
     Ok(())

@@ -165,6 +165,24 @@ fn smoke_switch_with_default_runs() {
 }
 
 #[test]
+fn smoke_address_of_and_deref_read_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "addrof_deref_read",
+        "int main() { \
+            int x = 21; \
+            int *p = &x; \
+            int y = *p; \
+            return y * 2; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(42));
+}
+
+#[test]
 fn smoke_switch_fallthrough_runs() {
     require_gcc!();
 
