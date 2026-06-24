@@ -212,14 +212,20 @@ fn emit_function(func: &TacFunction, strings: &StringPool) -> EmitResult<String>
 
 /// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
 /// slot para cada temp/variavel e mapear os parametros para suas posicoes.
+///
+/// Variaveis listadas em `func.var_sizes` (hoje, structs locais) recebem um
+/// bloco contiguo do tamanho indicado em vez do slot escalar padrao de 8
+/// bytes; demais variaveis e temporarios usam sempre 8 bytes.
 fn build_frame(func: &TacFunction) -> Frame {
     let mut frame = Frame::new();
+
+    let size_of = |name: &str| func.var_sizes.get(name).copied().unwrap_or(8);
 
     for (index, name) in func.params.iter().enumerate() {
         let key = SlotKey::Var(name.clone());
         match abi::arg_register(index) {
             Some(_) => {
-                frame.allocate_local(key);
+                frame.allocate_local_sized(key, size_of(name));
             }
             None => {
                 // Argumento passado via stack do chamador: ja esta disponivel
@@ -235,7 +241,11 @@ fn build_frame(func: &TacFunction) -> Frame {
             if frame.offset_of(&key).is_some() {
                 continue;
             }
-            frame.allocate_local(key);
+            let size = match &key {
+                SlotKey::Var(name) => size_of(name),
+                SlotKey::Temp(_) => 8,
+            };
+            frame.allocate_local_sized(key, size);
         }
     }
 
@@ -643,6 +653,7 @@ mod tests {
             name: name.to_string(),
             params: params.into_iter().map(String::from).collect(),
             instrs,
+            var_sizes: Default::default(),
         }
     }
 

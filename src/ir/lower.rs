@@ -1,15 +1,25 @@
 use crate::common::ast::{
-    ast::{Program, Type},
+    ast::{Program, QualifierType, Type},
     decl::Decl,
-    expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp, UnOp},
+    expr::{BinOp, Expr, Literal, MemberAccess, PostfixOp, PrefixOp, UnOp},
     stmt::{Stmt, SwitchLabel},
 };
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{
     ConstValue, LabelGen, LabelId, Operand, TacFunction, TacInstr, TacProgram, TempGen, TempId,
 };
+use std::collections::HashMap;
 
 type LowerResult<T> = Result<T, CodegenError>;
+
+/// Layout calculado de uma struct: offset (em bytes, a partir do endereco
+/// base da struct) e tipo resolvido de cada campo, mais o tamanho total
+/// (arredondado para a maior alinhamento entre os campos).
+#[derive(Debug, Clone)]
+struct StructLayout {
+    fields: Vec<(String, i64, Type)>,
+    size: i64,
+}
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {
@@ -17,9 +27,18 @@ pub struct Lowerer {
     labels: LabelGen,
     instrs: Vec<TacInstr>,
     /// Tipo declarado de cada variavel/parametro visto ate agora na funcao
-    /// atual. Usado apenas para resolver `sizeof(expr)`; nao substitui a
-    /// analise semantica (que ja validou o programa antes do lowering).
-    var_types: std::collections::HashMap<String, Type>,
+    /// atual. Usado para resolver `sizeof(expr)`, indexacao via ponteiro e
+    /// acesso a membro; nao substitui a analise semantica (que ja validou o
+    /// programa antes do lowering).
+    var_types: HashMap<String, Type>,
+    /// Layout (offsets + tamanho) de cada struct declarada no programa,
+    /// calculado uma vez em `lower_program` e compartilhado entre as
+    /// funcoes. Vazio quando o `Lowerer` e usado isoladamente (ex.: testes
+    /// unitarios deste modulo via `Lowerer::new()`).
+    struct_layouts: HashMap<String, StructLayout>,
+    /// Tabela de `typedef`: nome do alias -> tipo subjacente (ainda podendo
+    /// ser outro alias, resolvido por `resolve_alias`).
+    typedefs: HashMap<String, Type>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -30,11 +49,20 @@ struct ControlLabels {
 
 impl Lowerer {
     pub fn new() -> Self {
+        Self::with_context(HashMap::new(), HashMap::new())
+    }
+
+    fn with_context(
+        struct_layouts: HashMap<String, StructLayout>,
+        typedefs: HashMap<String, Type>,
+    ) -> Self {
         Self {
             temps: TempGen::new(),
             labels: LabelGen::new(),
             instrs: Vec::new(),
-            var_types: std::collections::HashMap::new(),
+            var_types: HashMap::new(),
+            struct_layouts,
+            typedefs,
         }
     }
 
@@ -45,28 +73,43 @@ impl Lowerer {
         self.var_types.insert(name.to_string(), ty.clone());
     }
 
-    /// Infere o tipo estatico de um subconjunto limitado de expressoes
-    /// (identificadores, deref, indice via ponteiro e cast) — o suficiente
-    /// para resolver o tamanho do elemento em `arr[i]`. Nao substitui a
-    /// analise semantica completa; expressoes fora desse subconjunto
-    /// retornam um erro explicito em vez de um palpite.
+    /// Tamanho (em bytes) de cada variavel cujo valor nao cabe num slot
+    /// escalar de 8 bytes — hoje, apenas structs locais. Chamado ao final do
+    /// lowering de uma funcao, para popular `TacFunction::var_sizes`.
+    fn compute_var_sizes(&self) -> HashMap<String, i64> {
+        let mut sizes = HashMap::new();
+        for (name, ty) in &self.var_types {
+            if let Type::Struct(struct_name) = resolve_alias(ty, &self.typedefs) {
+                if let Some(layout) = self.struct_layouts.get(&struct_name) {
+                    sizes.insert(name.clone(), layout.size);
+                }
+            }
+        }
+        sizes
+    }
+
+    /// Infere o tipo estatico (ja resolvido de aliases de `typedef`) de um
+    /// subconjunto limitado de expressoes (identificadores, deref, indice
+    /// via ponteiro, membro de struct e cast) — o suficiente para resolver
+    /// o tamanho do elemento em `arr[i]` e o offset de campo em `s.campo`.
+    /// Nao substitui a analise semantica completa; expressoes fora desse
+    /// subconjunto retornam um erro explicito em vez de um palpite.
     fn infer_type(&self, expr: &Expr) -> LowerResult<Type> {
         match expr {
-            Expr::Ident(name, _) => self.var_types.get(name).cloned().ok_or_else(|| {
-                codegen_error(
-                    "tipo de variavel desconhecido no lowering",
-                    Some("type"),
-                )
-            }),
+            Expr::Ident(name, _) => self
+                .var_types
+                .get(name)
+                .map(|ty| resolve_alias(ty, &self.typedefs))
+                .ok_or_else(|| codegen_error("tipo de variavel desconhecido no lowering", Some("type"))),
             Expr::Unary(UnOp::Deref, inner, _) => match self.infer_type(inner)? {
-                Type::Pointer(t) | Type::Array(t) => Ok(*t),
+                Type::Pointer(t) | Type::Array(t) => Ok(resolve_alias(&t, &self.typedefs)),
                 _ => Err(codegen_error(
                     "deref de valor que nao e ponteiro/array",
                     Some("type"),
                 )),
             },
             Expr::Index(arr, _, _) => match self.infer_type(arr)? {
-                Type::Pointer(t) => Ok(*t),
+                Type::Pointer(t) => Ok(resolve_alias(&t, &self.typedefs)),
                 Type::Array(_) => Err(codegen_error(
                     "indexacao de array fixo ainda nao suportada (tamanho do array nao e rastreado pelo lowering); indexacao via ponteiro funciona normalmente",
                     Some("index"),
@@ -76,12 +119,67 @@ impl Lowerer {
                     Some("index"),
                 )),
             },
-            Expr::Cast(qty, _, _) => Ok(qty.ty.clone()),
+            Expr::Member(obj, access, field, _) => {
+                let layout = self.struct_layout_of_member_base(obj, access)?;
+                layout
+                    .fields
+                    .iter()
+                    .find(|(name, _, _)| name == field)
+                    .map(|(_, _, ty)| ty.clone())
+                    .ok_or_else(|| {
+                        codegen_error("campo de struct desconhecido no lowering", Some("member"))
+                    })
+            }
+            Expr::Cast(qty, _, _) => Ok(resolve_alias(&qty.ty, &self.typedefs)),
             _ => Err(codegen_error(
-                "tipo de expressao nao inferido no lowering (suporte limitado a identificador, deref, indice e cast)",
+                "tipo de expressao nao inferido no lowering (suporte limitado a identificador, deref, indice, membro e cast)",
                 Some("type"),
             )),
         }
+    }
+
+    /// Resolve o layout da struct base de um acesso a membro: para `.`,
+    /// `obj` deve ser a propria struct; para `->`, `obj` deve ser um
+    /// ponteiro para struct.
+    fn struct_layout_of_member_base(
+        &self,
+        obj: &Expr,
+        access: &MemberAccess,
+    ) -> LowerResult<&StructLayout> {
+        let struct_name = match access {
+            MemberAccess::Direct => match self.infer_type(obj)? {
+                Type::Struct(name) => name,
+                _ => {
+                    return Err(codegen_error(
+                        "acesso '.' em valor que nao e struct",
+                        Some("member"),
+                    ))
+                }
+            },
+            MemberAccess::Pointer => match self.infer_type(obj)? {
+                Type::Pointer(inner) => match resolve_alias(&inner, &self.typedefs) {
+                    Type::Struct(name) => name,
+                    _ => {
+                        return Err(codegen_error(
+                            "acesso '->' em ponteiro que nao e para struct",
+                            Some("member"),
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(codegen_error(
+                        "acesso '->' em valor que nao e ponteiro",
+                        Some("member"),
+                    ))
+                }
+            },
+        };
+        self.struct_layouts.get(&struct_name).ok_or_else(|| {
+            codegen_error(
+                "layout de struct desconhecido no lowering (campo agregado aninhado nao suportado, ou struct nunca declarada)",
+                Some("member"),
+            )
+        })
     }
 
     /// Calcula o endereco (em bytes) de `arr[idx]`, assumindo que `arr` e um
@@ -114,6 +212,69 @@ impl Lowerer {
             rhs: offset,
         });
         Ok(Operand::Temp(addr))
+    }
+
+    /// Calcula o endereco (em bytes) de `obj.campo` ou `obj->campo`:
+    /// endereco da struct base + offset do campo no layout.
+    fn lower_member_address(
+        &mut self,
+        obj: &Expr,
+        access: &MemberAccess,
+        field: &str,
+    ) -> LowerResult<Operand> {
+        let field_offset = {
+            let layout = self.struct_layout_of_member_base(obj, access)?;
+            layout
+                .fields
+                .iter()
+                .find(|(name, _, _)| name == field)
+                .map(|(_, offset, _)| *offset)
+                .ok_or_else(|| {
+                    codegen_error("campo de struct desconhecido no lowering", Some("member"))
+                })?
+        };
+
+        let base_addr = match access {
+            MemberAccess::Direct => self.lower_address_of(obj)?,
+            MemberAccess::Pointer => self.lower_expr(obj)?,
+        };
+
+        if field_offset == 0 {
+            return Ok(base_addr);
+        }
+
+        let addr = self.fresh_temp();
+        self.instrs.push(TacInstr::BinOp {
+            dst: addr,
+            op: BinOp::Add,
+            lhs: base_addr,
+            rhs: Operand::Const(ConstValue::Int(field_offset)),
+        });
+        Ok(Operand::Temp(addr))
+    }
+
+    /// Calcula o *endereco* (nao o valor) de uma expressao-lvalue:
+    /// identificador, `*p` (endereco = o proprio `p`), `arr[i]` ou
+    /// `obj.campo`/`obj->campo`.
+    fn lower_address_of(&mut self, expr: &Expr) -> LowerResult<Operand> {
+        match expr {
+            Expr::Ident(name, _) => {
+                let temp = self.fresh_temp();
+                self.instrs.push(TacInstr::UnOp {
+                    dst: temp,
+                    op: UnOp::AddrOf,
+                    src: Operand::Var(name.clone()),
+                });
+                Ok(Operand::Temp(temp))
+            }
+            Expr::Unary(UnOp::Deref, inner, _) => self.lower_expr(inner),
+            Expr::Index(arr, idx, _) => self.lower_index_address(arr, idx),
+            Expr::Member(obj, access, field, _) => self.lower_member_address(obj, access, field),
+            _ => Err(codegen_error(
+                "nao e possivel obter o endereco desta expressao no lowering",
+                Some("addr"),
+            )),
+        }
     }
 
     pub fn lower_expr(&mut self, expr: &Expr) -> LowerResult<Operand> {
@@ -216,10 +377,10 @@ impl Lowerer {
                 let addr = self.lower_index_address(arr, idx)?;
                 Ok(Operand::Deref(Box::new(addr)))
             }
-            Expr::Member(_, _, _, _) => Err(codegen_error(
-                "acesso a membro nao suportado no lowering",
-                Some("member"),
-            )),
+            Expr::Member(obj, access, field, _) => {
+                let addr = self.lower_member_address(obj, access, field)?;
+                Ok(Operand::Deref(Box::new(addr)))
+            }
             // `sizeof(expr)`: o caso pratico mais comum e `sizeof(variavel)`.
             // O tipo declarado de identificadores e rastreado em
             // `var_types` (preenchido a partir de parametros e `VarDecl`);
@@ -502,7 +663,31 @@ impl Lowerer {
 
     fn lower_assignment_target(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
-            Expr::Ident(name, _) => Ok(Operand::Var(name.clone())),
+            Expr::Ident(name, _) => {
+                // Atribuicao direta entre structs (`q = p;`) copiaria o
+                // valor inteiro da struct; este backend so move 8 bytes por
+                // `Copy` (todo o resto do codegen trata cada valor como um
+                // unico quadword). Para structs que cabem em 8 bytes isso
+                // ja funciona corretamente de gracas; para maiores,
+                // copiaria so os 8 primeiros bytes silenciosamente —
+                // recusa explicitamente em vez disso.
+                if let Some(ty) = self.var_types.get(name) {
+                    if let Type::Struct(struct_name) = resolve_alias(ty, &self.typedefs) {
+                        let size = self
+                            .struct_layouts
+                            .get(&struct_name)
+                            .map(|l| l.size)
+                            .unwrap_or(8);
+                        if size > 8 {
+                            return Err(codegen_error(
+                                "atribuicao direta entre structs maiores que 8 bytes nao suportada neste backend (copie campo a campo)",
+                                Some("assign"),
+                            ));
+                        }
+                    }
+                }
+                Ok(Operand::Var(name.clone()))
+            }
             // `*p` como destino (`*p = x;`, `*p += 1;`, `(*p)++` etc.): o
             // ponteiro em si e um rvalue comum, mas o destino da escrita e o
             // endereco para o qual ele aponta.
@@ -514,6 +699,12 @@ impl Lowerer {
             // na leitura, via `lower_index_address`.
             Expr::Index(arr, idx, _) => {
                 let addr = self.lower_index_address(arr, idx)?;
+                Ok(Operand::Deref(Box::new(addr)))
+            }
+            // `obj.campo = x;` / `obj->campo = x;`: mesmo enderecamento
+            // usado na leitura, via `lower_member_address`.
+            Expr::Member(obj, access, field, _) => {
+                let addr = self.lower_member_address(obj, access, field)?;
                 Ok(Operand::Deref(Box::new(addr)))
             }
             _ => Err(codegen_error(
@@ -553,9 +744,17 @@ impl Default for Lowerer {
 }
 
 pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
+    lower_function_with_context(decl, &HashMap::new(), &HashMap::new())
+}
+
+fn lower_function_with_context(
+    decl: &Decl,
+    struct_layouts: &HashMap<String, StructLayout>,
+    typedefs: &HashMap<String, Type>,
+) -> LowerResult<TacFunction> {
     match decl {
         Decl::Function(_, name, params, body, _) => {
-            let mut lowerer = Lowerer::new();
+            let mut lowerer = Lowerer::with_context(struct_layouts.clone(), typedefs.clone());
             for (qty, param_name) in params {
                 lowerer.declare_var_type(param_name, &qty.ty);
             }
@@ -563,10 +762,12 @@ pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
                 lowerer.lower_stmt(stmt)?;
             }
 
+            let var_sizes = lowerer.compute_var_sizes();
             Ok(TacFunction {
                 name: name.clone(),
                 params: params.iter().map(|(_, name)| name.clone()).collect(),
                 instrs: lowerer.finish(),
+                var_sizes,
             })
         }
         _ => Err(codegen_error(
@@ -577,14 +778,106 @@ pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
 }
 
 pub fn lower_program(prog: &Program) -> LowerResult<TacProgram> {
+    let typedefs = build_typedefs(prog);
+    let struct_layouts = build_struct_layouts(prog, &typedefs);
+
     let mut functions = Vec::new();
     for decl in &prog.decls {
         if matches!(decl, Decl::Function(..)) {
-            functions.push(lower_function(decl)?);
+            functions.push(lower_function_with_context(
+                decl,
+                &struct_layouts,
+                &typedefs,
+            )?);
         }
     }
 
     Ok(TacProgram { functions })
+}
+
+/// Segue a cadeia de `Type::Alias` ate um tipo concreto, usando a tabela de
+/// `typedef` do programa. Limita a profundidade para nao travar em alias
+/// ciclico malformado; nesse caso, devolve o alias original sem resolver.
+fn resolve_alias(ty: &Type, typedefs: &HashMap<String, Type>) -> Type {
+    let mut current = ty.clone();
+    for _ in 0..8 {
+        match current {
+            Type::Alias(name) => match typedefs.get(&name) {
+                Some(next) => current = next.clone(),
+                None => return Type::Alias(name),
+            },
+            other => return other,
+        }
+    }
+    current
+}
+
+/// Coleta `nome -> tipo subjacente` de todo `Decl::Typedef` do programa.
+fn build_typedefs(prog: &Program) -> HashMap<String, Type> {
+    let mut map = HashMap::new();
+    for decl in &prog.decls {
+        if let Decl::Typedef(qty, name, _) = decl {
+            map.insert(name.clone(), qty.ty.clone());
+        }
+    }
+    map
+}
+
+/// Calcula o layout de cada `Decl::StructDecl` do programa. Structs cujo
+/// layout nao pode ser calculado (campo agregado aninhado — struct/array
+/// dentro de struct, ainda nao suportado) sao simplesmente omitidas: usos de
+/// `Expr::Member` sobre elas falham depois, no lowering, com um erro
+/// explicito em vez de um layout incorreto.
+fn build_struct_layouts(
+    prog: &Program,
+    typedefs: &HashMap<String, Type>,
+) -> HashMap<String, StructLayout> {
+    let mut layouts = HashMap::new();
+    for decl in &prog.decls {
+        if let Decl::StructDecl(name, fields, _) = decl {
+            if let Ok(layout) = compute_struct_layout(fields, typedefs) {
+                layouts.insert(name.clone(), layout);
+            }
+        }
+    }
+    layouts
+}
+
+fn compute_struct_layout(
+    fields: &[(QualifierType, String)],
+    typedefs: &HashMap<String, Type>,
+) -> LowerResult<StructLayout> {
+    let mut offset = 0i64;
+    let mut max_align = 1i64;
+    let mut laid_out = Vec::with_capacity(fields.len());
+
+    for (qty, field_name) in fields {
+        let resolved = resolve_alias(&qty.ty, typedefs);
+        let size = type_size(&resolved).map_err(|_| {
+            codegen_error(
+                "campo de struct com tipo agregado (struct/array) aninhado nao suportado neste backend",
+                Some("struct"),
+            )
+        })?;
+
+        offset = align_up(offset, size);
+        laid_out.push((field_name.clone(), offset, resolved));
+        offset += size;
+        max_align = max_align.max(size);
+    }
+
+    let total = align_up(offset, max_align.max(1)).max(1);
+    Ok(StructLayout {
+        fields: laid_out,
+        size: total,
+    })
+}
+
+fn align_up(value: i64, alignment: i64) -> i64 {
+    if alignment <= 0 {
+        return value;
+    }
+    (value + alignment - 1) / alignment * alignment
 }
 
 /// Gera o TAC e aplica todas as otimizações básicas (constant folding,

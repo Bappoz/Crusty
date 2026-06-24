@@ -46,6 +46,7 @@ fn build_soma_program() -> TacProgram {
                 val: Some(Operand::Temp(TempId(0))),
             },
         ],
+        var_sizes: Default::default(),
     };
 
     let main = TacFunction {
@@ -64,6 +65,7 @@ fn build_soma_program() -> TacProgram {
                 val: Some(Operand::Temp(TempId(0))),
             },
         ],
+        var_sizes: Default::default(),
     };
 
     TacProgram {
@@ -145,6 +147,7 @@ fn smoke_simple_return_const_runs() {
             instrs: vec![TacInstr::Return {
                 val: Some(Operand::Const(ConstValue::Int(42))),
             }],
+            var_sizes: Default::default(),
         }],
     };
 
@@ -231,6 +234,7 @@ fn smoke_call_with_more_than_six_args_runs() {
                 val: Some(Operand::Temp(TempId(7))),
             },
         ],
+        var_sizes: Default::default(),
     };
 
     let main = TacFunction {
@@ -248,6 +252,7 @@ fn smoke_call_with_more_than_six_args_runs() {
                 val: Some(Operand::Temp(TempId(0))),
             },
         ],
+        var_sizes: Default::default(),
     };
 
     let prog = TacProgram {
@@ -303,6 +308,7 @@ fn smoke_control_flow_if_else_runs() {
                     val: Some(Operand::Const(ConstValue::Int(20))),
                 },
             ],
+            var_sizes: Default::default(),
         }],
     };
 

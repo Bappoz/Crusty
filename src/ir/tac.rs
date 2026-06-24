@@ -109,11 +109,16 @@ pub enum TacInstr {
     Label(LabelId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TacFunction {
     pub name: String,
     pub params: Vec<String>,
     pub instrs: Vec<TacInstr>,
+    /// Tamanho em bytes (ja arredondado para multiplo de 8) de variaveis
+    /// cujo valor nao cabe num slot escalar de 8 bytes — hoje, apenas
+    /// structs locais. Variaveis ausentes daqui usam o tamanho padrao (8
+    /// bytes) no codegen.
+    pub var_sizes: std::collections::HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

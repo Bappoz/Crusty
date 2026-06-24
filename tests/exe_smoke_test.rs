@@ -54,7 +54,8 @@ fn compile_to_asm(source: &str) -> String {
         .parse_program()
         .unwrap_or_else(|errors| panic!("erros de parser inesperados: {errors:?}"));
 
-    let sem_errors = analyse_with_builtins(&program, scanner.builtins);
+    let sem_diagnostics = analyse_with_builtins(&program, scanner.builtins);
+    let sem_errors: Vec<_> = sem_diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(
         sem_errors.is_empty(),
         "erros semanticos inesperados: {sem_errors:?}"
@@ -256,6 +257,69 @@ fn smoke_pointer_index_read_and_write_runs() {
 
     #[cfg(unix)]
     assert_eq!(status.code(), Some(15));
+}
+
+#[test]
+fn smoke_struct_member_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_member",
+        "struct Point { int x; int y; }; \
+        int main() { \
+            struct Point p; \
+            p.x = 3; \
+            p.y = 4; \
+            return p.x + p.y; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(7));
+}
+
+#[test]
+fn smoke_struct_member_via_pointer_arrow_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_member_arrow",
+        "struct Point { int x; int y; }; \
+        void move_point(struct Point *p, int dx, int dy) { \
+            p->x = p->x + dx; \
+            p->y = p->y + dy; \
+        } \
+        int main() { \
+            struct Point p; \
+            p.x = 1; \
+            p.y = 2; \
+            move_point(&p, 10, 20); \
+            return p.x + p.y; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(33));
+}
+
+#[test]
+fn smoke_struct_larger_than_eight_bytes_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_big",
+        "struct Big { long a; long b; long c; }; \
+        int main() { \
+            struct Big big; \
+            big.a = 1; \
+            big.b = 2; \
+            big.c = 3; \
+            return big.a + big.b + big.c; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(6));
 }
 
 #[test]
