@@ -4,9 +4,12 @@ use crate::common::ast::{
     expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp},
     stmt::Stmt,
 };
+use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{
     ConstValue, LabelGen, LabelId, Operand, TacFunction, TacInstr, TacProgram, TempGen, TempId,
 };
+
+type LowerResult<T> = Result<T, CodegenError>;
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {
@@ -30,13 +33,13 @@ impl Lowerer {
         }
     }
 
-    pub fn lower_expr(&mut self, expr: &Expr) -> Operand {
+    pub fn lower_expr(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
-            Expr::Literal(value, _) => Operand::Const(lower_literal(value)),
-            Expr::Ident(name, _) => Operand::Var(name.clone()),
+            Expr::Literal(value, _) => Ok(Operand::Const(lower_literal(value))),
+            Expr::Ident(name, _) => Ok(Operand::Var(name.clone())),
             Expr::Binary(lhs, op, rhs, _) => {
-                let lhs = self.lower_expr(lhs);
-                let rhs = self.lower_expr(rhs);
+                let lhs = self.lower_expr(lhs)?;
+                let rhs = self.lower_expr(rhs)?;
                 let dst = self.fresh_temp();
                 self.instrs.push(TacInstr::BinOp {
                     dst,
@@ -44,44 +47,52 @@ impl Lowerer {
                     lhs,
                     rhs,
                 });
-                Operand::Temp(dst)
+                Ok(Operand::Temp(dst))
             }
             Expr::Unary(op, src, _) => {
-                let src = self.lower_expr(src);
+                let src = self.lower_expr(src)?;
                 let dst = self.fresh_temp();
                 self.instrs.push(TacInstr::UnOp {
                     dst,
                     op: op.clone(),
                     src,
                 });
-                Operand::Temp(dst)
+                Ok(Operand::Temp(dst))
             }
             Expr::Prefix(op, target, _) => self.lower_prefix(op, target),
             Expr::Postfix(op, target, _) => self.lower_postfix(op, target),
             Expr::Call(callee, args, _) => {
                 let fn_name = match callee.as_ref() {
                     Expr::Ident(name, _) => name.clone(),
-                    _ => panic!("lowering ainda nao suporta chamada por expressao"),
+                    _ => {
+                        return Err(codegen_error(
+                            "chamada por expressao nao suportada no lowering",
+                            Some("call"),
+                        ));
+                    }
                 };
-                let args = args.iter().map(|arg| self.lower_expr(arg)).collect();
+                let mut lowered_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    lowered_args.push(self.lower_expr(arg)?);
+                }
                 let dst = self.fresh_temp();
                 self.instrs.push(TacInstr::Call {
                     dst: Some(dst),
                     fn_name,
-                    args,
+                    args: lowered_args,
                 });
-                Operand::Temp(dst)
+                Ok(Operand::Temp(dst))
             }
             Expr::Cast(_, inner, _) => self.lower_expr(inner),
             Expr::Assign(lhs, rhs, _) => {
-                let src = self.lower_expr(rhs);
-                let dst = self.lower_assignment_target(lhs);
-                self.emit_copy(dst.clone(), src);
-                dst
+                let src = self.lower_expr(rhs)?;
+                let dst = self.lower_assignment_target(lhs)?;
+                self.emit_copy(dst.clone(), src)?;
+                Ok(dst)
             }
             Expr::CompoundAssign(op, lhs, rhs, _) => {
-                let dst = self.lower_assignment_target(lhs);
-                let rhs = self.lower_expr(rhs);
+                let dst = self.lower_assignment_target(lhs)?;
+                let rhs = self.lower_expr(rhs)?;
                 let temp = self.fresh_temp();
                 self.instrs.push(TacInstr::BinOp {
                     dst: temp,
@@ -89,12 +100,12 @@ impl Lowerer {
                     lhs: dst.clone(),
                     rhs,
                 });
-                self.emit_copy(dst.clone(), Operand::Temp(temp));
-                dst
+                self.emit_copy(dst.clone(), Operand::Temp(temp))?;
+                Ok(dst)
             }
-            Expr::SizeofType(qty, _) => Operand::Const(ConstValue::Int(type_size(&qty.ty))),
+            Expr::SizeofType(qty, _) => Ok(Operand::Const(ConstValue::Int(type_size(&qty.ty)?))),
             Expr::Ternary(cond, then_expr, else_expr, _) => {
-                let cond = self.lower_expr(cond);
+                let cond = self.lower_expr(cond)?;
                 let then_label = self.labels.fresh();
                 let else_label = self.labels.fresh();
                 let end_label = self.labels.fresh();
@@ -107,36 +118,46 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(then_label));
-                let then_val = self.lower_expr(then_expr);
-                self.emit_copy(Operand::Temp(dst), then_val);
+                let then_val = self.lower_expr(then_expr)?;
+                self.emit_copy(Operand::Temp(dst), then_val)?;
                 self.emit_jump_unless_terminated(end_label);
 
                 self.instrs.push(TacInstr::Label(else_label));
-                let else_val = self.lower_expr(else_expr);
-                self.emit_copy(Operand::Temp(dst), else_val);
+                let else_val = self.lower_expr(else_expr)?;
+                self.emit_copy(Operand::Temp(dst), else_val)?;
 
                 self.instrs.push(TacInstr::Label(end_label));
-                Operand::Temp(dst)
+                Ok(Operand::Temp(dst))
             }
-            Expr::Index(_, _, _) => panic!("lowering ainda nao suporta acesso por indice"),
-            Expr::Member(_, _, _, _) => panic!("lowering ainda nao suporta acesso a membro"),
-            Expr::Sizeof(_, _) => panic!("lowering de sizeof(expr) requer informacao de tipo"),
+            Expr::Index(_, _, _) => Err(codegen_error(
+                "acesso por indice nao suportado no lowering",
+                Some("index"),
+            )),
+            Expr::Member(_, _, _, _) => Err(codegen_error(
+                "acesso a membro nao suportado no lowering",
+                Some("member"),
+            )),
+            Expr::Sizeof(_, _) => Err(codegen_error(
+                "sizeof(expr) nao suportado no lowering sem informacao de tipo",
+                Some("sizeof"),
+            )),
         }
     }
 
-    pub fn lower_stmt(&mut self, stmt: &Stmt) {
-        self.lower_stmt_with_control(stmt, ControlLabels::default());
+    pub fn lower_stmt(&mut self, stmt: &Stmt) -> LowerResult<()> {
+        self.lower_stmt_with_control(stmt, ControlLabels::default())
     }
 
-    fn lower_stmt_with_control(&mut self, stmt: &Stmt, control: ControlLabels) {
+    fn lower_stmt_with_control(&mut self, stmt: &Stmt, control: ControlLabels) -> LowerResult<()> {
         match stmt {
             Stmt::Block(stmts, _) => {
                 for stmt in stmts {
-                    self.lower_stmt_with_control(stmt, control);
+                    self.lower_stmt_with_control(stmt, control)?;
                 }
+                Ok(())
             }
             Stmt::If(cond, then_branch, else_branch, _) => {
-                let cond = self.lower_expr(cond);
+                let cond = self.lower_expr(cond)?;
                 let then_label = self.labels.fresh();
                 let else_label = self.labels.fresh();
                 let end_label = self.labels.fresh();
@@ -148,14 +169,15 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(then_label));
-                self.lower_stmt_with_control(then_branch, control);
+                self.lower_stmt_with_control(then_branch, control)?;
                 self.emit_jump_unless_terminated(end_label);
 
                 self.instrs.push(TacInstr::Label(else_label));
                 if let Some(else_branch) = else_branch {
-                    self.lower_stmt_with_control(else_branch, control);
+                    self.lower_stmt_with_control(else_branch, control)?;
                 }
                 self.instrs.push(TacInstr::Label(end_label));
+                Ok(())
             }
             Stmt::While(cond, body, _) => {
                 let cond_label = self.labels.fresh();
@@ -163,7 +185,7 @@ impl Lowerer {
                 let end_label = self.labels.fresh();
 
                 self.instrs.push(TacInstr::Label(cond_label));
-                let cond = self.lower_expr(cond);
+                let cond = self.lower_expr(cond)?;
                 self.instrs.push(TacInstr::CondJump {
                     cond,
                     then_label: body_label,
@@ -177,14 +199,15 @@ impl Lowerer {
                         break_label: Some(end_label),
                         continue_label: Some(cond_label),
                     },
-                );
+                )?;
                 self.emit_jump_unless_terminated(cond_label);
 
                 self.instrs.push(TacInstr::Label(end_label));
+                Ok(())
             }
             Stmt::For(init, cond, inc, body, _) => {
                 if let Some(init) = init {
-                    self.lower_stmt_with_control(init, control);
+                    self.lower_stmt_with_control(init, control)?;
                 }
 
                 let cond_label = self.labels.fresh();
@@ -195,7 +218,7 @@ impl Lowerer {
 
                 self.instrs.push(TacInstr::Label(cond_label));
                 if let Some(cond) = cond {
-                    let cond = self.lower_expr(cond);
+                    let cond = self.lower_expr(cond)?;
                     self.instrs.push(TacInstr::CondJump {
                         cond,
                         then_label: body_label,
@@ -210,17 +233,18 @@ impl Lowerer {
                         break_label: Some(end_label),
                         continue_label: Some(continue_label),
                     },
-                );
+                )?;
 
                 if let Some(inc_label) = inc_label {
                     self.instrs.push(TacInstr::Label(inc_label));
                     if let Some(inc) = inc {
-                        self.lower_expr(inc);
+                        self.lower_expr(inc)?;
                     }
                 }
                 self.emit_jump_unless_terminated(cond_label);
 
                 self.instrs.push(TacInstr::Label(end_label));
+                Ok(())
             }
             Stmt::DoWhile(cond, body, _) => {
                 let body_label = self.labels.fresh();
@@ -234,10 +258,10 @@ impl Lowerer {
                         break_label: Some(end_label),
                         continue_label: Some(cond_label),
                     },
-                );
+                )?;
 
                 self.instrs.push(TacInstr::Label(cond_label));
-                let cond = self.lower_expr(cond);
+                let cond = self.lower_expr(cond)?;
                 self.instrs.push(TacInstr::CondJump {
                     cond,
                     then_label: body_label,
@@ -245,33 +269,45 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(end_label));
+                Ok(())
             }
             Stmt::Break(_) => {
-                let label = control
-                    .break_label
-                    .expect("break fora de loop/switch nao pode ser baixado");
+                let label = control.break_label.ok_or_else(|| {
+                    codegen_error("break fora de loop/switch nao suportado", Some("break"))
+                })?;
                 self.instrs.push(TacInstr::Jump { label });
+                Ok(())
             }
             Stmt::Continue(_) => {
-                let label = control
-                    .continue_label
-                    .expect("continue fora de loop nao pode ser baixado");
+                let label = control.continue_label.ok_or_else(|| {
+                    codegen_error("continue fora de loop nao suportado", Some("continue"))
+                })?;
                 self.instrs.push(TacInstr::Jump { label });
+                Ok(())
             }
             Stmt::ExprStmt(expr, _) => {
-                self.lower_expr(expr);
+                self.lower_expr(expr)?;
+                Ok(())
             }
             Stmt::Return(expr, _) => {
-                let val = expr.as_ref().map(|expr| self.lower_expr(expr));
+                let val = expr
+                    .as_ref()
+                    .map(|expr| self.lower_expr(expr))
+                    .transpose()?;
                 self.instrs.push(TacInstr::Return { val });
+                Ok(())
             }
             Stmt::VarDecl(_, name, init, _) => {
                 if let Some(init) = init {
-                    let src = self.lower_expr(init);
-                    self.emit_copy(Operand::Var(name.clone()), src);
+                    let src = self.lower_expr(init)?;
+                    self.emit_copy(Operand::Var(name.clone()), src)?;
                 }
+                Ok(())
             }
-            Stmt::Switch(_, _, _) => panic!("lowering ainda nao suporta switch"),
+            Stmt::Switch(_, _, _) => Err(codegen_error(
+                "switch nao suportado no lowering",
+                Some("switch"),
+            )),
         }
     }
 
@@ -283,8 +319,8 @@ impl Lowerer {
         self.temps.fresh()
     }
 
-    fn lower_prefix(&mut self, op: &PrefixOp, target: &Expr) -> Operand {
-        let dst = self.lower_assignment_target(target);
+    fn lower_prefix(&mut self, op: &PrefixOp, target: &Expr) -> LowerResult<Operand> {
+        let dst = self.lower_assignment_target(target)?;
         let temp = self.fresh_temp();
         self.instrs.push(TacInstr::BinOp {
             dst: temp,
@@ -292,14 +328,14 @@ impl Lowerer {
             lhs: dst.clone(),
             rhs: Operand::Const(ConstValue::Int(1)),
         });
-        self.emit_copy(dst.clone(), Operand::Temp(temp));
-        dst
+        self.emit_copy(dst.clone(), Operand::Temp(temp))?;
+        Ok(dst)
     }
 
-    fn lower_postfix(&mut self, op: &PostfixOp, target: &Expr) -> Operand {
-        let dst = self.lower_assignment_target(target);
+    fn lower_postfix(&mut self, op: &PostfixOp, target: &Expr) -> LowerResult<Operand> {
+        let dst = self.lower_assignment_target(target)?;
         let old = self.fresh_temp();
-        self.emit_copy(Operand::Temp(old), dst.clone());
+        self.emit_copy(Operand::Temp(old), dst.clone())?;
 
         let new = self.fresh_temp();
         self.instrs.push(TacInstr::BinOp {
@@ -308,21 +344,30 @@ impl Lowerer {
             lhs: dst.clone(),
             rhs: Operand::Const(ConstValue::Int(1)),
         });
-        self.emit_copy(dst, Operand::Temp(new));
-        Operand::Temp(old)
+        self.emit_copy(dst, Operand::Temp(new))?;
+        Ok(Operand::Temp(old))
     }
 
-    fn lower_assignment_target(&mut self, expr: &Expr) -> Operand {
+    fn lower_assignment_target(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
-            Expr::Ident(name, _) => Operand::Var(name.clone()),
-            _ => panic!("lowering ainda nao suporta esse destino de atribuicao"),
+            Expr::Ident(name, _) => Ok(Operand::Var(name.clone())),
+            _ => Err(codegen_error(
+                "destino de atribuicao nao suportado no lowering",
+                Some("assign"),
+            )),
         }
     }
 
-    fn emit_copy(&mut self, dst: Operand, src: Operand) {
+    fn emit_copy(&mut self, dst: Operand, src: Operand) -> LowerResult<()> {
         match dst {
-            Operand::Temp(_) | Operand::Var(_) => self.instrs.push(TacInstr::Copy { dst, src }),
-            Operand::Const(_) => panic!("constante nao pode ser destino de copia"),
+            Operand::Temp(_) | Operand::Var(_) => {
+                self.instrs.push(TacInstr::Copy { dst, src });
+                Ok(())
+            }
+            Operand::Const(_) => Err(codegen_error(
+                "constante nao pode ser destino de copia",
+                Some("copy"),
+            )),
         }
     }
 
@@ -342,47 +387,50 @@ impl Default for Lowerer {
     }
 }
 
-pub fn lower_function(decl: &Decl) -> TacFunction {
+pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
     match decl {
         Decl::Function(_, name, params, body, _) => {
             let mut lowerer = Lowerer::new();
             for stmt in body {
-                lowerer.lower_stmt(stmt);
+                lowerer.lower_stmt(stmt)?;
             }
 
-            TacFunction {
+            Ok(TacFunction {
                 name: name.clone(),
                 params: params.iter().map(|(_, name)| name.clone()).collect(),
                 instrs: lowerer.finish(),
-            }
+            })
         }
-        _ => panic!("lower_function espera Decl::Function"),
+        _ => Err(codegen_error(
+            "lower_function espera Decl::Function",
+            Some("lower_function"),
+        )),
     }
 }
 
-pub fn lower_program(prog: &Program) -> TacProgram {
-    TacProgram {
-        functions: prog
-            .decls
-            .iter()
-            .filter(|decl| matches!(decl, Decl::Function(..)))
-            .map(lower_function)
-            .collect(),
+pub fn lower_program(prog: &Program) -> LowerResult<TacProgram> {
+    let mut functions = Vec::new();
+    for decl in &prog.decls {
+        if matches!(decl, Decl::Function(..)) {
+            functions.push(lower_function(decl)?);
+        }
     }
+
+    Ok(TacProgram { functions })
 }
 
 /// Gera o TAC e aplica todas as otimizações básicas (constant folding,
 /// constant propagation e dead code elimination) até ponto fixo.
 ///
 /// Este é o ponto de entrada recomendado para a pipeline de compilação.
-pub fn lower_and_optimize(prog: &Program) -> TacProgram {
+pub fn lower_and_optimize(prog: &Program) -> LowerResult<TacProgram> {
     use crate::codegen::inter::optimizations::optimize_function;
 
-    let mut tac = lower_program(prog);
+    let mut tac = lower_program(prog)?;
     for func in &mut tac.functions {
         optimize_function(&mut func.instrs);
     }
-    tac
+    Ok(tac)
 }
 
 fn lower_literal(value: &Literal) -> ConstValue {
@@ -408,15 +456,25 @@ fn postfix_bin_op(op: &PostfixOp) -> BinOp {
     }
 }
 
-fn type_size(ty: &Type) -> i64 {
+fn type_size(ty: &Type) -> LowerResult<i64> {
     match ty {
-        Type::Char => 1,
-        Type::Short => 2,
-        Type::Int | Type::Float | Type::Enum(_) => 4,
-        Type::Long | Type::Double | Type::Pointer(_) => 8,
+        Type::Char => Ok(1),
+        Type::Short => Ok(2),
+        Type::Int | Type::Float | Type::Enum(_) => Ok(4),
+        Type::Long | Type::Double | Type::Pointer(_) => Ok(8),
         Type::Array(_) | Type::Void | Type::Struct(_) | Type::Alias(_) | Type::Function(_, _) => {
-            panic!("lowering de sizeof(type) requer layout/tamanho completo")
+            Err(codegen_error(
+                "lowering de sizeof(type) requer layout/tamanho completo",
+                Some("sizeof"),
+            ))
         }
+    }
+}
+
+fn codegen_error(message: &str, instruction: Option<&str>) -> CodegenError {
+    CodegenError {
+        message: message.to_string(),
+        instruction: instruction.map(str::to_string),
     }
 }
 
@@ -458,7 +516,7 @@ mod tests {
         let expr = Expr::Binary(Box::new(int(2)), BinOp::Add, Box::new(int(3)), span());
         let mut lowerer = Lowerer::new();
 
-        let result = lowerer.lower_expr(&expr);
+        let result = lowerer.lower_expr(&expr).unwrap();
 
         assert_eq!(result, Operand::Temp(TempId(0)));
         assert_eq!(
@@ -492,7 +550,7 @@ mod tests {
         );
         let mut lowerer = Lowerer::new();
 
-        lowerer.lower_stmt(&stmt);
+        lowerer.lower_stmt(&stmt).unwrap();
         let instrs = lowerer.finish();
 
         assert!(matches!(
@@ -537,7 +595,7 @@ mod tests {
         );
         let mut lowerer = Lowerer::new();
 
-        lowerer.lower_stmt(&stmt);
+        lowerer.lower_stmt(&stmt).unwrap();
         let instrs = lowerer.finish();
 
         assert_eq!(instrs[0], TacInstr::Label(LabelId(0)));
@@ -560,7 +618,7 @@ mod tests {
         let expr = Expr::Call(Box::new(ident("sum")), vec![arg0, int(3)], span());
         let mut lowerer = Lowerer::new();
 
-        let result = lowerer.lower_expr(&expr);
+        let result = lowerer.lower_expr(&expr).unwrap();
         let instrs = lowerer.finish();
 
         assert_eq!(result, Operand::Temp(TempId(1)));
@@ -580,7 +638,7 @@ mod tests {
         let expr = Expr::Binary(Box::new(int(2)), BinOp::Add, Box::new(rhs), span());
         let mut lowerer = Lowerer::new();
 
-        let result = lowerer.lower_expr(&expr);
+        let result = lowerer.lower_expr(&expr).unwrap();
 
         assert_eq!(result, Operand::Temp(TempId(1)));
         assert_eq!(
@@ -612,7 +670,7 @@ mod tests {
             span(),
         );
 
-        let func = lower_function(&decl);
+        let func = lower_function(&decl).unwrap();
 
         assert_eq!(func.name, "main");
         assert_eq!(func.params, vec!["argc"]);

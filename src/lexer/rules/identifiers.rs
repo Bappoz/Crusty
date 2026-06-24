@@ -67,6 +67,8 @@ fn lookup_keyword(ident: &str) -> Option<TokenKind> {
         "volatile" => Some(TokenKind::Volatile),
         "inline" => Some(TokenKind::Inline),
         "sizeof" => Some(TokenKind::Sizeof),
+        "true" => Some(TokenKind::IntLiteral(1)),
+        "false" => Some(TokenKind::IntLiteral(0)),
 
         // Não é keyword — é identificador de usuário
         _ => None,

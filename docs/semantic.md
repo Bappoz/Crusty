@@ -15,6 +15,9 @@ struct SemanticAnalyser {
     sym: SymbolTable,
     current_fn_ret: Option<QualifierType>,  // tipo de retorno da função atual
     diagnostics: Vec<CompilerError>,
+    warnings: Vec<CompilerWarning>,
+    loop_depth: usize,                      // para validar break/continue
+    switch_depth: usize,                    // para validar break em switch
 }
 ```
 
@@ -83,6 +86,7 @@ analyse_stmt::For     → enter_scope / exit_scope  (init pode declarar variáve
 3. Declara cada parâmetro no novo escopo
 4. Analisa todos os statements do corpo
 5. Restaura `current_fn_ret`; `exit_scope`
+6. Verifica a heurística `body_always_returns` se a função não for `void`; emite aviso `MissingReturn` se faltar retorno.
 
 ### Struct
 
@@ -170,34 +174,51 @@ Promoção numérica: `Double > Float > Long > Int > Short/Char`.
 
 | Nó | Tipo retornado |
 |---|---|
-| `Unary`, `Prefix`, `Postfix` | mesmo tipo do operando |
+| `Unary(AddrOf)` | `Pointer(T)` onde `T` é o tipo do operando |
+| `Unary(Deref)` | tipo base `T` de `Pointer(T)` ou `Array(T)` |
+| `Unary(-, ~)`, `Prefix`, `Postfix` | mesmo tipo do operando |
 | `CompoundAssign` | tipo do LHS |
 | `Cast(qty, _)` | `qty` resolvido |
 | `Sizeof(_)`, `SizeofType(_)` | `unsigned int` |
-| `Call(callee, args)` | `void` (sentinela — lookup de retorno não implementado) |
-| `Index(arr, idx)` | tipo do elemento (desreferencia `Array(T)` ou `Pointer(T)`) |
-| `Ternary(cond, then, else)` | tipo do ramo `then` |
+| `Call(callee, args)` | Tipo de retorno registrado na assinatura. Checa aridade e tipos de argumentos. |
+| `Index(arr, idx)` | tipo do elemento (desreferencia `Array(T)` ou `Pointer(T)`). `idx` deve ser numérico inteiro. |
+| `Ternary(cond, then, else)` | O tipo promovido/comum dos ramos `then` e `else`, após verificação de compatibilidade. |
 
 ---
 
-## Erros Semânticos
+## Diagnósticos Semânticos
 
-Todos são do tipo `CompilerError::Semantic(SemanticError { span, kind })`:
+Erros geram `CompilerError::Semantic`, avisos geram `CompilerWarning::Semantic`. A análise não é interrompida por diagnósticos.
+
+### Erros (CompilerError)
 
 | Kind | Causa |
 |---|---|
 | `Redeclaration(name)` | Nome já declarado no escopo atual |
 | `UndefinedVariable(name)` | Identificador não encontrado em nenhum escopo |
+| `UndefinedFunction(name)` | Chamada de função sem definição ou protótipo registrado |
 | `AssignToConst(name)` | Atribuição a variável declarada com `const` |
-| `TypeMismatch { expected, found }` | Tipos incompatíveis em atribuição ou operação binária |
+| `TypeMismatch { expected, found }` | Tipos incompatíveis (atribuição, operação binária, retorno, ternário) |
 | `UndefinedStruct(name)` | Acesso a membro de struct não registrada |
-| `FieldNotFound { struct_name, field_name }` | Campo não existe na struct |
+| `FieldNotFound { struct, field }` | Campo não existe na struct |
+| `InvalidSwitchType` | Expressão de switch não é de tipo inteiro |
+| `BreakOutsideLoop` | Uso de `break` fora de um bloco iterativo (`for`/`while`) ou `switch` |
+| `ContinueOutsideLoop` | Uso de `continue` fora de um bloco iterativo (`for`/`while`) |
+| `ArityMismatch { expected, found }` | Quantidade incorreta de argumentos na chamada de função |
+| `NotIndexable` | Tentativa de usar operador de índice `[]` em tipo que não é array nem ponteiro |
+| `InvalidIndexType` | Expressão usada no índice não é do tipo inteiro |
+
+### Avisos (CompilerWarning)
+
+| Kind | Causa |
+|---|---|
+| `MissingReturn(name)` | Função declarada com retorno não-void sem garantia de `return` em todos os caminhos |
+| `UnusedVariable(name)` | Variável local declarada mas não referenciada |
+| `MayBeUninitialized(name)`| Variável lida sem antes ter garantido inicialização (por declaração ou atribuição) |
 
 ---
 
 ## Limitações atuais (TODO)
 
-- Verificação de tipo de retorno de função (`return expr` vs. tipo declarado)
-- Lookup de tipo de retorno em chamadas de função (`Call` retorna `void` sentinela)
-- Verificação de compatibilidade entre ramos `then`/`else` no ternário
 - Aritmética de ponteiro para `Sub` (ponteiro − ponteiro → `ptrdiff_t`)
+- Constant folding robusto (hoje o compilador avalia as heurísticas baseado estaticamente na árvore do código, sem resolver valores em runtime na análise)

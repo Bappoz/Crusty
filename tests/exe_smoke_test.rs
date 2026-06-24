@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
-use crusty::analyser::analyse;
+use crusty::analyser::analyse_with_builtins;
 use crusty::codegen::last::emit_program;
 use crusty::common::input::source::SourceFile;
 use crusty::ir::lower::lower_program;
@@ -54,14 +54,14 @@ fn compile_to_asm(source: &str) -> String {
         .parse_program()
         .unwrap_or_else(|errors| panic!("erros de parser inesperados: {errors:?}"));
 
-    let sem_errors = analyse(&program);
+    let sem_errors = analyse_with_builtins(&program, scanner.builtins);
     assert!(
         sem_errors.is_empty(),
         "erros semanticos inesperados: {sem_errors:?}"
     );
 
-    let tac_program = lower_program(&program);
-    emit_program(&tac_program)
+    let tac_program = lower_program(&program).unwrap();
+    emit_program(&tac_program).unwrap()
 }
 
 /// Compila `source` (C) ate um executavel real via `gcc` e o executa,

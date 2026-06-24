@@ -1,4 +1,4 @@
-use crusty::analyser::analyse;
+use crusty::analyser::analyse_with_builtins;
 use crusty::codegen::inter::opt::{pipeline_for_level, OptLevel};
 use crusty::codegen::inter::Cfg;
 use crusty::codegen::last;
@@ -28,6 +28,8 @@ fn main() -> std::io::Result<()> {
             eprintln!("  --only-parse           Stop after parsing");
             eprintln!("  --only-semantic        Stop after semantic analysis");
             eprintln!("  -o <file>              Set the output file path");
+            eprintln!("  --out-dir <dir>        Set the output directory");
+            eprintln!("  --out-name <name>      Set the output file name");
             eprintln!("  --emit=asm             Stop after emitting x86-64 assembly (.s)");
             eprintln!("  --emit=obj             Stop after assembling an object file (.o)");
             eprintln!("  --emit=exe             Link a runnable executable (default)");
@@ -77,6 +79,8 @@ impl EmitKind {
 struct CliArgs {
     input_file: Option<String>,
     output_file: Option<String>,
+    output_dir: Option<String>,
+    output_name: Option<String>,
     dump_tokens: bool,
     dump_ast: bool,
     dump_ir: bool,
@@ -92,6 +96,8 @@ impl CliArgs {
         let mut cli = CliArgs {
             input_file: None,
             output_file: None,
+            output_dir: None,
+            output_name: None,
             dump_tokens: false,
             dump_ast: false,
             dump_ir: false,
@@ -121,6 +127,22 @@ impl CliArgs {
                         exit(64);
                     };
                     cli.output_file = Some(path.clone());
+                }
+                "--out-dir" => {
+                    i += 1;
+                    let Some(path) = args.get(i) else {
+                        eprintln!("error: missing value for --out-dir");
+                        exit(64);
+                    };
+                    cli.output_dir = Some(path.clone());
+                }
+                "--out-name" => {
+                    i += 1;
+                    let Some(name) = args.get(i) else {
+                        eprintln!("error: missing value for --out-name");
+                        exit(64);
+                    };
+                    cli.output_name = Some(name.clone());
                 }
                 _ if arg.starts_with("--emit=") => {
                     let value = arg.strip_prefix("--emit=").unwrap();
@@ -251,11 +273,19 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     }
 
     // ── Stage 3: Semantic ────────────────────────────────────────────────────
-    let sem_errors = analyse(&program);
-    let sem_count = sem_errors.len();
+    let sem_diagnostics = analyse_with_builtins(&program, scanner.builtins);
+    let sem_warnings: Vec<_> = sem_diagnostics.iter().filter(|d| d.is_warning()).collect();
+    if !sem_warnings.is_empty() {
+        eprintln!("\n=== Semantic Warnings ({}) ===", sem_warnings.len());
+        for w in &sem_warnings {
+            print_warning_report(&w.to_report());
+        }
+    }
+
+    let sem_count = sem_diagnostics.iter().filter(|d| d.is_error()).count();
     if sem_count > 0 {
         eprintln!("\n=== Semantic Errors ({sem_count}) ===");
-        for e in &sem_errors {
+        for e in sem_diagnostics.iter().filter(|d| d.is_error()) {
             print_report(&e.to_report());
         }
         return Err(Box::new(DiagnosticError { count: sem_count }));
@@ -273,10 +303,16 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
     opt_pipeline.run(&mut cfg, 10);
 
     // ── Stage 5: Code generation (x86-64 / AT&T) ─────────────────────────────
-    let tac_program = lower_program(&program);
-    let asm = last::emit_program(&tac_program);
+    let tac_program = lower_program(&program).map_err(|e| Box::new(e) as Box<dyn ToReport>)?;
+    let asm = last::emit_program(&tac_program).map_err(|e| Box::new(e) as Box<dyn ToReport>)?;
 
-    let output_path = output_path_for(&args.input_file, &args.output_file, args.emit);
+    let output_path = output_path_for(
+        &args.input_file,
+        &args.output_file,
+        &args.output_dir,
+        &args.output_name,
+        args.emit,
+    );
     emit_artifact(&asm, &output_path, args.emit)?;
     eprintln!(
         "emitted {}: {}",
@@ -292,21 +328,35 @@ fn run(source: SourceFile, args: &CliArgs) -> Result<(), Box<dyn ToReport>> {
 fn output_path_for(
     input: &Option<String>,
     output_override: &Option<String>,
+    output_dir: &Option<String>,
+    output_name: &Option<String>,
     emit: EmitKind,
 ) -> PathBuf {
     if let Some(path) = output_override {
         return PathBuf::from(path);
     }
 
-    match emit {
-        EmitKind::Exe => PathBuf::from("a.out"),
+    let default_name = match emit {
+        EmitKind::Exe => "a.out".to_string(),
         EmitKind::Asm | EmitKind::Obj => {
             let input = input.clone().unwrap_or_else(|| "crusty.out".to_string());
             let mut path = PathBuf::from(input);
             path.set_extension(if emit == EmitKind::Asm { "s" } else { "o" });
-            path
+            return apply_output_dir(path, output_dir);
         }
+    };
+
+    let path = PathBuf::from(output_name.clone().unwrap_or(default_name));
+    apply_output_dir(path, output_dir)
+}
+
+fn apply_output_dir(mut path: PathBuf, output_dir: &Option<String>) -> PathBuf {
+    if let Some(dir) = output_dir {
+        let mut full = PathBuf::from(dir);
+        full.push(path);
+        path = full;
     }
+    path
 }
 
 fn emit_kind_label(emit: EmitKind) -> &'static str {
@@ -393,7 +443,15 @@ fn dump_ast(program: &crusty::common::ast::ast::Program) {
 // ── Error reporting ───────────────────────────────────────────────────────────
 
 fn print_report(report: &Report) {
-    eprintln!("  error: {}", report.message);
+    print_report_with_prefix(report, "error");
+}
+
+fn print_warning_report(report: &Report) {
+    print_report_with_prefix(report, "warning");
+}
+
+fn print_report_with_prefix(report: &Report, prefix: &str) {
+    eprintln!("  {prefix}: {}", report.message);
     if let Some(span) = &report.span {
         eprintln!("    --> {}:{}", span.line, span.column_start);
     }
@@ -455,12 +513,29 @@ mod tests {
         let parsed = CliArgs::parse(&args(&["crusty", "main.c"]));
         assert_eq!(parsed.emit, EmitKind::Exe);
         assert_eq!(parsed.output_file, None);
+        assert_eq!(parsed.output_dir, None);
+        assert_eq!(parsed.output_name, None);
     }
 
     #[test]
     fn parses_output_flag() {
         let parsed = CliArgs::parse(&args(&["crusty", "-o", "prog", "main.c"]));
         assert_eq!(parsed.output_file, Some("prog".to_string()));
+        assert_eq!(parsed.input_file, Some("main.c".to_string()));
+    }
+
+    #[test]
+    fn parses_output_dir_and_name_flags() {
+        let parsed = CliArgs::parse(&args(&[
+            "crusty",
+            "--out-dir",
+            "build",
+            "--out-name",
+            "demo",
+            "main.c",
+        ]));
+        assert_eq!(parsed.output_dir, Some("build".to_string()));
+        assert_eq!(parsed.output_name, Some("demo".to_string()));
         assert_eq!(parsed.input_file, Some("main.c".to_string()));
     }
 
@@ -492,15 +567,15 @@ mod tests {
     fn output_path_defaults_per_emit_kind() {
         let input = Some("foo/main.c".to_string());
         assert_eq!(
-            output_path_for(&input, &None, EmitKind::Asm),
+            output_path_for(&input, &None, &None, &None, EmitKind::Asm),
             PathBuf::from("foo/main.s")
         );
         assert_eq!(
-            output_path_for(&input, &None, EmitKind::Obj),
+            output_path_for(&input, &None, &None, &None, EmitKind::Obj),
             PathBuf::from("foo/main.o")
         );
         assert_eq!(
-            output_path_for(&input, &None, EmitKind::Exe),
+            output_path_for(&input, &None, &None, &None, EmitKind::Exe),
             PathBuf::from("a.out")
         );
     }
@@ -511,9 +586,24 @@ mod tests {
         let output = Some("custom_out".to_string());
         for emit in [EmitKind::Asm, EmitKind::Obj, EmitKind::Exe] {
             assert_eq!(
-                output_path_for(&input, &output, emit),
+                output_path_for(&input, &output, &None, &None, emit),
                 PathBuf::from("custom_out")
             );
         }
+    }
+
+    #[test]
+    fn output_path_joins_directory_and_name() {
+        let input = Some("src/main.c".to_string());
+        assert_eq!(
+            output_path_for(
+                &input,
+                &None,
+                &Some("build".to_string()),
+                &Some("demo".to_string()),
+                EmitKind::Exe,
+            ),
+            PathBuf::from("build/demo")
+        );
     }
 }

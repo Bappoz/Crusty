@@ -82,7 +82,7 @@ fn write_temp_source(name: &str, contents: &str) -> PathBuf {
 fn smoke_assembles_with_gcc() {
     require_gcc!();
 
-    let asm = emit_program(&build_soma_program());
+    let asm = emit_program(&build_soma_program()).unwrap();
     let source = write_temp_source("assemble", &asm);
     let object = source.with_extension("o");
 
@@ -107,7 +107,7 @@ fn smoke_assembles_with_gcc() {
 fn smoke_links_and_runs_with_expected_exit_code() {
     require_gcc!();
 
-    let asm = emit_program(&build_soma_program());
+    let asm = emit_program(&build_soma_program()).unwrap();
     let source = write_temp_source("run", &asm);
     let exe = source.with_extension("bin");
 
@@ -148,7 +148,7 @@ fn smoke_simple_return_const_runs() {
         }],
     };
 
-    let asm = emit_program(&prog);
+    let asm = emit_program(&prog).unwrap();
     let source = write_temp_source("const", &asm);
     let exe = source.with_extension("bin");
 
@@ -254,7 +254,7 @@ fn smoke_call_with_more_than_six_args_runs() {
         functions: vec![sum9, main],
     };
 
-    let asm = emit_program(&prog);
+    let asm = emit_program(&prog).unwrap();
     let source = write_temp_source("manyargs", &asm);
     let exe = source.with_extension("bin");
 
@@ -306,7 +306,7 @@ fn smoke_control_flow_if_else_runs() {
         }],
     };
 
-    let asm = emit_program(&prog);
+    let asm = emit_program(&prog).unwrap();
     let source = write_temp_source("ifelse", &asm);
     let exe = source.with_extension("bin");
 

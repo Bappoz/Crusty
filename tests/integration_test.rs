@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crusty::analyser::analyse;
+use crusty::analyser::analyse_with_builtins;
 use crusty::common::errors::types::{CompilerError, Diagnostic, SemanticErrorKind};
 use crusty::common::input::source::SourceFile;
 use crusty::lexer::scanner::Scanner;
@@ -24,7 +24,7 @@ fn compile_file(rel: &str) -> CompileResult {
 
     let mut parser = Parser::new(tokens);
     match parser.parse_program() {
-        Ok(program) => diagnostics.extend(analyse(&program)),
+        Ok(program) => diagnostics.extend(analyse_with_builtins(&program, scanner.builtins)),
         Err(parse_errs) => diagnostics.extend(parse_errs.into_iter().map(Diagnostic::Error)),
     }
 
@@ -59,6 +59,11 @@ fn assert_invalid(name: &str, pred: impl Fn(&SemanticErrorKind) -> bool, label: 
 #[test]
 fn valid_hello_world() {
     compile_valid("hello_world");
+}
+
+#[test]
+fn valid_bool_literals() {
+    compile_valid("bool_literals");
 }
 
 #[test]
