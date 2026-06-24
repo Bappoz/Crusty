@@ -16,10 +16,10 @@
 
 use crate::codegen::last::abi;
 use crate::codegen::last::frame::{Frame, SlotKey};
+use crate::codegen::last::peephole::PeepholePass;
 use crate::common::ast::expr::{BinOp, UnOp};
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
-use crate::codegen::last::peephole::PeepholePass;
 use std::collections::HashMap;
 
 type EmitResult<T> = Result<T, CodegenError>;

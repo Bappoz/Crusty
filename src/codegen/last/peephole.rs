@@ -4,6 +4,12 @@ pub struct PeepholePass {
     pub window: usize,
 }
 
+impl Default for PeepholePass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PeepholePass {
     pub fn new() -> Self {
         Self { window: 2 }
@@ -40,7 +46,7 @@ impl PeepholePass {
                     if t1.starts_with("movq ") && t2.starts_with("movq ") {
                         let p1: Vec<&str> = t1.split_whitespace().collect();
                         let p2: Vec<&str> = t2.split_whitespace().collect();
-                        
+
                         // movq [1] [2] -> [1] tem uma vírgula no final
                         if p1.len() == 3 && p2.len() == 3 {
                             let src1 = p1[1].trim_end_matches(',');
@@ -63,7 +69,7 @@ impl PeepholePass {
                     if t1.starts_with("jmp ") && t2.ends_with(':') {
                         let target = t1.strip_prefix("jmp ").unwrap();
                         let label = t2.strip_suffix(':').unwrap();
-                        
+
                         if target == label {
                             optimized.push(l2.clone()); // Mantém só a Label (apaga o jmp)
                             i += 2;
@@ -74,11 +80,17 @@ impl PeepholePass {
 
                     // PADRÃO 4: Multiplicação por potência de 2
                     // O Crusty gera: movq $8, %rcx \n imulq %rcx, %rax
-                    if t1.starts_with("movq $") && t1.ends_with(", %rcx") && t2 == "imulq %rcx, %rax" {
-                        let val_str = t1.strip_prefix("movq $").unwrap().strip_suffix(", %rcx").unwrap();
-                        
+                    if t1.starts_with("movq $")
+                        && t1.ends_with(", %rcx")
+                        && t2 == "imulq %rcx, %rax"
+                    {
+                        let val_str = t1
+                            .strip_prefix("movq $")
+                            .unwrap()
+                            .strip_suffix(", %rcx")
+                            .unwrap();
+
                         if let Ok(val) = val_str.parse::<i64>() {
-                            
                             if val > 0 && (val as u64).is_power_of_two() {
                                 let shift = (val as u64).trailing_zeros();
                                 // Substitui as duas por um shift rápido
