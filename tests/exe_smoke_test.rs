@@ -364,3 +364,51 @@ fn smoke_switch_fallthrough_runs() {
     #[cfg(unix)]
     assert_eq!(status.code(), Some(5));
 }
+
+#[test]
+fn smoke_zero_initialized_global_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "global_counter",
+        "int counter; int main(void) { counter = 41; return counter + 1; }",
+    );
+
+    assert_eq!(status.code(), Some(42));
+}
+
+#[test]
+fn smoke_constant_initialized_global_and_local_shadowing_run() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "global_init_shadow",
+        "int value = 8 * 5; int main(void) { int observed = 0; { int value = 11; observed = value; } return value + observed - 9; }",
+    );
+
+    assert_eq!(status.code(), Some(42));
+}
+
+#[test]
+fn smoke_global_struct_fixture_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "global_struct_fixture",
+        include_str!("integration/valid/structs.c"),
+    );
+
+    assert_eq!(status.code(), Some(1));
+}
+
+#[test]
+fn smoke_global_typedef_struct_fixture_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "global_typedef_fixture",
+        include_str!("integration/valid/typedef.c"),
+    );
+
+    assert_eq!(status.code(), Some(10));
+}
