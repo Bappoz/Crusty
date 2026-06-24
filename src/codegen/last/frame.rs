@@ -35,12 +35,14 @@ pub enum SlotKey {
 
 impl SlotKey {
     /// Mapeia um `Operand` para sua chave de slot. Constantes nao tem slot
-    /// (sao emitidas como imediato) e retornam `None`.
+    /// (sao emitidas como imediato) e retornam `None`. `Deref` nao tem slot
+    /// proprio: o slot relevante e o do ponteiro que ele indireciona.
     pub fn from_operand(op: &Operand) -> Option<Self> {
         match op {
             Operand::Temp(temp) => Some(Self::Temp(temp.0)),
             Operand::Var(name) => Some(Self::Var(name.clone())),
             Operand::Const(_) => None,
+            Operand::Deref(inner) => Self::from_operand(inner),
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::common::ast::{
     ast::{Program, Type},
     decl::Decl,
-    expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp},
+    expr::{BinOp, Expr, Literal, PostfixOp, PrefixOp, UnOp},
     stmt::{Stmt, SwitchLabel},
 };
 use crate::common::errors::types::CodegenError;
@@ -403,6 +403,13 @@ impl Lowerer {
     fn lower_assignment_target(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
             Expr::Ident(name, _) => Ok(Operand::Var(name.clone())),
+            // `*p` como destino (`*p = x;`, `*p += 1;`, `(*p)++` etc.): o
+            // ponteiro em si e um rvalue comum, mas o destino da escrita e o
+            // endereco para o qual ele aponta.
+            Expr::Unary(UnOp::Deref, inner, _) => {
+                let ptr = self.lower_expr(inner)?;
+                Ok(Operand::Deref(Box::new(ptr)))
+            }
             _ => Err(codegen_error(
                 "destino de atribuicao nao suportado no lowering",
                 Some("assign"),
@@ -412,7 +419,7 @@ impl Lowerer {
 
     fn emit_copy(&mut self, dst: Operand, src: Operand) -> LowerResult<()> {
         match dst {
-            Operand::Temp(_) | Operand::Var(_) => {
+            Operand::Temp(_) | Operand::Var(_) | Operand::Deref(_) => {
                 self.instrs.push(TacInstr::Copy { dst, src });
                 Ok(())
             }

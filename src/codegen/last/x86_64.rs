@@ -24,6 +24,13 @@ use std::collections::HashMap;
 
 type EmitResult<T> = Result<T, CodegenError>;
 
+/// Registrador escolhido para materializar o endereco de um `Operand::Deref`
+/// antes do deref propriamente dito. Caller-saved e nunca usado como `reg`
+/// pelos chamadores de `load_op`/`store_op` neste backend (que usam apenas
+/// `rax`/`rcx`/registradores de argumento), entao e seguro como scratch
+/// dedicado mesmo em derefs aninhados.
+const DEREF_SCRATCH_REG: &str = "r11";
+
 /// Acumulador de linhas de assembly com indentacao controlada.
 struct Emitter {
     out: String,
@@ -310,7 +317,7 @@ fn emit_instr(
         }
         TacInstr::Copy { dst, src } => {
             load_op(em, frame, src, "rax", strings)?;
-            store_op(em, frame, dst, "rax")?;
+            store_op(em, frame, dst, "rax", strings)?;
             Ok(())
         }
         TacInstr::BinOp { dst, op, lhs, rhs } => emit_binop(em, op, lhs, rhs, *dst, frame, strings),
@@ -377,7 +384,7 @@ fn emit_binop(
         }
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -415,7 +422,7 @@ fn emit_logical(
         em.insn("andq %rdx, %rax");
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -441,7 +448,7 @@ fn emit_unop(
             .offset_of(&key)
             .expect("operando de & deve ter slot alocado no frame");
         em.insn(&format!("leaq {offset}(%rbp), %rax"));
-        store_op(em, frame, &Operand::Temp(dst), "rax")?;
+        store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
         return Ok(());
     }
 
@@ -459,7 +466,7 @@ fn emit_unop(
         }
         UnOp::AddrOf => unreachable!("tratado antes do load_op acima"),
     }
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -501,7 +508,7 @@ fn emit_call(
     }
 
     if let Some(dst) = dst {
-        store_op(em, frame, &Operand::Temp(dst), "rax")?;
+        store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     }
     Ok(())
 }
@@ -541,11 +548,31 @@ fn load_op(
             em.insn(&format!("movq {offset}(%rbp), %{reg}"));
             Ok(())
         }
+        Operand::Deref(inner) => {
+            // `%r11` e scratch/caller-saved e nao e usado como `reg` por
+            // nenhum chamador de `load_op`/`store_op` neste backend, entao e
+            // seguro usa-lo aqui para materializar o ponteiro antes do deref.
+            load_op(em, frame, inner, DEREF_SCRATCH_REG, strings)?;
+            em.insn(&format!("movq (%{DEREF_SCRATCH_REG}), %{reg}"));
+            Ok(())
+        }
     }
 }
 
-/// Armazena o registrador nomeado em `op` (que deve ser temp ou var).
-fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) -> EmitResult<()> {
+/// Armazena o registrador nomeado em `op` (que deve ser temp, var ou deref).
+fn store_op(
+    em: &mut Emitter,
+    frame: &Frame,
+    op: &Operand,
+    reg: &str,
+    strings: &StringPool,
+) -> EmitResult<()> {
+    if let Operand::Deref(inner) = op {
+        load_op(em, frame, inner, DEREF_SCRATCH_REG, strings)?;
+        em.insn(&format!("movq %{reg}, (%{DEREF_SCRATCH_REG})"));
+        return Ok(());
+    }
+
     let offset = match op {
         Operand::Temp(temp) => frame
             .offset_of(&SlotKey::Temp(temp.0))
@@ -559,6 +586,7 @@ fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) -> EmitRes
                 Some("store"),
             ))
         }
+        Operand::Deref(_) => unreachable!("tratado antes do match acima"),
     };
     em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
     Ok(())

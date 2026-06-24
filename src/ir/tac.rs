@@ -67,6 +67,10 @@ pub enum Operand {
     Temp(TempId),
     Var(String),
     Const(ConstValue),
+    /// Endereco indireto: o ponteiro guardado em `Operand` interno e lido (ou
+    /// escrito, quando usado como destino de `Copy`) atraves de deref, ex.:
+    /// `*p` como destino de `*p = x;` ou como valor em `*p + 1`.
+    Deref(Box<Operand>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +150,7 @@ impl fmt::Display for Operand {
             Operand::Temp(temp) => write!(f, "{temp}"),
             Operand::Var(name) => write!(f, "{name}"),
             Operand::Const(value) => write!(f, "{value}"),
+            Operand::Deref(inner) => write!(f, "*{inner}"),
         }
     }
 }

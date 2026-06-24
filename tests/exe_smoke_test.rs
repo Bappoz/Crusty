@@ -183,6 +183,62 @@ fn smoke_address_of_and_deref_read_runs() {
 }
 
 #[test]
+fn smoke_deref_assignment_writes_through_pointer() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_assign",
+        "int main() { \
+            int x = 10; \
+            int *p = &x; \
+            *p = 20; \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(20));
+}
+
+#[test]
+fn smoke_deref_compound_assign_through_function_param_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_compound",
+        "void inc(int *p) { *p = *p + 1; } \
+        int main() { \
+            int x = 10; \
+            inc(&x); \
+            inc(&x); \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(12));
+}
+
+#[test]
+fn smoke_deref_increment_operators_run() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_incr",
+        "int main() { \
+            int x = 5; \
+            int *p = &x; \
+            (*p)++; \
+            *p += 10; \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(16));
+}
+
+#[test]
 fn smoke_switch_fallthrough_runs() {
     require_gcc!();
 
