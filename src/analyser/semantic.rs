@@ -513,7 +513,7 @@ impl SemanticAnalyser {
                         is_unsigned: false,
                     },
                     crate::common::ast::expr::UnOp::Deref => match inner_ty.ty {
-                        Type::Pointer(base) | Type::Array(base) => QualifierType {
+                        Type::Pointer(base) | Type::Array(base, _) => QualifierType {
                             ty: *base,
                             is_const: inner_ty.is_const,
                             is_unsigned: inner_ty.is_unsigned,
@@ -655,7 +655,7 @@ impl SemanticAnalyser {
                 }
 
                 match arr_ty.ty {
-                    Type::Array(inner) | Type::Pointer(inner) => QualifierType {
+                    Type::Array(inner, _) | Type::Pointer(inner) => QualifierType {
                         ty: *inner,
                         is_const: arr_ty.is_const,
                         is_unsigned: arr_ty.is_unsigned,
@@ -793,7 +793,9 @@ impl SemanticAnalyser {
 
     fn resolve_type_inner(&self, ty: &Type) -> Type {
         match ty {
-            Type::Array(inner) => Type::Array(Box::new(self.resolve_type_inner(inner))),
+            Type::Array(inner, size) => {
+                Type::Array(Box::new(self.resolve_type_inner(inner)), *size)
+            }
             Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_type_inner(inner))),
             Type::Alias(name) => self
                 .sym
@@ -1029,7 +1031,7 @@ fn is_numeric(ty: &Type) -> bool {
 
 /// Retorna `true` se o tipo é ponteiro ou array (array decai para ponteiro em C).
 fn is_pointer(ty: &Type) -> bool {
-    matches!(ty, Type::Pointer(_) | Type::Array(_))
+    matches!(ty, Type::Pointer(_) | Type::Array(_, _))
 }
 
 /// Retorna `true` se o tipo é escalar (numérico, ponteiro ou enum).
@@ -1049,7 +1051,10 @@ fn type_name(ty: &Type) -> String {
         Type::Double => "double".into(),
         Type::Void => "void".into(),
         Type::Pointer(inner) => format!("{}*", type_name(inner)),
-        Type::Array(inner) => format!("{}[]", type_name(inner)),
+        Type::Array(inner, size) => match size {
+            Some(size) => format!("{}[{size}]", type_name(inner)),
+            None => format!("{}[]", type_name(inner)),
+        },
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),

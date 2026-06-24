@@ -10,7 +10,7 @@ pub enum Type {
     Float,
     Double,
     Void,
-    Array(Box<Type>),
+    Array(Box<Type>, Option<usize>),
     Pointer(Box<Type>),
     Struct(String),
     Enum(String),
