@@ -16,6 +16,7 @@
 
 use crate::codegen::last::abi;
 use crate::codegen::last::frame::{Frame, SlotKey};
+use crate::codegen::last::peephole::PeepholePass;
 use crate::common::ast::expr::{BinOp, UnOp};
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
@@ -192,7 +193,14 @@ fn emit_function(func: &TacFunction, strings: &StringPool) -> EmitResult<String>
     em.insn("popq %rbp");
     em.insn("ret");
 
-    Ok(em.into_string())
+    // Aplica a otimizacao peephole sobre o assembly gerado, linha a linha,
+    // ate atingir ponto fixo.
+    let raw_asm = em.into_string();
+    let mut instrs: Vec<String> = raw_asm.lines().map(|s| s.to_string()).collect();
+    let peephole = PeepholePass::new();
+    peephole.run(&mut instrs);
+
+    Ok(instrs.join("\n"))
 }
 
 /// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
