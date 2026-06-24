@@ -1,5 +1,5 @@
 use super::OptPass;
-use crate::codegen::inter::{Cfg, BasicBlock, Instruction, Value};
+use crate::codegen::inter::{BasicBlock, Cfg, Instruction, Value};
 use std::collections::{HashMap, HashSet};
 
 pub struct LoopInvariantCodeMotionPass;
@@ -141,13 +141,13 @@ impl LoopInvariantCodeMotionPass {
         let mut changed = true;
         while changed {
             changed = false;
-            for block in 1..cfg.blocks.len() {
-                let preds = &predecessors[block];
+            for (block, preds) in predecessors.iter().enumerate().skip(1) {
                 if preds.is_empty() {
                     continue;
                 }
 
-                let mut current_intersection = dominators.get(&preds[0]).cloned().unwrap_or_default();
+                let mut current_intersection =
+                    dominators.get(&preds[0]).cloned().unwrap_or_default();
                 for &pred in preds.iter().skip(1) {
                     if let Some(pred_doms) = dominators.get(&pred) {
                         current_intersection = current_intersection
@@ -225,15 +225,20 @@ impl LoopInvariantCodeMotionPass {
                             if def_counts.get(dst) != Some(&1) {
                                 continue;
                             }
-                            if self.is_value_stable(value, loop_body, &invariants_set, cfg) {
-                                if self.is_safe_to_move(dst, block_id, loop_body, dominators, cfg) {
-                                    invariants_set.insert(dst.clone());
-                                    invariant_instrs.push(inst.clone());
-                                    changed = true;
-                                }
+                            if self.is_value_stable(value, loop_body, &invariants_set, cfg)
+                                && self.is_safe_to_move(dst, block_id, loop_body, dominators, cfg)
+                            {
+                                invariants_set.insert(dst.clone());
+                                invariant_instrs.push(inst.clone());
+                                changed = true;
                             }
                         }
-                        Instruction::Binary { dst, op: _, lhs, rhs } => {
+                        Instruction::Binary {
+                            dst,
+                            op: _,
+                            lhs,
+                            rhs,
+                        } => {
                             if invariants_set.contains(dst) {
                                 continue;
                             }
@@ -242,12 +247,11 @@ impl LoopInvariantCodeMotionPass {
                             }
                             if self.is_value_stable(lhs, loop_body, &invariants_set, cfg)
                                 && self.is_value_stable(rhs, loop_body, &invariants_set, cfg)
+                                && self.is_safe_to_move(dst, block_id, loop_body, dominators, cfg)
                             {
-                                if self.is_safe_to_move(dst, block_id, loop_body, dominators, cfg) {
-                                    invariants_set.insert(dst.clone());
-                                    invariant_instrs.push(inst.clone());
-                                    changed = true;
-                                }
+                                invariants_set.insert(dst.clone());
+                                invariant_instrs.push(inst.clone());
+                                changed = true;
                             }
                         }
                         _ => {}
@@ -329,10 +333,10 @@ impl LoopInvariantCodeMotionPass {
             let block = &cfg.blocks[block_id];
             for inst in &block.instructions {
                 match inst {
-                    Instruction::Assign { dst, .. } | Instruction::Binary { dst, .. } => {
-                        if dst == name {
-                            return false;
-                        }
+                    Instruction::Assign { dst, .. } | Instruction::Binary { dst, .. }
+                        if dst == name =>
+                    {
+                        return false;
                     }
                     _ => {}
                 }

@@ -1,5 +1,5 @@
 use crusty::codegen::inter::opt::{LoopInvariantCodeMotionPass, OptPass};
-use crusty::codegen::inter::{BasicBlock, Cfg, Instruction, Value, BinaryOp};
+use crusty::codegen::inter::{BasicBlock, BinaryOp, Cfg, Instruction, Value};
 
 #[test]
 fn test_licm_integration_basic() {
