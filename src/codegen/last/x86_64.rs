@@ -24,6 +24,13 @@ use std::collections::HashMap;
 
 type EmitResult<T> = Result<T, CodegenError>;
 
+/// Registrador escolhido para materializar o endereco de um `Operand::Deref`
+/// antes do deref propriamente dito. Caller-saved e nunca usado como `reg`
+/// pelos chamadores de `load_op`/`store_op` neste backend (que usam apenas
+/// `rax`/`rcx`/registradores de argumento), entao e seguro como scratch
+/// dedicado mesmo em derefs aninhados.
+const DEREF_SCRATCH_REG: &str = "r11";
+
 /// Acumulador de linhas de assembly com indentacao controlada.
 struct Emitter {
     out: String,
@@ -205,14 +212,20 @@ fn emit_function(func: &TacFunction, strings: &StringPool) -> EmitResult<String>
 
 /// Constroi o stack frame pre-escaneando todas as instrucoes para alocar um
 /// slot para cada temp/variavel e mapear os parametros para suas posicoes.
+///
+/// Variaveis listadas em `func.var_sizes` (hoje, structs locais) recebem um
+/// bloco contiguo do tamanho indicado em vez do slot escalar padrao de 8
+/// bytes; demais variaveis e temporarios usam sempre 8 bytes.
 fn build_frame(func: &TacFunction) -> Frame {
     let mut frame = Frame::new();
+
+    let size_of = |name: &str| func.var_sizes.get(name).copied().unwrap_or(8);
 
     for (index, name) in func.params.iter().enumerate() {
         let key = SlotKey::Var(name.clone());
         match abi::arg_register(index) {
             Some(_) => {
-                frame.allocate_local(key);
+                frame.allocate_local_sized(key, size_of(name));
             }
             None => {
                 // Argumento passado via stack do chamador: ja esta disponivel
@@ -228,7 +241,11 @@ fn build_frame(func: &TacFunction) -> Frame {
             if frame.offset_of(&key).is_some() {
                 continue;
             }
-            frame.allocate_local(key);
+            let size = match &key {
+                SlotKey::Var(name) => size_of(name),
+                SlotKey::Temp(_) => 8,
+            };
+            frame.allocate_local_sized(key, size);
         }
     }
 
@@ -310,7 +327,7 @@ fn emit_instr(
         }
         TacInstr::Copy { dst, src } => {
             load_op(em, frame, src, "rax", strings)?;
-            store_op(em, frame, dst, "rax")?;
+            store_op(em, frame, dst, "rax", strings)?;
             Ok(())
         }
         TacInstr::BinOp { dst, op, lhs, rhs } => emit_binop(em, op, lhs, rhs, *dst, frame, strings),
@@ -377,7 +394,7 @@ fn emit_binop(
         }
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -415,7 +432,7 @@ fn emit_logical(
         em.insn("andq %rdx, %rax");
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -427,6 +444,24 @@ fn emit_unop(
     frame: &Frame,
     strings: &StringPool,
 ) -> EmitResult<()> {
+    // `&x` precisa do *endereco* do slot de `src`, nao do seu valor: nao
+    // passa por `load_op` (que faria `movq slot(%rbp), %reg`, carregando o
+    // conteudo em vez do endereco).
+    if matches!(op, UnOp::AddrOf) {
+        let key = SlotKey::from_operand(src).ok_or_else(|| {
+            codegen_error(
+                "endereco-de (&) requer uma variavel ou temporario com slot",
+                Some("unop"),
+            )
+        })?;
+        let offset = frame
+            .offset_of(&key)
+            .expect("operando de & deve ter slot alocado no frame");
+        em.insn(&format!("leaq {offset}(%rbp), %rax"));
+        store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
+        return Ok(());
+    }
+
     load_op(em, frame, src, "rax", strings)?;
     match op {
         UnOp::Neg => em.insn("negq %rax"),
@@ -437,19 +472,11 @@ fn emit_unop(
             em.insn("movzbq %al, %rax");
         }
         UnOp::Deref => {
-            return Err(codegen_error(
-                "codegen de deref (*) nao suportado neste backend",
-                Some("unop"),
-            ))
+            em.insn("movq (%rax), %rax");
         }
-        UnOp::AddrOf => {
-            return Err(codegen_error(
-                "codegen de address-of (&) nao suportado neste backend",
-                Some("unop"),
-            ))
-        }
+        UnOp::AddrOf => unreachable!("tratado antes do load_op acima"),
     }
-    store_op(em, frame, &Operand::Temp(dst), "rax")?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     Ok(())
 }
 
@@ -491,7 +518,7 @@ fn emit_call(
     }
 
     if let Some(dst) = dst {
-        store_op(em, frame, &Operand::Temp(dst), "rax")?;
+        store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
     }
     Ok(())
 }
@@ -531,11 +558,31 @@ fn load_op(
             em.insn(&format!("movq {offset}(%rbp), %{reg}"));
             Ok(())
         }
+        Operand::Deref(inner) => {
+            // `%r11` e scratch/caller-saved e nao e usado como `reg` por
+            // nenhum chamador de `load_op`/`store_op` neste backend, entao e
+            // seguro usa-lo aqui para materializar o ponteiro antes do deref.
+            load_op(em, frame, inner, DEREF_SCRATCH_REG, strings)?;
+            em.insn(&format!("movq (%{DEREF_SCRATCH_REG}), %{reg}"));
+            Ok(())
+        }
     }
 }
 
-/// Armazena o registrador nomeado em `op` (que deve ser temp ou var).
-fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) -> EmitResult<()> {
+/// Armazena o registrador nomeado em `op` (que deve ser temp, var ou deref).
+fn store_op(
+    em: &mut Emitter,
+    frame: &Frame,
+    op: &Operand,
+    reg: &str,
+    strings: &StringPool,
+) -> EmitResult<()> {
+    if let Operand::Deref(inner) = op {
+        load_op(em, frame, inner, DEREF_SCRATCH_REG, strings)?;
+        em.insn(&format!("movq %{reg}, (%{DEREF_SCRATCH_REG})"));
+        return Ok(());
+    }
+
     let offset = match op {
         Operand::Temp(temp) => frame
             .offset_of(&SlotKey::Temp(temp.0))
@@ -549,6 +596,7 @@ fn store_op(em: &mut Emitter, frame: &Frame, op: &Operand, reg: &str) -> EmitRes
                 Some("store"),
             ))
         }
+        Operand::Deref(_) => unreachable!("tratado antes do match acima"),
     };
     em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
     Ok(())
@@ -605,6 +653,7 @@ mod tests {
             name: name.to_string(),
             params: params.into_iter().map(String::from).collect(),
             instrs,
+            var_sizes: Default::default(),
         }
     }
 
