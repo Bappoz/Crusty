@@ -45,6 +45,11 @@ struct StringPool {
 impl StringPool {
     fn collect(prog: &TacProgram) -> Self {
         let mut pool = Self::default();
+        for global in &prog.globals {
+            if let Some(value) = &global.init {
+                pool.visit_operand(&Operand::Const(value.clone()));
+            }
+        }
         for func in &prog.functions {
             for instr in &func.instrs {
                 pool.visit_instr(instr);
@@ -80,8 +85,12 @@ impl StringPool {
     }
 
     fn visit_operand(&mut self, op: &Operand) {
-        if let Operand::Const(ConstValue::String(value)) = op {
-            self.label_for(value);
+        match op {
+            Operand::Const(ConstValue::String(value)) => {
+                self.label_for(value);
+            }
+            Operand::Deref(inner) => self.visit_operand(inner),
+            _ => {}
         }
     }
 
@@ -147,16 +156,61 @@ pub fn emit_program(prog: &TacProgram) -> EmitResult<String> {
         }
         em.blank();
     }
+    emit_globals(&mut em, prog, &strings)?;
     em.raw(".text");
     for func in &prog.functions {
         em.blank();
         em.append_str(&emit_function(func, &strings)?);
     }
-    // Marca a stack como nao-executavel (boa pratica; evita aviso do linker e
-    // e o que o proprio GCC adiciona a saida assembly).
+    // Marca a stack como nao-executavel em formatos ELF. Essa secao nao
+    // existe no COFF usado pelo MinGW e tornaria o assembly invalido la.
     em.blank();
-    em.raw(".section .note.GNU-stack,\"\",@progbits");
+    #[cfg(not(target_os = "windows"))]
+    {
+        em.raw(".section .note.GNU-stack,\"\",@progbits");
+    }
     Ok(em.into_string())
+}
+
+fn emit_globals(em: &mut Emitter, prog: &TacProgram, strings: &StringPool) -> EmitResult<()> {
+    let initialized: Vec<_> = prog.globals.iter().filter(|g| g.init.is_some()).collect();
+    if !initialized.is_empty() {
+        em.raw(".data");
+        for global in initialized {
+            em.raw(".balign 8");
+            em.raw(&format!(".globl {}", global.name));
+            em.raw(&format!("{}:", global.name));
+            match global.init.as_ref().expect("filtrado acima") {
+                ConstValue::Int(value) => em.raw(&format!("    .quad {value}")),
+                ConstValue::Char(value) => em.raw(&format!("    .quad {}", *value as i64)),
+                ConstValue::Double(value) => em.raw(&format!("    .quad {}", value.to_bits())),
+                ConstValue::String(value) => {
+                    let label = strings
+                        .labels
+                        .get(value)
+                        .expect("string global deve ter sido coletada");
+                    em.raw(&format!("    .quad {label}"));
+                }
+            }
+            if global.size > 8 {
+                em.raw(&format!("    .zero {}", global.size - 8));
+            }
+        }
+        em.blank();
+    }
+
+    let zeroed: Vec<_> = prog.globals.iter().filter(|g| g.init.is_none()).collect();
+    if !zeroed.is_empty() {
+        em.raw(".bss");
+        for global in zeroed {
+            em.raw(".balign 8");
+            em.raw(&format!(".globl {}", global.name));
+            em.raw(&format!("{}:", global.name));
+            em.raw(&format!("    .zero {}", global.size));
+        }
+        em.blank();
+    }
+    Ok(())
 }
 
 /// Emite o assembly de uma unica funcao: directiva `.globl`, rotulo,
@@ -448,6 +502,11 @@ fn emit_unop(
     // passa por `load_op` (que faria `movq slot(%rbp), %reg`, carregando o
     // conteudo em vez do endereco).
     if matches!(op, UnOp::AddrOf) {
+        if let Operand::Global(name) = src {
+            em.insn(&format!("leaq {name}(%rip), %rax"));
+            store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
+            return Ok(());
+        }
         let key = SlotKey::from_operand(src).ok_or_else(|| {
             codegen_error(
                 "endereco-de (&) requer uma variavel ou temporario com slot",
@@ -558,6 +617,10 @@ fn load_op(
             em.insn(&format!("movq {offset}(%rbp), %{reg}"));
             Ok(())
         }
+        Operand::Global(name) => {
+            em.insn(&format!("movq {name}(%rip), %{reg}"));
+            Ok(())
+        }
         Operand::Deref(inner) => {
             // `%r11` e scratch/caller-saved e nao e usado como `reg` por
             // nenhum chamador de `load_op`/`store_op` neste backend, entao e
@@ -583,6 +646,11 @@ fn store_op(
         return Ok(());
     }
 
+    if let Operand::Global(name) = op {
+        em.insn(&format!("movq %{reg}, {name}(%rip)"));
+        return Ok(());
+    }
+
     let offset = match op {
         Operand::Temp(temp) => frame
             .offset_of(&SlotKey::Temp(temp.0))
@@ -590,6 +658,7 @@ fn store_op(
         Operand::Var(name) => frame
             .offset_of(&SlotKey::Var(name.clone()))
             .expect("var sem slot alocado"),
+        Operand::Global(_) => unreachable!("tratado antes do match acima"),
         Operand::Const(_) => {
             return Err(codegen_error(
                 "nao e possivel armazenar em uma constante",
@@ -918,6 +987,7 @@ mod tests {
     #[test]
     fn emit_program_prepends_text_section() {
         let prog = TacProgram {
+            globals: Vec::new(),
             functions: vec![asm_simple_return_const()],
         };
 
