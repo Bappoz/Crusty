@@ -239,6 +239,26 @@ fn smoke_deref_increment_operators_run() {
 }
 
 #[test]
+fn smoke_sizeof_of_variables_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "sizeof_vars",
+        "int main() { \
+            int x = 7; \
+            long l = 3; \
+            char c = 'a'; \
+            int *p = &x; \
+            return sizeof(x) + sizeof(l) + sizeof(c) + sizeof(p); \
+        }",
+    );
+
+    // sizeof(int) + sizeof(long) + sizeof(char) + sizeof(int*) = 4+8+1+8.
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(21));
+}
+
+#[test]
 fn smoke_switch_fallthrough_runs() {
     require_gcc!();
 

@@ -16,6 +16,10 @@ pub struct Lowerer {
     temps: TempGen,
     labels: LabelGen,
     instrs: Vec<TacInstr>,
+    /// Tipo declarado de cada variavel/parametro visto ate agora na funcao
+    /// atual. Usado apenas para resolver `sizeof(expr)`; nao substitui a
+    /// analise semantica (que ja validou o programa antes do lowering).
+    var_types: std::collections::HashMap<String, Type>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -30,7 +34,15 @@ impl Lowerer {
             temps: TempGen::new(),
             labels: LabelGen::new(),
             instrs: Vec::new(),
+            var_types: std::collections::HashMap::new(),
         }
+    }
+
+    /// Registra o tipo declarado de `name`, usado depois para resolver
+    /// `sizeof(name)`. Chamado para parametros de funcao e para cada
+    /// `VarDecl` conforme o lowering avanca.
+    fn declare_var_type(&mut self, name: &str, ty: &Type) {
+        self.var_types.insert(name.to_string(), ty.clone());
     }
 
     pub fn lower_expr(&mut self, expr: &Expr) -> LowerResult<Operand> {
@@ -137,10 +149,26 @@ impl Lowerer {
                 "acesso a membro nao suportado no lowering",
                 Some("member"),
             )),
-            Expr::Sizeof(_, _) => Err(codegen_error(
-                "sizeof(expr) nao suportado no lowering sem informacao de tipo",
-                Some("sizeof"),
-            )),
+            // `sizeof(expr)`: o caso pratico mais comum e `sizeof(variavel)`.
+            // O tipo declarado de identificadores e rastreado em
+            // `var_types` (preenchido a partir de parametros e `VarDecl`);
+            // para qualquer outra forma de expressao ainda nao ha
+            // informacao de tipo disponivel no lowering.
+            Expr::Sizeof(inner, _) => match inner.as_ref() {
+                Expr::Ident(name, _) => {
+                    let ty = self.var_types.get(name).ok_or_else(|| {
+                        codegen_error(
+                            "sizeof(expr): tipo da variavel desconhecido no lowering",
+                            Some("sizeof"),
+                        )
+                    })?;
+                    Ok(Operand::Const(ConstValue::Int(type_size(ty)?)))
+                }
+                _ => Err(codegen_error(
+                    "sizeof(expr) so e suportado para identificadores simples neste backend",
+                    Some("sizeof"),
+                )),
+            },
         }
     }
 
@@ -297,7 +325,8 @@ impl Lowerer {
                 self.instrs.push(TacInstr::Return { val });
                 Ok(())
             }
-            Stmt::VarDecl(_, name, init, _) => {
+            Stmt::VarDecl(qty, name, init, _) => {
+                self.declare_var_type(name, &qty.ty);
                 if let Some(init) = init {
                     let src = self.lower_expr(init)?;
                     self.emit_copy(Operand::Var(name.clone()), src)?;
@@ -450,6 +479,9 @@ pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
     match decl {
         Decl::Function(_, name, params, body, _) => {
             let mut lowerer = Lowerer::new();
+            for (qty, param_name) in params {
+                lowerer.declare_var_type(param_name, &qty.ty);
+            }
             for stmt in body {
                 lowerer.lower_stmt(stmt)?;
             }
