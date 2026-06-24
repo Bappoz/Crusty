@@ -152,9 +152,10 @@ pub fn emit_program(prog: &TacProgram) -> EmitResult<String> {
         em.blank();
         em.append_str(&emit_function(func, &strings)?);
     }
-    // Marca a stack como nao-executavel (boa pratica; evita aviso do linker e
-    // e o que o proprio GCC adiciona a saida assembly).
+    // Marca a stack como nao-executavel em formatos ELF. Essa secao nao
+    // existe no COFF usado pelo MinGW e tornaria o assembly invalido la.
     em.blank();
+    #[cfg(not(target_os = "windows"))]
     em.raw(".section .note.GNU-stack,\"\",@progbits");
     Ok(em.into_string())
 }

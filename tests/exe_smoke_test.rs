@@ -8,6 +8,8 @@
 //! completo. Se `gcc` nao estiver disponivel no ambiente, os testes sao
 //! ignorados (skip) em vez de falhar.
 
+#![cfg_attr(not(unix), allow(unused_variables))]
+
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
@@ -247,4 +249,226 @@ fn smoke_recursive_fibonacci_runs() {
 
     #[cfg(unix)]
     assert_eq!(status.code(), Some(55));
+}
+
+#[test]
+fn smoke_switch_with_default_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "switch_default",
+        "int classify(int n) { \
+            int result = 0; \
+            switch (n) { \
+                case 1: result = 1; break; \
+                case 2: result = 2; break; \
+                default: result = -1; break; \
+            } \
+            return result; \
+        } \
+        int main() { return classify(1) + classify(2) + classify(9) + 100; }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(102));
+}
+
+#[test]
+fn smoke_address_of_and_deref_read_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "addrof_deref_read",
+        "int main() { \
+            int x = 21; \
+            int *p = &x; \
+            int y = *p; \
+            return y * 2; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(42));
+}
+
+#[test]
+fn smoke_deref_assignment_writes_through_pointer() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_assign",
+        "int main() { \
+            int x = 10; \
+            int *p = &x; \
+            *p = 20; \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(20));
+}
+
+#[test]
+fn smoke_deref_compound_assign_through_function_param_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_compound",
+        "void inc(int *p) { *p = *p + 1; } \
+        int main() { \
+            int x = 10; \
+            inc(&x); \
+            inc(&x); \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(12));
+}
+
+#[test]
+fn smoke_deref_increment_operators_run() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "deref_incr",
+        "int main() { \
+            int x = 5; \
+            int *p = &x; \
+            (*p)++; \
+            *p += 10; \
+            return x; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(16));
+}
+
+#[test]
+fn smoke_pointer_index_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "pointer_index",
+        "int sum_via_index(int *p) { \
+            p[0] = 10; \
+            return p[0] + 5; \
+        } \
+        int main() { \
+            int x = 1; \
+            return sum_via_index(&x); \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(15));
+}
+
+#[test]
+fn smoke_struct_member_read_and_write_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_member",
+        "struct Point { int x; int y; }; \
+        int main() { \
+            struct Point p; \
+            p.x = 3; \
+            p.y = 4; \
+            return p.x + p.y; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(7));
+}
+
+#[test]
+fn smoke_struct_member_via_pointer_arrow_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_member_arrow",
+        "struct Point { int x; int y; }; \
+        void move_point(struct Point *p, int dx, int dy) { \
+            p->x = p->x + dx; \
+            p->y = p->y + dy; \
+        } \
+        int main() { \
+            struct Point p; \
+            p.x = 1; \
+            p.y = 2; \
+            move_point(&p, 10, 20); \
+            return p.x + p.y; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(33));
+}
+
+#[test]
+fn smoke_struct_larger_than_eight_bytes_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "struct_big",
+        "struct Big { long a; long b; long c; }; \
+        int main() { \
+            struct Big big; \
+            big.a = 1; \
+            big.b = 2; \
+            big.c = 3; \
+            return big.a + big.b + big.c; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(6));
+}
+
+#[test]
+fn smoke_sizeof_of_variables_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "sizeof_vars",
+        "int main() { \
+            int x = 7; \
+            long l = 3; \
+            char c = 'a'; \
+            int *p = &x; \
+            return sizeof(x) + sizeof(l) + sizeof(c) + sizeof(p); \
+        }",
+    );
+
+    // sizeof(int) + sizeof(long) + sizeof(char) + sizeof(int*) = 4+8+1+8.
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(21));
+}
+
+#[test]
+fn smoke_switch_fallthrough_runs() {
+    require_gcc!();
+
+    let status = compile_and_run(
+        "switch_fallthrough",
+        "int main() { \
+            int n = 2; \
+            int total = 0; \
+            switch (n) { \
+                case 1: total = total + 1; \
+                case 2: total = total + 2; \
+                case 3: total = total + 3; break; \
+                case 4: total = total + 100; \
+            } \
+            return total; \
+        }",
+    );
+
+    #[cfg(unix)]
+    assert_eq!(status.code(), Some(5));
 }
