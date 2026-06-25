@@ -1,5 +1,7 @@
 # Análise Semântica
 
+**Status:** Concluída
+
 ## Visão Geral
 
 O analisador semântico recebe o `Program` (AST) produzido pelo parser e verifica restrições que a gramática não captura: variáveis não declaradas, redeclarações, atribuição a `const`, incompatibilidades de tipo, acesso a campos inexistentes.

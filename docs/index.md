@@ -11,7 +11,8 @@ Seu objetivo é transformar código-fonte C em código executável passando por 
 | 02 | [Análise Sintática](syntax-analysis.md) | Concluída |
 | 03 | [Análise Semântica](semantic-analysis.md) | Em desenvolvimento |
 | 04 | [Representação Intermediária](intermediate-representation.md) | Em desenvolvimento |
-| 05 | [Geração de Código](code-generation.md) | Planejada |
+| 05 | [Otimização](optimization.md) | Em desenvolvimento |
+| 06 | [Geração de Código](code-generation.md) | Planejada |
 
 ## Estrutura do Projeto
 

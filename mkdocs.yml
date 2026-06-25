@@ -11,6 +11,7 @@ nav:
     - Análise Sintática: syntax-analysis.md
     - Análise Semântica: semantic-analysis.md
     - Representação Intermediária: intermediate-representation.md
+    - Otimização: optimization.md
     - Geração de Código: code-generation.md
 
 markdown_extensions:
