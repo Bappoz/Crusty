@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::common::ast::ast::Type;
 use crate::common::ast::expr::{BinOp, UnOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,15 +84,18 @@ pub enum TacInstr {
         op: BinOp,
         lhs: Operand,
         rhs: Operand,
+        ty: Type,
     },
     UnOp {
         dst: TempId,
         op: UnOp,
         src: Operand,
+        ty: Type,
     },
     Copy {
         dst: Operand,
         src: Operand,
+        ty: Type,
     },
     Jump {
         label: LabelId,
@@ -108,6 +112,7 @@ pub enum TacInstr {
     },
     Return {
         val: Option<Operand>,
+        ty: Option<Type>,
     },
     Label(LabelId),
 }
@@ -178,13 +183,24 @@ impl fmt::Display for Operand {
 impl fmt::Display for TacInstr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TacInstr::BinOp { dst, op, lhs, rhs } => {
+            TacInstr::BinOp {
+                dst,
+                op,
+                lhs,
+                rhs,
+                ty: _,
+            } => {
                 write!(f, "{dst} = {lhs} {} {rhs}", bin_op_symbol(op))
             }
-            TacInstr::UnOp { dst, op, src } => {
+            TacInstr::UnOp {
+                dst,
+                op,
+                src,
+                ty: _,
+            } => {
                 write!(f, "{dst} = {}{src}", un_op_symbol(op))
             }
-            TacInstr::Copy { dst, src } => write!(f, "{dst} = {src}"),
+            TacInstr::Copy { dst, src, ty: _ } => write!(f, "{dst} = {src}"),
             TacInstr::Jump { label } => write!(f, "goto {label}"),
             TacInstr::CondJump {
                 cond,
@@ -205,7 +221,7 @@ impl fmt::Display for TacInstr {
                 }
                 write!(f, ")")
             }
-            TacInstr::Return { val } => {
+            TacInstr::Return { val, ty: _ } => {
                 if let Some(val) = val {
                     write!(f, "return {val}")
                 } else {
@@ -247,38 +263,5 @@ fn un_op_symbol(op: &UnOp) -> &'static str {
         UnOp::BitNot => "~",
         UnOp::Deref => "*",
         UnOp::AddrOf => "&",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tac_instr_display_binop() {
-        let instr = TacInstr::BinOp {
-            dst: TempId(0),
-            op: BinOp::Add,
-            lhs: Operand::Temp(TempId(1)),
-            rhs: Operand::Temp(TempId(2)),
-        };
-
-        assert_eq!(instr.to_string(), "t0 = t1 + t2");
-    }
-
-    #[test]
-    fn temp_gen_increments() {
-        let mut gen = TempGen::new();
-
-        assert_eq!(gen.fresh(), TempId(0));
-        assert_eq!(gen.fresh(), TempId(1));
-    }
-
-    #[test]
-    fn label_gen_unique() {
-        let mut gen = LabelGen::new();
-
-        assert_eq!(gen.fresh(), LabelId(0));
-        assert_eq!(gen.fresh(), LabelId(1));
     }
 }

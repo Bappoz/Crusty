@@ -141,6 +141,34 @@ impl Lowerer {
         sizes
     }
 
+    /// Infere se uma expressao produz um valor `double`, o suficiente para
+    /// escolher entre o caminho de codegen inteiro (`rax`/`rcx`) e o de
+    /// ponto flutuante (`xmm0`/`xmm1`) sem precisar reexecutar a analise
+    /// semantica completa. Qualquer expressao fora deste subconjunto e
+    /// tratada como inteira — escopo deliberadamente limitado a literais,
+    /// variaveis locais, aritmetica basica e cast, conforme a issue #172.
+    fn expr_type_for_codegen(&self, expr: &Expr) -> Type {
+        match expr {
+            Expr::Literal(Literal::Double(_), _) => Type::Double,
+            Expr::Ident(name, _) => self
+                .type_of_var(name)
+                .map(|ty| resolve_alias(ty, &self.typedefs))
+                .unwrap_or(Type::Int),
+            Expr::Binary(lhs, _, rhs, _) => {
+                if matches!(self.expr_type_for_codegen(lhs), Type::Double)
+                    || matches!(self.expr_type_for_codegen(rhs), Type::Double)
+                {
+                    Type::Double
+                } else {
+                    Type::Int
+                }
+            }
+            Expr::Unary(_, inner, _) => self.expr_type_for_codegen(inner),
+            Expr::Cast(qty, _, _) => resolve_alias(&qty.ty, &self.typedefs),
+            _ => Type::Int,
+        }
+    }
+
     /// Infere o tipo estatico (ja resolvido de aliases de `typedef`) de um
     /// subconjunto limitado de expressoes (identificadores, deref, indice
     /// via ponteiro, membro de struct e cast) — o suficiente para resolver
@@ -271,6 +299,7 @@ impl Lowerer {
                 op: BinOp::Mul,
                 lhs: idx_op,
                 rhs: Operand::Const(ConstValue::Int(elem_size)),
+                ty: Type::Int,
             });
             Operand::Temp(scaled)
         };
@@ -281,6 +310,7 @@ impl Lowerer {
             op: BinOp::Add,
             lhs: base_ptr,
             rhs: offset,
+            ty: Type::Int,
         });
         Ok(Operand::Temp(addr))
     }
@@ -320,6 +350,7 @@ impl Lowerer {
             op: BinOp::Add,
             lhs: base_addr,
             rhs: Operand::Const(ConstValue::Int(field_offset)),
+            ty: Type::Int,
         });
         Ok(Operand::Temp(addr))
     }
@@ -336,6 +367,7 @@ impl Lowerer {
                     dst: temp,
                     op: UnOp::AddrOf,
                     src,
+                    ty: Type::Int,
                 });
                 Ok(Operand::Temp(temp))
             }
@@ -353,25 +385,29 @@ impl Lowerer {
         match expr {
             Expr::Literal(value, _) => Ok(Operand::Const(lower_literal(value))),
             Expr::Ident(name, _) => Ok(self.operand_for_var(name)),
-            Expr::Binary(lhs, op, rhs, _) => {
-                let lhs = self.lower_expr(lhs)?;
-                let rhs = self.lower_expr(rhs)?;
+            Expr::Binary(lhs_expr, op, rhs_expr, _) => {
+                let ty = self.expr_type_for_codegen(expr);
+                let lhs = self.lower_expr(lhs_expr)?;
+                let rhs = self.lower_expr(rhs_expr)?;
                 let dst = self.fresh_temp();
                 self.instrs.push(TacInstr::BinOp {
                     dst,
                     op: op.clone(),
                     lhs,
                     rhs,
+                    ty,
                 });
                 Ok(Operand::Temp(dst))
             }
-            Expr::Unary(op, src, _) => {
-                let src = self.lower_expr(src)?;
+            Expr::Unary(op, src_expr, _) => {
+                let ty = self.expr_type_for_codegen(src_expr);
+                let src = self.lower_expr(src_expr)?;
                 let dst = self.fresh_temp();
                 self.instrs.push(TacInstr::UnOp {
                     dst,
                     op: op.clone(),
                     src,
+                    ty,
                 });
                 Ok(Operand::Temp(dst))
             }
@@ -399,14 +435,19 @@ impl Lowerer {
                 });
                 Ok(Operand::Temp(dst))
             }
-            Expr::Cast(_, inner, _) => self.lower_expr(inner),
+            Expr::Cast(qty, inner, _) => {
+                let _ = resolve_alias(&qty.ty, &self.typedefs);
+                self.lower_expr(inner)
+            }
             Expr::Assign(lhs, rhs, _) => {
+                let ty = self.expr_type_for_codegen(lhs);
                 let src = self.lower_expr(rhs)?;
                 let dst = self.lower_assignment_target(lhs)?;
-                self.emit_copy(dst.clone(), src)?;
+                self.emit_copy(dst.clone(), src, ty)?;
                 Ok(dst)
             }
             Expr::CompoundAssign(op, lhs, rhs, _) => {
+                let ty = self.expr_type_for_codegen(lhs);
                 let dst = self.lower_assignment_target(lhs)?;
                 let rhs = self.lower_expr(rhs)?;
                 let temp = self.fresh_temp();
@@ -415,8 +456,9 @@ impl Lowerer {
                     op: op.clone(),
                     lhs: dst.clone(),
                     rhs,
+                    ty: ty.clone(),
                 });
-                self.emit_copy(dst.clone(), Operand::Temp(temp))?;
+                self.emit_copy(dst.clone(), Operand::Temp(temp), ty)?;
                 Ok(dst)
             }
             Expr::SizeofType(qty, _) => Ok(Operand::Const(ConstValue::Int(type_size(&qty.ty)?))),
@@ -434,13 +476,15 @@ impl Lowerer {
                 });
 
                 self.instrs.push(TacInstr::Label(then_label));
+                let then_ty = self.expr_type_for_codegen(then_expr);
                 let then_val = self.lower_expr(then_expr)?;
-                self.emit_copy(Operand::Temp(dst), then_val)?;
+                self.emit_copy(Operand::Temp(dst), then_val, then_ty)?;
                 self.emit_jump_unless_terminated(end_label);
 
                 self.instrs.push(TacInstr::Label(else_label));
+                let else_ty = self.expr_type_for_codegen(else_expr);
                 let else_val = self.lower_expr(else_expr)?;
-                self.emit_copy(Operand::Temp(dst), else_val)?;
+                self.emit_copy(Operand::Temp(dst), else_val, else_ty)?;
 
                 self.instrs.push(TacInstr::Label(end_label));
                 Ok(Operand::Temp(dst))
@@ -622,18 +666,20 @@ impl Lowerer {
                 Ok(())
             }
             Stmt::Return(expr, _) => {
+                let ty = expr.as_ref().map(|expr| self.expr_type_for_codegen(expr));
                 let val = expr
                     .as_ref()
                     .map(|expr| self.lower_expr(expr))
                     .transpose()?;
-                self.instrs.push(TacInstr::Return { val });
+                self.instrs.push(TacInstr::Return { val, ty });
                 Ok(())
             }
             Stmt::VarDecl(qty, name, init, _) => {
                 self.declare_var_type(name, &qty.ty);
                 if let Some(init) = init {
+                    let ty = resolve_alias(&qty.ty, &self.typedefs);
                     let src = self.lower_expr(init)?;
-                    self.emit_copy(Operand::Var(name.clone()), src)?;
+                    self.emit_copy(Operand::Var(name.clone()), src, ty)?;
                 }
                 Ok(())
             }
@@ -660,6 +706,7 @@ impl Lowerer {
                             op: BinOp::Eq,
                             lhs: disc_op.clone(),
                             rhs: case_val,
+                            ty: Type::Int,
                         });
                         let next_test = self.labels.fresh();
                         self.instrs.push(TacInstr::CondJump {
@@ -705,6 +752,7 @@ impl Lowerer {
     }
 
     fn lower_prefix(&mut self, op: &PrefixOp, target: &Expr) -> LowerResult<Operand> {
+        let ty = self.expr_type_for_codegen(target);
         let dst = self.lower_assignment_target(target)?;
         let temp = self.fresh_temp();
         self.instrs.push(TacInstr::BinOp {
@@ -712,15 +760,17 @@ impl Lowerer {
             op: prefix_bin_op(op),
             lhs: dst.clone(),
             rhs: Operand::Const(ConstValue::Int(1)),
+            ty: ty.clone(),
         });
-        self.emit_copy(dst.clone(), Operand::Temp(temp))?;
+        self.emit_copy(dst.clone(), Operand::Temp(temp), ty)?;
         Ok(dst)
     }
 
     fn lower_postfix(&mut self, op: &PostfixOp, target: &Expr) -> LowerResult<Operand> {
+        let ty = self.expr_type_for_codegen(target);
         let dst = self.lower_assignment_target(target)?;
         let old = self.fresh_temp();
-        self.emit_copy(Operand::Temp(old), dst.clone())?;
+        self.emit_copy(Operand::Temp(old), dst.clone(), ty.clone())?;
 
         let new = self.fresh_temp();
         self.instrs.push(TacInstr::BinOp {
@@ -728,8 +778,9 @@ impl Lowerer {
             op: postfix_bin_op(op),
             lhs: dst.clone(),
             rhs: Operand::Const(ConstValue::Int(1)),
+            ty: ty.clone(),
         });
-        self.emit_copy(dst, Operand::Temp(new))?;
+        self.emit_copy(dst, Operand::Temp(new), ty)?;
         Ok(Operand::Temp(old))
     }
 
@@ -786,10 +837,10 @@ impl Lowerer {
         }
     }
 
-    fn emit_copy(&mut self, dst: Operand, src: Operand) -> LowerResult<()> {
+    fn emit_copy(&mut self, dst: Operand, src: Operand, ty: Type) -> LowerResult<()> {
         match dst {
             Operand::Temp(_) | Operand::Var(_) | Operand::Global(_) | Operand::Deref(_) => {
-                self.instrs.push(TacInstr::Copy { dst, src });
+                self.instrs.push(TacInstr::Copy { dst, src, ty });
                 Ok(())
             }
             Operand::Const(_) => Err(codegen_error(
@@ -1240,6 +1291,7 @@ mod tests {
                 op: BinOp::Add,
                 lhs: Operand::Const(ConstValue::Int(2)),
                 rhs: Operand::Const(ConstValue::Int(3)),
+                ty: Type::Int,
             }]
         );
     }
@@ -1281,6 +1333,7 @@ mod tests {
             TacInstr::Copy {
                 dst: Operand::Var("x".to_string()),
                 src: Operand::Const(ConstValue::Int(2)),
+                ty: Type::Int,
             }
         );
         assert_eq!(instrs[3], TacInstr::Jump { label: LabelId(2) });
@@ -1290,6 +1343,7 @@ mod tests {
             TacInstr::Copy {
                 dst: Operand::Var("y".to_string()),
                 src: Operand::Const(ConstValue::Int(3)),
+                ty: Type::Int,
             }
         );
         assert_eq!(instrs[6], TacInstr::Label(LabelId(2)));
@@ -1363,12 +1417,14 @@ mod tests {
                     op: BinOp::Mul,
                     lhs: Operand::Const(ConstValue::Int(3)),
                     rhs: Operand::Const(ConstValue::Int(4)),
+                    ty: Type::Int,
                 },
                 TacInstr::BinOp {
                     dst: TempId(1),
                     op: BinOp::Add,
                     lhs: Operand::Const(ConstValue::Int(2)),
                     rhs: Operand::Temp(TempId(0)),
+                    ty: Type::Int,
                 },
             ]
         );
@@ -1391,7 +1447,8 @@ mod tests {
         assert_eq!(
             func.instrs,
             vec![TacInstr::Return {
-                val: Some(Operand::Var("argc".to_string()))
+                val: Some(Operand::Var("argc".to_string())),
+                ty: Some(Type::Int),
             }]
         );
     }

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crusty::codegen::last::emit_program;
+use crusty::common::ast::ast::Type;
 use crusty::common::ast::expr::BinOp;
 use crusty::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram, TempId};
 
@@ -43,9 +44,11 @@ fn build_soma_program() -> TacProgram {
                 op: BinOp::Add,
                 lhs: Operand::Var("a".to_string()),
                 rhs: Operand::Var("b".to_string()),
+                ty: Type::Int,
             },
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(0))),
+                ty: None,
             },
         ],
         var_sizes: Default::default(),
@@ -65,6 +68,7 @@ fn build_soma_program() -> TacProgram {
             },
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(0))),
+                ty: None,
             },
         ],
         var_sizes: Default::default(),
@@ -150,6 +154,7 @@ fn smoke_simple_return_const_runs() {
             params: Vec::new(),
             instrs: vec![TacInstr::Return {
                 val: Some(Operand::Const(ConstValue::Int(42))),
+                ty: None,
             }],
             var_sizes: Default::default(),
         }],
@@ -191,51 +196,60 @@ fn smoke_call_with_more_than_six_args_runs() {
                 op: BinOp::Add,
                 lhs: Operand::Var("a1".to_string()),
                 rhs: Operand::Var("a2".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(1),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(0)),
                 rhs: Operand::Var("a3".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(2),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(1)),
                 rhs: Operand::Var("a4".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(3),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(2)),
                 rhs: Operand::Var("a5".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(4),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(3)),
                 rhs: Operand::Var("a6".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(5),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(4)),
                 rhs: Operand::Var("a7".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(6),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(5)),
                 rhs: Operand::Var("a8".to_string()),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(7),
                 op: BinOp::Add,
                 lhs: Operand::Temp(TempId(6)),
                 rhs: Operand::Var("a9".to_string()),
+                ty: Type::Int,
             },
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(7))),
+                ty: None,
             },
         ],
         var_sizes: Default::default(),
@@ -254,6 +268,7 @@ fn smoke_call_with_more_than_six_args_runs() {
             },
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(0))),
+                ty: None,
             },
         ],
         var_sizes: Default::default(),
@@ -308,10 +323,12 @@ fn smoke_control_flow_if_else_runs() {
                 TacInstr::Label(LabelId(0)),
                 TacInstr::Return {
                     val: Some(Operand::Const(ConstValue::Int(10))),
+                    ty: None,
                 },
                 TacInstr::Label(LabelId(1)),
                 TacInstr::Return {
                     val: Some(Operand::Const(ConstValue::Int(20))),
+                    ty: None,
                 },
             ],
             var_sizes: Default::default(),

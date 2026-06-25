@@ -235,7 +235,7 @@ fn instr_uses(instr: &TacInstr) -> Vec<TempId> {
                 push(&mut uses, arg);
             }
         }
-        TacInstr::Return { val: Some(v) } => push(&mut uses, v),
+        TacInstr::Return { val: Some(v), .. } => push(&mut uses, v),
         _ => {}
     }
 
@@ -255,20 +255,28 @@ pub fn constant_fold(instrs: &mut [TacInstr]) -> bool {
 
     for instr in instrs.iter_mut() {
         match instr {
-            TacInstr::BinOp { dst, op, lhs, rhs } => {
+            TacInstr::BinOp {
+                dst,
+                op,
+                lhs,
+                rhs,
+                ty,
+            } => {
                 if let Some(result) = fold_binop(op, lhs, rhs) {
                     *instr = TacInstr::Copy {
                         dst: Operand::Temp(*dst),
                         src: Operand::Const(result),
+                        ty: ty.clone(),
                     };
                     changed = true;
                 }
             }
-            TacInstr::UnOp { dst, op, src } => {
+            TacInstr::UnOp { dst, op, src, ty } => {
                 if let Some(result) = fold_unop(op, src) {
                     *instr = TacInstr::Copy {
                         dst: Operand::Temp(*dst),
                         src: Operand::Const(result),
+                        ty: ty.clone(),
                     };
                     changed = true;
                 }
@@ -382,6 +390,7 @@ pub fn constant_propagation(instrs: &mut [TacInstr]) -> bool {
             TacInstr::Copy {
                 dst: Operand::Temp(t),
                 src: Operand::Const(v),
+                ..
             } => {
                 const_map.insert(*t, v.clone());
             }
@@ -390,6 +399,7 @@ pub fn constant_propagation(instrs: &mut [TacInstr]) -> bool {
             TacInstr::Copy {
                 dst: Operand::Temp(t),
                 src: _,
+                ..
             } => {
                 const_map.remove(t);
             }
@@ -434,7 +444,7 @@ fn propagate_uses(
                 subst(arg, changed);
             }
         }
-        TacInstr::Return { val: Some(v) } => subst(v, changed),
+        TacInstr::Return { val: Some(v), .. } => subst(v, changed),
         _ => {}
     }
 }
@@ -530,6 +540,7 @@ pub fn optimize_function(instrs: &mut Vec<TacInstr>) {
 mod tests {
     use super::*;
     use crate::{
+        common::ast::ast::Type,
         common::ast::expr::{BinOp, UnOp},
         ir::tac::{ConstValue, LabelId, Operand, TacInstr, TempId},
     };
@@ -555,6 +566,7 @@ mod tests {
             op: BinOp::Add,
             lhs: int(2),
             rhs: int(3),
+            ty: Type::Int,
         }];
         assert!(constant_fold(&mut instrs));
         assert_eq!(
@@ -562,6 +574,7 @@ mod tests {
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(5),
+                ty: Type::Int,
             }
         );
     }
@@ -575,12 +588,14 @@ mod tests {
                 op: BinOp::Mul,
                 lhs: int(3),
                 rhs: int(4),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(1),
                 op: BinOp::Add,
                 lhs: int(2),
                 rhs: temp(0),
+                ty: Type::Int,
             },
         ];
         // Após fold: t0 = 12, t1 = 2 + t0 (t0 ainda é temp, precisa de propagation)
@@ -589,7 +604,8 @@ mod tests {
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(12)
+                src: int(12),
+                ty: Type::Int,
             }
         );
 
@@ -601,7 +617,8 @@ mod tests {
             instrs[1],
             TacInstr::Copy {
                 dst: temp(1),
-                src: int(14)
+                src: int(14),
+                ty: Type::Int,
             }
         );
     }
@@ -613,13 +630,15 @@ mod tests {
             op: BinOp::Less,
             lhs: int(3),
             rhs: int(5),
+            ty: Type::Int,
         }];
         assert!(constant_fold(&mut instrs));
         assert_eq!(
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(1)
+                src: int(1),
+                ty: Type::Int,
             }
         );
     }
@@ -631,13 +650,15 @@ mod tests {
             op: BinOp::Eq,
             lhs: int(3),
             rhs: int(5),
+            ty: Type::Int,
         }];
         assert!(constant_fold(&mut instrs));
         assert_eq!(
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(0)
+                src: int(0),
+                ty: Type::Int,
             }
         );
     }
@@ -650,13 +671,15 @@ mod tests {
             op: BinOp::BitAnd,
             lhs: int(0b1010),
             rhs: int(0b1100),
+            ty: Type::Int,
         }];
         assert!(constant_fold(&mut instrs));
         assert_eq!(
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(8)
+                src: int(8),
+                ty: Type::Int,
             }
         );
     }
@@ -667,13 +690,15 @@ mod tests {
             dst: TempId(0),
             op: UnOp::Neg,
             src: int(7),
+            ty: Type::Int,
         }];
         assert!(constant_fold(&mut instrs));
         assert_eq!(
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(-7)
+                src: int(-7),
+                ty: Type::Int,
             }
         );
     }
@@ -686,11 +711,13 @@ mod tests {
                 dst: TempId(0),
                 op: UnOp::Not,
                 src: int(0),
+                ty: Type::Int,
             },
             TacInstr::UnOp {
                 dst: TempId(1),
                 op: UnOp::Not,
                 src: int(5),
+                ty: Type::Int,
             },
         ];
         constant_fold(&mut instrs);
@@ -698,14 +725,16 @@ mod tests {
             instrs[0],
             TacInstr::Copy {
                 dst: temp(0),
-                src: int(1)
+                src: int(1),
+                ty: Type::Int,
             }
         );
         assert_eq!(
             instrs[1],
             TacInstr::Copy {
                 dst: temp(1),
-                src: int(0)
+                src: int(0),
+                ty: Type::Int,
             }
         );
     }
@@ -717,6 +746,7 @@ mod tests {
             op: BinOp::Div,
             lhs: int(10),
             rhs: int(0),
+            ty: Type::Int,
         };
         let mut instrs = vec![original.clone()];
         assert!(!constant_fold(&mut instrs));
@@ -730,6 +760,7 @@ mod tests {
             op: BinOp::Shl,
             lhs: int(1),
             rhs: int(-1),
+            ty: Type::Int,
         };
         let mut instrs = vec![original.clone()];
         assert!(!constant_fold(&mut instrs));
@@ -743,6 +774,7 @@ mod tests {
             op: BinOp::Shl,
             lhs: int(1),
             rhs: int(64),
+            ty: Type::Int,
         };
         let mut instrs = vec![original.clone()];
         assert!(!constant_fold(&mut instrs));
@@ -756,6 +788,7 @@ mod tests {
             op: BinOp::Add,
             lhs: Operand::Const(ConstValue::Double(1.0)),
             rhs: Operand::Const(ConstValue::Double(2.0)),
+            ty: Type::Int,
         };
         let mut instrs = vec![original.clone()];
         assert!(!constant_fold(&mut instrs));
@@ -771,12 +804,14 @@ mod tests {
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(5),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(1),
                 op: BinOp::Add,
                 lhs: temp(0),
                 rhs: int(3),
+                ty: Type::Int,
             },
         ];
         assert!(constant_propagation(&mut instrs));
@@ -787,6 +822,7 @@ mod tests {
                 op: BinOp::Add,
                 lhs: int(5),
                 rhs: int(3),
+                ty: Type::Int,
             }
         );
         // Após fold: t1 = 8
@@ -795,7 +831,8 @@ mod tests {
             instrs[1],
             TacInstr::Copy {
                 dst: temp(1),
-                src: int(8)
+                src: int(8),
+                ty: Type::Int,
             }
         );
     }
@@ -807,6 +844,7 @@ mod tests {
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(5),
+                ty: Type::Int,
             },
             TacInstr::Call {
                 dst: Some(TempId(0)),
@@ -818,6 +856,7 @@ mod tests {
                 op: BinOp::Add,
                 lhs: temp(0),
                 rhs: int(1),
+                ty: Type::Int,
             },
         ];
         // propagation não deve substituir t0 na última instrução
@@ -841,6 +880,7 @@ mod tests {
             op: BinOp::Add,
             lhs: int(2),
             rhs: int(3),
+            ty: Type::Int,
         }];
         let liveness = compute_liveness(&instrs);
         assert!(dead_code_eliminate(&mut instrs, &liveness));
@@ -866,6 +906,7 @@ mod tests {
         let mut instrs = vec![TacInstr::Copy {
             dst: var("x"),
             src: int(10),
+            ty: Type::Int,
         }];
         let liveness = compute_liveness(&instrs);
         assert!(!dead_code_eliminate(&mut instrs, &liveness));
@@ -879,8 +920,12 @@ mod tests {
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(5),
+                ty: Type::Int,
             },
-            TacInstr::Return { val: Some(temp(0)) },
+            TacInstr::Return {
+                val: Some(temp(0)),
+                ty: None,
+            },
         ];
         let liveness = compute_liveness(&instrs);
         assert!(!dead_code_eliminate(&mut instrs, &liveness));
@@ -907,15 +952,20 @@ mod tests {
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(5),
+                ty: Type::Int,
             },
             TacInstr::Jump { label: LabelId(3) },
             TacInstr::Label(LabelId(2)),
             TacInstr::Copy {
                 dst: temp(0),
                 src: int(10),
+                ty: Type::Int,
             },
             TacInstr::Label(LabelId(3)),
-            TacInstr::Return { val: Some(temp(0)) },
+            TacInstr::Return {
+                val: Some(temp(0)),
+                ty: None,
+            },
         ];
 
         let liveness = compute_liveness(&instrs);
@@ -937,16 +987,19 @@ mod tests {
                 op: BinOp::Mul,
                 lhs: int(3),
                 rhs: int(4),
+                ty: Type::Int,
             },
             TacInstr::BinOp {
                 dst: TempId(1),
                 op: BinOp::Add,
                 lhs: int(2),
                 rhs: temp(0),
+                ty: Type::Int,
             },
             TacInstr::Copy {
                 dst: var("x"),
                 src: temp(1),
+                ty: Type::Int,
             },
         ];
 
@@ -959,6 +1012,7 @@ mod tests {
             TacInstr::Copy {
                 dst: var("x"),
                 src: int(14),
+                ty: Type::Int,
             }
         );
     }
@@ -978,8 +1032,12 @@ mod tests {
                 op: BinOp::Add,
                 lhs: temp(0),
                 rhs: int(0),
+                ty: Type::Int,
             },
-            TacInstr::Return { val: Some(temp(1)) },
+            TacInstr::Return {
+                val: Some(temp(1)),
+                ty: None,
+            },
         ];
 
         optimize_function(&mut instrs);
@@ -992,7 +1050,13 @@ mod tests {
 
     #[test]
     fn optimize_function_side_effect_label_preserved() {
-        let mut instrs = vec![TacInstr::Label(LabelId(0)), TacInstr::Return { val: None }];
+        let mut instrs = vec![
+            TacInstr::Label(LabelId(0)),
+            TacInstr::Return {
+                val: None,
+                ty: None,
+            },
+        ];
         optimize_function(&mut instrs);
         assert_eq!(instrs.len(), 2);
     }
