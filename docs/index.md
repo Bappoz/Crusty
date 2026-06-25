@@ -9,15 +9,17 @@ Seu objetivo é transformar código-fonte C em código executável passando por 
 |---|------|--------|
 | 01 | [Análise Léxica](lexical-analysis.md) | Concluída |
 | 02 | [Análise Sintática](syntax-analysis.md) | Concluída |
-| 03 | [Análise Semântica](semantic-analysis.md) | Em desenvolvimento |
-| 04 | [Representação Intermediária](intermediate-representation.md) | Em desenvolvimento |
-| 05 | [Otimização](optimization.md) | Em desenvolvimento |
-| 06 | [Geração de Código](code-generation.md) | Planejada |
+| 03 | [Análise Semântica](semantic-analysis.md) | Concluída |
+| 04 | [Representação Intermediária](intermediate-representation.md) | Concluída |
+| 05 | [Otimização](optimization.md) | Concluída |
+| 06 | [Geração de Código](code-generation.md) | Concluída |
 
 ## Estrutura do Projeto
 
 ```
 src/
+├── main.rs         # Ponto de entrada (CLI, pipeline integration)
+├── lib.rs          # Declaração do pacote crusty
 ├── lexer/          # Análise Léxica (scanner, tokens, regras)
 │   ├── scanner.rs
 │   ├── tokens/
@@ -33,12 +35,17 @@ src/
 │   ├── tac.rs
 │   ├── lower.rs
 │   └── cfg.rs
-├── codegen/        # Geração de Código (inter: pipeline de otimização sobre TAC)
-└── common/         # Estruturas compartilhadas
-    ├── ast/        # AST: decl, expr, stmt
-    ├── errors/
-    ├── input/
-    └── utils/
+├── codegen/        # Geração de Código
+│   ├── inter/      # Otimizador (DCE, propagation, constant folding, etc)
+│   ├── last/       # Backend final (assembly x86-64, stack frames)
+│   └── reg_alloc.rs
+├── common/         # Estruturas compartilhadas
+│   ├── ast/        # AST: decl, expr, stmt
+│   ├── errors/
+│   ├── input/
+│   ├── utils/
+│   └── builtins.rs # Funções embutidas (malloc, free, printf, etc)
+└── tests/          # Testes unitários e de integração
 ```
 
 ## Tecnologias
