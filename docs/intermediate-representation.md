@@ -1,34 +1,47 @@
 # Representação Intermediária
 
-**Status:** Concluída
+**Status:** Implementada, com limitações conhecidas e integração de otimização parcial
 
-Geração de uma forma intermediária independente de arquitetura (TAC — *Three-Address Code*),
-ponte entre a AST anotada e a geração de código de máquina. A etapa cobre três responsabilidades:
-baixar (*lower*) a AST para TAC, montar o grafo de fluxo de controle (CFG) a partir do TAC, e
-otimizar o resultado através de um pipeline de passes configurável.
+A representação intermediária do Crusty é baseada em TAC (*Three-Address Code*) e fica em
+`src/ir/`. Ela faz a ponte entre a AST validada pela análise semântica e o backend x86-64 em
+`src/codegen/last/`.
+
+O caminho usado pela CLI hoje é:
 
 ```
-AST → Lowerer (src/ir/lower.rs) → TacFunction/TacProgram (src/ir/tac.rs)
-                                        │
-                                        ▼
-                              build_cfg (src/ir/cfg.rs)
-                                        │
-                                        ▼
-                   optimize_function (src/codegen/inter/optimizations.rs)
+AST
+  ↓
+lower_program (src/ir/lower.rs)
+  ↓
+TacProgram { globals, functions }
+  ↓
+emit_program (src/codegen/last/x86_64.rs)
+  ↓
+assembly / objeto / executável
 ```
+
+Também existem:
+
+- `build_cfg` em `src/ir/cfg.rs`, usado para construir um CFG a partir de uma `TacFunction`.
+- `lower_and_optimize` em `src/ir/lower.rs`, que gera TAC e aplica a pipeline de otimização sobre
+  `Vec<TacInstr>`.
+- `PassManager` em `src/codegen/inter/opt/`, um modelo de otimização paralelo/legado que opera
+  sobre `src/codegen/inter::Cfg`, não sobre `TacProgram`.
 
 ---
 
 ## Three-Address Code (`src/ir/tac.rs`)
 
-Cada instrução TAC tem no máximo um operador e até dois operandos, com o resultado sempre
-endereçado por um destino explícito.
+O TAC usa temporários (`TempId`), rótulos (`LabelId`) e operandos explícitos para representar
+cálculos, desvios, chamadas, retornos e acessos indiretos de memória.
 
 ```rust
 enum Operand {
-    Temp(TempId),       // temporário gerado pelo lowering
-    Var(String),        // variável do programa fonte
-    Const(ConstValue),  // literal (Int, Double, Char, String)
+    Temp(TempId),
+    Var(String),
+    Global(String),
+    Const(ConstValue),
+    Deref(Box<Operand>),
 }
 
 enum TacInstr {
@@ -43,139 +56,212 @@ enum TacInstr {
 }
 ```
 
-`TempId` e `LabelId` são gerados por `TempGen`/`LabelGen`, contadores monotônicos
-(`fresh()` retorna o próximo id). Uma `TacFunction` agrupa `name`, `params` e a lista linear de
-`instrs`; um `TacProgram` agrupa as `TacFunction`s do programa. Todas as instruções e operandos
-implementam `Display`, usado para depuração (`t0 = t1 + t2`, `if t3 goto L0 else goto L1`).
+`Operand::Var` representa variáveis locais e parâmetros da função atual. `Operand::Global`
+representa objetos de duração estática. `Operand::Deref` permite leitura e escrita indireta,
+incluindo `*p`, `arr[i]` e acesso a campos calculado por endereço.
+
+O programa TAC é agrupado assim:
+
+```rust
+struct TacProgram {
+    globals: Vec<TacGlobal>,
+    functions: Vec<TacFunction>,
+}
+
+struct TacFunction {
+    name: String,
+    params: Vec<String>,
+    instrs: Vec<TacInstr>,
+    var_sizes: HashMap<String, i64>,
+}
+
+struct TacGlobal {
+    name: String,
+    size: i64,
+    init: Option<ConstValue>,
+}
+```
+
+`var_sizes` é usado pelo backend para reservar espaço para locais maiores que um slot escalar,
+especialmente structs locais e arrays fixos. `TacGlobal` descreve globais inicializados ou zerados.
 
 ---
 
 ## Lowering da AST (`src/ir/lower.rs`)
 
-`Lowerer` percorre a AST e empilha instruções TAC em um buffer interno (`Vec<TacInstr>`). A API
-pública é `lower_program(prog)` / `lower_function(decl)`, usadas a partir de `lower_expr`/`lower_stmt`
-internamente.
+O ponto de entrada principal é:
 
-O ponto de entrada recomendado para a pipeline de compilação é `lower_and_optimize(prog)`, que
-invoca `lower_program` seguido de `optimize_function` para cada função.
+```rust
+pub fn lower_program(prog: &Program) -> Result<TacProgram, CodegenError>
+```
 
-### Expressões (`lower_expr` → `Operand`)
+Durante o lowering, o `Lowerer` mantém contexto de:
 
-| Expressão | Tradução |
+- tipos de variáveis locais, parâmetros e globais;
+- escopos locais;
+- aliases de `typedef`;
+- layouts de `struct`;
+- tamanhos de variáveis agregadas para o frame do backend.
+
+`lower_function(decl)` existe para baixar uma função isolada em testes ou usos pontuais. Já
+`lower_and_optimize(prog)` chama `lower_program` e depois `optimize_function` para cada função,
+mas a CLI atualmente chama `lower_program` diretamente.
+
+### Expressões
+
+| Expressão | Tradução atual |
 |---|---|
 | Literal | `Operand::Const` |
-| Identificador | `Operand::Var` |
-| Binária / Unária | Baixa os operandos, emite `BinOp`/`UnOp` em um temporário fresco |
-| `Assign` | Baixa o RHS, emite `Copy` para o destino |
-| `CompoundAssign` (`+=`, `-=`, ...) | Baixa como `tmp = dst op rhs; dst = tmp` |
-| `Prefix`/`Postfix` (`++x`, `x--`) | Implementados como `BinOp` de `dst ± 1` seguido de `Copy`; o postfix preserva o valor antigo em um temporário antes de atualizar |
-| `Call` | Baixa os argumentos em ordem, emite `Call` com destino em temporário fresco |
-| `Ternary` | Expandido em `CondJump` + dois blocos rotulados, cada um copiando seu valor para um temporário comum |
-| `Cast` | Repassado (a baixa não preserva a anotação de tipo) |
-| `SizeofType` | Resolvido estaticamente via `type_size` para `Operand::Const(Int)` |
+| Identificador local/parâmetro | `Operand::Var` |
+| Identificador global | `Operand::Global` |
+| Binária / Unária | Emite `BinOp`/`UnOp` em temporário fresco |
+| `Assign` | Baixa RHS e emite `Copy` para lvalue suportado |
+| `CompoundAssign` | Baixa como `tmp = dst op rhs; dst = tmp` |
+| `Prefix`/`Postfix` | Emite incremento/decremento por `BinOp` + `Copy`; postfix preserva o valor antigo |
+| `Call` | Baixa argumentos em ordem; aceita apenas callee identificador simples |
+| `Ternary` | Expande para `CondJump`, rótulos de then/else e temporário comum |
+| `Cast` | Baixa a expressão interna; a anotação de tipo não vira instrução TAC |
+| `SizeofType` | Resolve via `type_size` |
+| `Sizeof(expr)` | Suporta identificador simples com tipo conhecido |
+| `Index` | Calcula endereço base + índice escalado e retorna `Operand::Deref` |
+| `Member` (`.`/`->`) | Usa layout de struct para calcular offset do campo e retorna `Operand::Deref` |
+| `Unary(Deref)` | Como rvalue, emite `UnOp`; como alvo de atribuição, vira `Operand::Deref` |
+| `Unary(AddrOf)` | Emite `UnOp::AddrOf` |
 
-### Comandos (`lower_stmt`)
+### Comandos
 
-`If`/`While`/`For`/`DoWhile` são expandidos para `CondJump` + rótulos (`LabelGen::fresh`).
-`break`/`continue` resolvem para `Jump` usando os rótulos de controle (`ControlLabels`) propagados
-pela pilha de chamadas — por isso `lower_stmt` é correto apenas dentro de loops; fora deles,
-`break`/`continue` causam `panic!`.
+`If`, `While`, `For` e `DoWhile` são traduzidos para rótulos, `CondJump` e `Jump`.
+`break` e `continue` usam `ControlLabels` e retornam `CodegenError` quando aparecem fora de contexto
+válido.
 
-`emit_jump_unless_terminated` evita emitir um `Jump` redundante quando o bloco já termina em
-`Jump`/`Return` (ex.: `if` cujo `then`-branch já tem `return`).
+`Switch` está implementado com cadeia de comparações por `case`, salto para `default` quando existe
+e fallthrough real entre casos. `break` dentro do `switch` salta para o rótulo final; `continue`
+preserva o alvo do loop externo quando houver.
 
-### Limitações atuais
+`VarDecl` registra o tipo no contexto do lowering e emite inicialização quando há initializer.
+Declarações globais são baixadas em `TacGlobal`, com inicialização estática literal ou expressão
+inteira constante.
 
-!!! warning "Ainda não implementado"
-    - `Expr::Index` (acesso por índice) e `Expr::Member` (`.`/`->`) — `panic!` na baixa
-    - `Expr::Sizeof` de expressão (apenas `sizeof(tipo)` é suportado, via `type_size`)
-    - `Stmt::Switch` — `panic!` na baixa
-    - Chamada por expressão arbitrária (`(*fp)(...)`) — apenas `Expr::Ident` como callee
-    - `lower_assignment_target` só aceita `Expr::Ident` como LHS (sem suporte a `*p = x`, `a[i] = x`, `s.campo = x`)
-    - `type_size` não cobre `Array`, `Struct`, `Alias` nem `Function` (faltam layout/tamanho completos)
+### Layout, arrays e structs
+
+O lowering calcula layouts simples de structs declaradas no programa. Campos escalares e ponteiros
+têm tamanho conhecido; structs ou arrays aninhados em campos ainda são recusados para evitar layout
+incorreto.
+
+Arrays fixos locais entram em `var_sizes` e podem ser lidos/escritos por índice. Arrays globais
+ainda não têm armazenamento suportado no lowering de globais.
 
 ---
 
 ## Grafo de Fluxo de Controle (`src/ir/cfg.rs`)
 
-`build_cfg(&TacFunction) -> Cfg` particiona a lista linear de `TacInstr` em blocos básicos pelo
-algoritmo clássico de **líderes**:
+`build_cfg(&TacFunction) -> Cfg` particiona uma função TAC linear em blocos básicos.
 
-1. A primeira instrução é sempre líder.
-2. O alvo de todo `Jump`/`CondJump` (via `Label`) é líder.
-3. A instrução imediatamente após um `Jump`/`CondJump` é líder.
+Líderes reconhecidos:
 
-Cada bloco (`BasicBlock { id: BlockId, instrs, succs, preds }`) recebe seus sucessores a partir da
-última instrução: `Jump` → um sucessor, `CondJump` → dois, `Return` → nenhum, qualquer outra coisa
-→ o próximo bloco em sequência (*fallthrough*). Os predecessores são derivados invertendo os
-sucessores. `Cfg` também guarda `entry`/`exit` e implementa `Display` (formato `Bn: instrs / succs: [...]`).
+1. A primeira instrução.
+2. Toda instrução `Label`.
+3. A instrução logo após `Jump` ou `CondJump`.
+
+Cada `BasicBlock` contém `id`, `instrs`, `succs` e `preds`. Os sucessores são derivados da última
+instrução do bloco:
+
+- `Jump` aponta para o bloco do rótulo alvo;
+- `CondJump` aponta para os blocos `then_label` e `else_label`;
+- `Return` não tem sucessor;
+- outros casos fazem fallthrough para o próximo bloco.
+
+`Cfg` mantém `entry` e `exit`, além de helpers `predecessors` e `successors`.
 
 ---
 
-## Pipeline de Otimização (`src/codegen/inter/optimizations.rs`)
+## Otimização Sobre TAC (`src/codegen/inter/optimizations.rs`)
 
-Os passes de otimização operam **diretamente sobre `Vec<TacInstr>`** — a mesma representação
-produzida pelo lowering — através das funções de nível de módulo em `optimizations.rs`. Esta é a
-integração efetiva entre o TAC gerado por `src/ir` e a etapa de otimização; o modelo de CFG
-alternativo em `src/codegen/inter/opt/` (com `Assign`/`Binary`/`Nop`) é utilizado apenas pelos
-passes registrados no `PassManager` (nível de abstração legado, não conectado ao pipeline principal).
+A pipeline real sobre `TacInstr` é:
 
 ```rust
-// Ponto de entrada da pipeline de otimização sobre TacInstr:
 pub fn optimize_function(instrs: &mut Vec<TacInstr>)
 ```
 
-`optimize_function` executa constant folding, constant propagation e dead-code elimination até
-ponto fixo, nessa ordem, repetindo enquanto houver mudanças.
+Ela aplica, até ponto fixo ou até `MAX_ITER = 10`:
 
-### Análise de Vivacidade (`compute_liveness`)
+1. `constant_fold`
+2. `constant_propagation`
+3. `dead_code_eliminate`
 
-`compute_liveness(instrs)` constrói um `LivenessInfo` com consciência de fluxo de controle:
-internamente divide a lista linear em blocos básicos via `split_into_blocks` (mesmos critérios de
-líder de `build_cfg`), propaga conjuntos *live-in*/*live-out* entre blocos por ponto fixo e retorna
-os temporários vivos em cada ponto do programa. Isso garante que o DCE preserve definições cujo
-valor é consumido apenas após um merge de branches (`if`/`else`).
+`constant_fold` dobra operações binárias e unárias com `ConstValue::Int`, preservando divisão/módulo
+por zero, shifts inválidos e operações de endereço/deref. `Double` não é dobrado.
 
-### Passes implementados (`optimizations.rs`)
+`constant_propagation` rastreia temporários definidos por `Copy { dst: Temp, src: Const }` e substitui
+usos posteriores até que o temporário seja redefinido.
 
-- **`constant_fold`** — substitui `BinOp` por `Copy` quando ambos operandos são `ConstValue::Int`,
-  usando aritmética `checked_*` (divisão/módulo por zero, shifts negativos ou ≥ 64 bits não são
-  dobrados).
-- **`constant_propagation`** — rastreia atribuições `Copy { dst: Temp, src: Const }` e substitui
-  usos subsequentes do temporário pela constante, invalidando entradas ao redefinir o temporário.
-- **`dead_code_eliminate`** — remove `BinOp`/`UnOp`/`Copy` cujo destino é um `Temp` nunca lido
-  após o ponto de definição; preserva `Call`, `Return`, `Jump`/`CondJump`, `Label` e atribuições
-  para `Var` (efeitos observáveis).
+`dead_code_eliminate` usa `compute_liveness` com consciência de fluxo de controle. A análise divide
+a lista em blocos básicos, propaga `live-in`/`live-out` por ponto fixo e remove apenas definições de
+temporários sem uso futuro e sem efeitos observáveis. São preservados `Call`, `Return`, desvios,
+`Label`, escritas em `Var` e escritas em `Global`.
 
-### Passes no `PassManager` (`src/codegen/inter/opt/`)
+### Integração atual
 
-O `PassManager` e o trait `OptPass` orquestram passes sobre o CFG alternativo. `OptLevel`
-(`O0`–`O3`, selecionável via flags `-O0`..`-O3`/`--opt-level`) define o pipeline registrado:
+`lower_and_optimize` usa essa pipeline, mas `main.rs` ainda não a chama. A CLI gera o backend a partir
+de `lower_program`, portanto os executáveis emitidos hoje não passam por `optimize_function`.
 
-| Nível | Passes |
+---
+
+## PassManager Legado (`src/codegen/inter/opt/`)
+
+`PassManager` opera sobre outro modelo:
+
+```rust
+src/codegen/inter::Cfg
+src/codegen/inter::Instruction::{Assign, Binary, Nop}
+src/codegen/inter::Value::{Int, Temp}
+```
+
+Esse modelo é usado por testes unitários e pelo parsing das flags `-O0` a `-O3`, mas a CLI cria um
+`Cfg::new()` vazio e roda o pipeline nele. Ou seja: as flags de otimização ainda não otimizam o
+`TacProgram` que segue para o backend.
+
+| Nível | Passes registrados |
 |---|---|
 | `O0` | nenhum |
-| `O1` | constant-fold, dead-code-elimination |
-| `O2` | O1 + copy-propagation, common-subexpression-elimination |
-| `O3` | O2 + loop-invariant-code-motion, inlining |
+| `O1` | `constant-fold`, `dead-code-elimination` |
+| `O2` | O1 + `copy-propagation`, `common-subexpression-elimination` |
+| `O3` | O2 + `loop-invariant-code-motion`, `inlining` |
 
-- **`constant-fold`** (implementado) — mesma semântica de `constant_fold` acima, sobre o modelo de CFG legado.
-- **`dead-code-elimination`** (implementado) — remove instruções `Nop` de cada bloco.
-- **`copy-propagation`** (implementado) — substitui usos de temporários por suas cópias de constantes dentro de cada bloco.
-- **`common-subexpression-elimination`** (implementado) — eliminação **local** (intra-bloco): mantém cache `(lhs, op, rhs) → destino`; ao repetir uma expressão, remove a instrução redundante e renomeia usos futuros. Redefinições invalidam entradas do cache.
+Estado dos passes:
 
-!!! warning "Ainda não implementado (stubs que retornam `false`)"
-    - `loop-invariant-code-motion`
-    - `inlining`
-    - CSE **global** (entre blocos, via análise de *available expressions* com dominadores)
+- `constant-fold`: implementado para `Instruction::Binary`.
+- `dead-code-elimination`: remove apenas `Instruction::Nop`.
+- `copy-propagation`: local por bloco.
+- `common-subexpression-elimination`: local por bloco.
+- `loop-invariant-code-motion`: implementado sobre o CFG legado, com detecção de back-edges e
+  preheader simples.
+- `inlining`: stub; retorna `false`.
 
 ---
 
 ## Integração com a CLI
 
-`main.rs` aceita `-O0|-O1|-O2|-O3` / `--opt-level 0|1|2|3` para selecionar o pipeline do
-`PassManager`. A flag `--dump-ir` (dump do TAC) está reservada na ajuda da CLI mas **ainda não
-implementada** — o lowering e o pipeline de otimização sobre `TacInstr` não estão conectados ao
-`main` em nenhum nível ainda; hoje são exercitados apenas pelos testes unitários de cada módulo.
-O ponto de entrada `lower_and_optimize` em `src/ir/lower.rs` está disponível para uso futuro pela
-pipeline principal.
+`main.rs` aceita:
+
+- `--dump-ir`, mas ele ainda imprime apenas `=== IR (not yet implemented) ===`;
+- `-O0|-O1|-O2|-O3` e `--opt-level 0|1|2|3`, mas esses níveis rodam no CFG legado vazio;
+- `--emit=asm`, `--emit=obj`, `--emit=exe`, `-S` e `--emit-asm`;
+- `--dump-tokens`, `--dump-ast`, `--only-lex`, `--only-parse`, `--only-semantic`.
+
+Após lexing, parsing e análise semântica, a CLI baixa a AST com `lower_program` e chama
+`src/codegen/last::emit_program` para gerar assembly x86-64.
+
+---
+
+## Limitações Atuais
+
+!!! warning "Limitações implementadas como erro explícito"
+    - chamada por expressão arbitrária, como `(*fp)(...)`, ainda não é suportada no lowering;
+    - `sizeof(expr)` só suporta identificadores simples;
+    - `sizeof(type)` não cobre `void`, `struct`, `alias`, `function` nem array sem tamanho conhecido;
+    - globais com tipo `Array`, `Void`, `Alias` ou `Function` não têm armazenamento suportado;
+    - campos de struct com tipo agregado aninhado (`struct`/`array`) não têm layout suportado;
+    - atribuição direta entre structs maiores que 8 bytes é recusada; deve ser feita campo a campo;
+    - o dump de IR da CLI ainda não mostra o TAC;
+    - a pipeline de otimização sobre `Vec<TacInstr>` existe, mas não está conectada ao fluxo padrão da CLI.
