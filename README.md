@@ -1,6 +1,6 @@
 # Crusty — Compilador C em Rust
 
-Projeto da disciplina de Compiladores 1. Implementa um compilador para um subconjunto da linguagem C, escrito em Rust.
+Projeto da disciplina de Compiladores 1. Implementa um compilador para um subconjunto da linguagem C, escrito em Rust, com backend nativo x86-64 (System V ABI, Linux).
 
 ## Estágio atual
 
@@ -8,8 +8,18 @@ Projeto da disciplina de Compiladores 1. Implementa um compilador para um subcon
 |------|--------|
 | Análise léxica | Completo |
 | Análise sintática | Completo |
-| Análise semântica | Em desenvolvimento |
-| Geração de código | Não iniciado |
+| Análise semântica | Completo |
+| IR (TAC) | Completo |
+| Otimizações (CSE, DCE, constant folding, copy propagation, LICM, inlining) | Completo |
+| Geração de código x86-64 | Completo para tipos inteiros, ponteiros, structs, arrays e globais |
+
+### Limitações conhecidas
+
+- **`float`/`double` não têm codegen.** O analisador semântico aceita e tipa esses tipos, mas o backend x86-64 ainda não emite instruções de ponto flutuante (registradores XMM). Em desenvolvimento na [issue #172](https://github.com/Bappoz/Crusty/issues/172). Programas que usam `float`/`double` falham com `error: code generation` no estágio final.
+- O modo REPL interativo (executar `crusty` sem argumentos) não está implementado.
+- `--dump-ir` ainda não imprime a IR (placeholder).
+
+Fora isso, o pipeline completo (lexer → parser → análise semântica → IR → otimizações → assembly x86-64 → executável ELF via `gcc`) funciona ponta a ponta para um subconjunto relevante de C: tipos inteiros e `char`, ponteiros, structs, arrays de tamanho fixo, enums, typedefs, variáveis globais, todas as estruturas de controle (`if`/`while`/`do-while`/`for`/`switch`) e chamadas de função.
 
 ## Estrutura do projeto
 
@@ -18,42 +28,53 @@ src/
 ├── lexer/       Análise léxica — transforma código-fonte em tokens
 ├── parser/      Análise sintática — constrói a AST via Pratt parsing
 ├── analyser/    Análise semântica — tabela de símbolos, escopos, verificação de tipos
-├── codegen/     Geração de código — esqueleto (não implementado)
+├── ir/          Geração e lowering da IR intermediária (TAC)
+├── codegen/     Geração de código — otimizações sobre TAC (inter/) e backend x86-64 (last/)
 ├── common/      Estruturas compartilhadas: AST, erros, spans, utilitários
+├── examples/    Arquivos .c de exemplo usados em testes e demonstrações
 └── tests/       Testes unitários por módulo
+tests/           Testes de integração e smoke tests (ponta a ponta, com gcc)
+docs/            Documentação técnica de cada fase do compilador
 ```
 
-## Pré-requisitos
+## Começando
 
-- [Rust](https://rustup.rs/) 1.70+
+Instruções completas de instalação e configuração do ambiente (Rust, `gcc`, verificação de toolchain) estão em [INSTALL.md](INSTALL.md).
+
+Resumo rápido:
 
 ```bash
 rustup update stable
-```
-
-## Build
-
-```bash
-cargo build
+cargo build --release
+cargo run --release -- src/examples/hello_world.c
+./hello_world
 ```
 
 ## Uso
 
-Rodar o compilador sobre um arquivo de entrada:
-
 ```bash
-cargo run -- <arquivo>
+crusty [flags] <arquivo>
 ```
 
-Exemplo:
+Principais flags (lista completa em `crusty` sem argumentos):
+
+| Flag | Efeito |
+|---|---|
+| `--dump-tokens` | Lista os tokens emitidos pelo lexer |
+| `--dump-ast` | Imprime a AST |
+| `--only-lex` / `--only-parse` / `--only-semantic` | Para o pipeline no estágio indicado |
+| `-S`, `--emit-asm` / `--emit=asm` | Para após emitir o assembly x86-64 (`.s`) |
+| `--emit=obj` | Para após montar o objeto (`.o`), sem linkar |
+| `--emit=exe` | Monta e linka um executável ELF rodável (padrão) |
+| `-o <arquivo>`, `--out-dir <dir>`, `--out-name <nome>` | Controlam o caminho/nome de saída |
+| `-O0`\|`-O1`\|`-O2`\|`-O3`, `--opt-level <n>` | Nível de otimização aplicado à IR |
+
+Exemplo gerando e executando um binário:
 
 ```bash
-cargo run -- input.c
+cargo run --release -- src/examples/simple.c -o /tmp/simple
+/tmp/simple; echo "exit: $?"
 ```
-
-O compilador imprime os tokens reconhecidos, a AST e eventuais diagnósticos de erro.
-
-> O modo REPL interativo (sem argumentos) ainda não está implementado.
 
 ## Funcionalidades implementadas
 
@@ -81,53 +102,29 @@ O compilador imprime os tokens reconhecidos, a AST e eventuais diagnósticos de 
 - Promoção numérica implícita (Double > Float > Long > Int)
 - Detecção de atribuição a `const`
 
+**IR e otimizações**
+- Lowering de AST para TAC (Three-Address Code), incluindo arrays fixos, structs e globais
+- Pipeline de otimização configurável por nível (`-O0`..`-O3`): constant folding, common subexpression elimination, dead code elimination, copy propagation, loop-invariant code motion, inlining
+
+**Backend x86-64**
+- Convenção de chamada System V ABI (inteiros/ponteiros em `rdi`..`r9`/`rax`)
+- Endereço de variáveis, indexação de array, acesso a membro de struct (`.`, `->`), address-of/deref
+- `sizeof` em tempo de compilação
+- Variáveis globais com acesso RIP-relative
+- Peephole optimizer sobre o assembly emitido
+- Emissão de `.s`, montagem de `.o` e link de executável via `gcc`
+
 ## Testes
 
-### Todos os testes unitários
+Cobertura completa (testes unitários e testes com arquivos `.c` reais, executados de ponta a ponta) está documentada em [TESTER.md](TESTER.md).
+
+Resumo rápido:
 
 ```bash
-cargo test
+cargo test --all          # ~354 testes (unitários + integração + smoke e2e)
+cargo clippy -- -D warnings
+cargo fmt --check
 ```
-
-### Filtrar por módulo
-
-```bash
-cargo test lexical        # testes do scanner/lexer (21 casos)
-cargo test parser_test    # testes do parser / AST (76 casos)
-cargo test semantic_test  # testes do analisador semântico (21 casos)
-cargo test symbol_test    # testes da tabela de símbolos (11 casos)
-cargo test analyzer_test  # testes de integração do analisador (3 casos)
-cargo test source         # testes de SourceFile e spans (12 casos)
-cargo test lexer_file     # testes do scanner lendo arquivos (7 casos)
-cargo test parser_file    # testes do parser lendo arquivos (4 casos)
-cargo test literals       # testes de literais numéricos (4 casos)
-cargo test ast_errors     # testes de erros de AST (4 casos)
-cargo test token          # testes de tokens individuais (2 casos)
-```
-
-### Com saída detalhada
-
-```bash
-cargo test -- --nocapture
-```
-
-### Módulos de teste
-
-| Arquivo | Cobertura | Testes |
-|---|---|---|
-| `src/tests/lexical_test.rs` | Scanner: operadores, palavras-chave, literais | 21 |
-| `src/tests/parser_test.rs` | Parser / construção de AST | 76 |
-| `src/tests/semantic_test.rs` | Verificação de tipos, undefined vars, const | 21 |
-| `src/tests/symbol_test.rs` | Tabela de símbolos, escopos, redeclaração | 11 |
-| `src/tests/source_test.rs` | `SourceFile`, `ByteSpan`, posicionamento | 12 |
-| `src/tests/lexer_file_test.rs` | Scanner sobre arquivos reais | 7 |
-| `src/tests/parser_file_test.rs` | Parser sobre arquivos reais | 4 |
-| `src/tests/literals_test.rs` | Literais inteiros, floats, strings | 4 |
-| `src/tests/ast_errors.rs` | Diagnósticos e erros de AST | 4 |
-| `src/tests/analyzer_test.rs` | Integração léxico → sintático → semântico | 3 |
-| `src/tests/token_test.rs` | `Token` e `TokenKind` | 2 |
-
-**Total: 165 testes**
 
 ## Documentação técnica
 
@@ -135,6 +132,8 @@ cargo test -- --nocapture
 - [Parser](docs/parser.md) — Pratt parser, AST, recuperação de erros
 - [Analisador Semântico](docs/semantic.md) — tabela de símbolos, verificação de tipos
 - [Precedência de Operadores C](docs/c_operator_precedence.md) — tabela C11 e mapeamento para binding powers
+- [INSTALL.md](INSTALL.md) — como preparar o ambiente e compilar o projeto
+- [TESTER.md](TESTER.md) — como rodar e interpretar todos os testes
 
 ## Contribuidores
 
