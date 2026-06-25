@@ -13,9 +13,10 @@ Pré-requisito: ambiente configurado conforme [INSTALL.md](INSTALL.md) (Rust + `
 | `tests/integration_test.rs` | Pipeline lexer→parser→semântico sobre arquivos `.c` reais (válidos e inválidos) | 16 |
 | `tests/codegen_smoke.rs` | TAC montado manualmente → assembly → `gcc` → execução, checando exit code | 5 |
 | `tests/exe_smoke_test.rs` | Código-fonte C real → pipeline completo → executável ELF → execução | 26 |
+| `tests/double_codegen_test.rs` | Codegen de `double`/XMM (assembly emitido e execução real, issue #172) | 7 |
 | `tests/licm_test.rs` | Otimização de loop-invariant code motion | 2 |
 
-Total atual: **354 testes**, todos passando em `developer`.
+Total atual: **361 testes**, todos passando em `developer`.
 
 ## Rodando tudo
 
@@ -78,6 +79,7 @@ Estes são os testes mais completos: compilam código C real até assembly x86-6
 ```bash
 cargo test --test exe_smoke_test
 cargo test --test codegen_smoke
+cargo test --test double_codegen_test
 ```
 
 Se `gcc` não estiver disponível no `PATH`, esses testes são pulados (skip) automaticamente — verifique a saída de `cargo test -- --nocapture` por `gcc indisponivel: pulando teste de smoke` para confirmar.
@@ -110,7 +112,7 @@ Exemplos disponíveis e seu status atual:
 | `simple.c` | Sim | |
 | `demo_presentation.c` | Sim | Demo usada na apresentação da disciplina |
 | `declarations.c` | Gera assembly, mas não tem `main` | Não é pensado para ser linkado/executado isoladamente |
-| `full_code1.c` | Não | Usa `float`, sem codegen ainda (issue #172) |
+| `full_code1.c` | Não | Usa `float`, sem codegen ainda (`double` já é suportado, ver issue #172) |
 | `operators.c` | Não — nem com `gcc` | Tem statements em escopo global, o que não é C válido (confirmado com `gcc -fsyntax-only`); não é um bug do compilador |
 
 ### Testando com seus próprios arquivos `.c`
@@ -139,5 +141,5 @@ Rode as quatro localmente antes de abrir um PR — é exatamente o que será ver
 
 ## Cobertura conhecida e limitações dos testes
 
-- Não há testes automatizados para `float`/`double` em codegen, porque a feature não existe ainda (issue #172). Quando for implementada, a suíte `exe_smoke_test.rs`/`codegen_smoke.rs` é o lugar natural para os novos casos.
-- Os smoke tests de execução (`exe_smoke_test.rs`, `codegen_smoke.rs`) dependem de Linux x86-64 + `gcc`; em outras plataformas eles são pulados, não falham.
+- `double` tem cobertura dedicada em `tests/double_codegen_test.rs` (issue #172). Não há testes automatizados para `float` em codegen, porque a feature ainda não existe no backend.
+- Os smoke tests de execução (`exe_smoke_test.rs`, `codegen_smoke.rs`, `double_codegen_test.rs`) dependem de Linux x86-64 + `gcc`; em outras plataformas eles são pulados, não falham.

@@ -11,15 +11,15 @@ Projeto da disciplina de Compiladores 1. Implementa um compilador para um subcon
 | Análise semântica | Completo |
 | IR (TAC) | Completo |
 | Otimizações (CSE, DCE, constant folding, copy propagation, LICM, inlining) | Completo |
-| Geração de código x86-64 | Completo para tipos inteiros, ponteiros, structs, arrays e globais |
+| Geração de código x86-64 | Completo para tipos inteiros, ponteiros, structs, arrays, globais e `double` (registradores XMM) |
 
 ### Limitações conhecidas
 
-- **`float`/`double` não têm codegen.** O analisador semântico aceita e tipa esses tipos, mas o backend x86-64 ainda não emite instruções de ponto flutuante (registradores XMM). Em desenvolvimento na [issue #172](https://github.com/Bappoz/Crusty/issues/172). Programas que usam `float`/`double` falham com `error: code generation` no estágio final.
+- **`float` não tem codegen.** `double` já é suportado pelo backend x86-64 (registradores XMM, issue [#172](https://github.com/Bappoz/Crusty/issues/172)), mas `float` ainda não — o analisador semântico aceita e tipa `float`, mas o backend ainda não emite o código correspondente. Programas que usam `float` falham com `error: code generation` no estágio final; use `double` no lugar.
 - O modo REPL interativo (executar `crusty` sem argumentos) não está implementado.
 - `--dump-ir` ainda não imprime a IR (placeholder).
 
-Fora isso, o pipeline completo (lexer → parser → análise semântica → IR → otimizações → assembly x86-64 → executável ELF via `gcc`) funciona ponta a ponta para um subconjunto relevante de C: tipos inteiros e `char`, ponteiros, structs, arrays de tamanho fixo, enums, typedefs, variáveis globais, todas as estruturas de controle (`if`/`while`/`do-while`/`for`/`switch`) e chamadas de função.
+Fora isso, o pipeline completo (lexer → parser → análise semântica → IR → otimizações → assembly x86-64 → executável ELF via `gcc`) funciona ponta a ponta para um subconjunto relevante de C: tipos inteiros, `char` e `double`, ponteiros, structs, arrays de tamanho fixo, enums, typedefs, variáveis globais, todas as estruturas de controle (`if`/`while`/`do-while`/`for`/`switch`) e chamadas de função.
 
 ## Estrutura do projeto
 
@@ -107,8 +107,9 @@ cargo run --release -- src/examples/simple.c -o /tmp/simple
 - Pipeline de otimização configurável por nível (`-O0`..`-O3`): constant folding, common subexpression elimination, dead code elimination, copy propagation, loop-invariant code motion, inlining
 
 **Backend x86-64**
-- Convenção de chamada System V ABI (inteiros/ponteiros em `rdi`..`r9`/`rax`)
+- Convenção de chamada System V ABI (inteiros/ponteiros em `rdi`..`r9`/`rax`, `double` em `xmm0`..`xmm7`)
 - Endereço de variáveis, indexação de array, acesso a membro de struct (`.`, `->`), address-of/deref
+- Aritmética, comparações e literais de `double` via registradores XMM (`addsd`/`subsd`/`mulsd`/`divsd`/`ucomisd`)
 - `sizeof` em tempo de compilação
 - Variáveis globais com acesso RIP-relative
 - Peephole optimizer sobre o assembly emitido
@@ -121,7 +122,7 @@ Cobertura completa (testes unitários e testes com arquivos `.c` reais, executad
 Resumo rápido:
 
 ```bash
-cargo test --all          # ~354 testes (unitários + integração + smoke e2e)
+cargo test --all          # ~361 testes (unitários + integração + smoke e2e)
 cargo clippy -- -D warnings
 cargo fmt --check
 ```
