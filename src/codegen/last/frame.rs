@@ -41,7 +41,7 @@ impl SlotKey {
         match op {
             Operand::Temp(temp) => Some(Self::Temp(temp.0)),
             Operand::Var(name) => Some(Self::Var(name.clone())),
-            Operand::Const(_) => None,
+            Operand::Global(_) | Operand::Const(_) => None,
             Operand::Deref(inner) => Self::from_operand(inner),
         }
     }

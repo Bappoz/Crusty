@@ -496,6 +496,10 @@ fn has_side_effects(instr: &TacInstr) -> bool {
                 dst: Operand::Var(_),
                 ..
             }
+            | TacInstr::Copy {
+                dst: Operand::Global(_),
+                ..
+            }
     )
 }
 

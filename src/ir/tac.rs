@@ -65,7 +65,10 @@ pub enum ConstValue {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
     Temp(TempId),
+    /// Variavel automatica da funcao atual, residente no stack frame.
     Var(String),
+    /// Objeto com duracao de armazenamento estatica, referenciado por simbolo.
+    Global(String),
     Const(ConstValue),
     /// Endereco indireto: o ponteiro guardado em `Operand` interno e lido (ou
     /// escrito, quando usado como destino de `Copy`) atraves de deref, ex.:
@@ -122,7 +125,18 @@ pub struct TacFunction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TacGlobal {
+    pub name: String,
+    /// Espaco reservado pelo backend. E no minimo um quadword porque o
+    /// backend escalar atual faz loads/stores de 64 bits.
+    pub size: i64,
+    /// `None` representa a inicializacao estatica implicita com zero.
+    pub init: Option<ConstValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TacProgram {
+    pub globals: Vec<TacGlobal>,
     pub functions: Vec<TacFunction>,
 }
 
@@ -154,6 +168,7 @@ impl fmt::Display for Operand {
         match self {
             Operand::Temp(temp) => write!(f, "{temp}"),
             Operand::Var(name) => write!(f, "{name}"),
+            Operand::Global(name) => write!(f, "@{name}"),
             Operand::Const(value) => write!(f, "{value}"),
             Operand::Deref(inner) => write!(f, "*{inner}"),
         }

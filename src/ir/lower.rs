@@ -6,7 +6,8 @@ use crate::common::ast::{
 };
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{
-    ConstValue, LabelGen, LabelId, Operand, TacFunction, TacInstr, TacProgram, TempGen, TempId,
+    ConstValue, LabelGen, LabelId, Operand, TacFunction, TacGlobal, TacInstr, TacProgram, TempGen,
+    TempId,
 };
 use std::collections::HashMap;
 
@@ -31,6 +32,12 @@ pub struct Lowerer {
     /// acesso a membro; nao substitui a analise semantica (que ja validou o
     /// programa antes do lowering).
     var_types: HashMap<String, Type>,
+    /// Declaracoes locais atualmente visiveis, uma tabela por escopo lexico.
+    /// Evita que um local de bloco continue escondendo um global apos `}`.
+    local_scopes: Vec<HashMap<String, Type>>,
+    /// Tipos dos objetos no nivel de arquivo. Mantidos separados dos locais
+    /// para que um nome local sempre tenha precedencia durante o lowering.
+    global_types: HashMap<String, Type>,
     /// Layout (offsets + tamanho) de cada struct declarada no programa,
     /// calculado uma vez em `lower_program` e compartilhado entre as
     /// funcoes. Vazio quando o `Lowerer` e usado isoladamente (ex.: testes
@@ -49,18 +56,21 @@ struct ControlLabels {
 
 impl Lowerer {
     pub fn new() -> Self {
-        Self::with_context(HashMap::new(), HashMap::new())
+        Self::with_context(HashMap::new(), HashMap::new(), HashMap::new())
     }
 
     fn with_context(
         struct_layouts: HashMap<String, StructLayout>,
         typedefs: HashMap<String, Type>,
+        global_types: HashMap<String, Type>,
     ) -> Self {
         Self {
             temps: TempGen::new(),
             labels: LabelGen::new(),
             instrs: Vec::new(),
             var_types: HashMap::new(),
+            local_scopes: vec![HashMap::new()],
+            global_types,
             struct_layouts,
             typedefs,
         }
@@ -71,6 +81,41 @@ impl Lowerer {
     /// `VarDecl` conforme o lowering avanca.
     fn declare_var_type(&mut self, name: &str, ty: &Type) {
         self.var_types.insert(name.to_string(), ty.clone());
+        self.local_scopes
+            .last_mut()
+            .expect("lowerer sempre possui um escopo local")
+            .insert(name.to_string(), ty.clone());
+    }
+
+    fn type_of_var(&self, name: &str) -> Option<&Type> {
+        self.local_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .or_else(|| self.global_types.get(name))
+    }
+
+    fn operand_for_var(&self, name: &str) -> Operand {
+        let is_local = self
+            .local_scopes
+            .iter()
+            .rev()
+            .any(|scope| scope.contains_key(name));
+        if is_local || !self.global_types.contains_key(name) {
+            Operand::Var(name.to_string())
+        } else {
+            Operand::Global(name.to_string())
+        }
+    }
+
+    fn with_local_scope<T>(
+        &mut self,
+        lower: impl FnOnce(&mut Self) -> LowerResult<T>,
+    ) -> LowerResult<T> {
+        self.local_scopes.push(HashMap::new());
+        let result = lower(self);
+        self.local_scopes.pop();
+        result
     }
 
     /// Tamanho (em bytes) de cada variavel cujo valor nao cabe num slot
@@ -105,8 +150,7 @@ impl Lowerer {
     fn infer_type(&self, expr: &Expr) -> LowerResult<Type> {
         match expr {
             Expr::Ident(name, _) => self
-                .var_types
-                .get(name)
+                .type_of_var(name)
                 .map(|ty| resolve_alias(ty, &self.typedefs))
                 .ok_or_else(|| codegen_error("tipo de variavel desconhecido no lowering", Some("type"))),
             Expr::Unary(UnOp::Deref, inner, _) => match self.infer_type(inner)? {
@@ -287,10 +331,11 @@ impl Lowerer {
         match expr {
             Expr::Ident(name, _) => {
                 let temp = self.fresh_temp();
+                let src = self.operand_for_var(name);
                 self.instrs.push(TacInstr::UnOp {
                     dst: temp,
                     op: UnOp::AddrOf,
-                    src: Operand::Var(name.clone()),
+                    src,
                 });
                 Ok(Operand::Temp(temp))
             }
@@ -307,7 +352,7 @@ impl Lowerer {
     pub fn lower_expr(&mut self, expr: &Expr) -> LowerResult<Operand> {
         match expr {
             Expr::Literal(value, _) => Ok(Operand::Const(lower_literal(value))),
-            Expr::Ident(name, _) => Ok(Operand::Var(name.clone())),
+            Expr::Ident(name, _) => Ok(self.operand_for_var(name)),
             Expr::Binary(lhs, op, rhs, _) => {
                 let lhs = self.lower_expr(lhs)?;
                 let rhs = self.lower_expr(rhs)?;
@@ -415,7 +460,7 @@ impl Lowerer {
             // informacao de tipo disponivel no lowering.
             Expr::Sizeof(inner, _) => match inner.as_ref() {
                 Expr::Ident(name, _) => {
-                    let ty = self.var_types.get(name).ok_or_else(|| {
+                    let ty = self.type_of_var(name).ok_or_else(|| {
                         codegen_error(
                             "sizeof(expr): tipo da variavel desconhecido no lowering",
                             Some("sizeof"),
@@ -437,12 +482,12 @@ impl Lowerer {
 
     fn lower_stmt_with_control(&mut self, stmt: &Stmt, control: ControlLabels) -> LowerResult<()> {
         match stmt {
-            Stmt::Block(stmts, _) => {
+            Stmt::Block(stmts, _) => self.with_local_scope(|lowerer| {
                 for stmt in stmts {
-                    self.lower_stmt_with_control(stmt, control)?;
+                    lowerer.lower_stmt_with_control(stmt, control)?;
                 }
                 Ok(())
-            }
+            }),
             Stmt::If(cond, then_branch, else_branch, _) => {
                 let cond = self.lower_expr(cond)?;
                 let then_label = self.labels.fresh();
@@ -492,29 +537,29 @@ impl Lowerer {
                 self.instrs.push(TacInstr::Label(end_label));
                 Ok(())
             }
-            Stmt::For(init, cond, inc, body, _) => {
+            Stmt::For(init, cond, inc, body, _) => self.with_local_scope(|lowerer| {
                 if let Some(init) = init {
-                    self.lower_stmt_with_control(init, control)?;
+                    lowerer.lower_stmt_with_control(init, control)?;
                 }
 
-                let cond_label = self.labels.fresh();
-                let body_label = self.labels.fresh();
-                let inc_label = inc.as_ref().map(|_| self.labels.fresh());
-                let end_label = self.labels.fresh();
+                let cond_label = lowerer.labels.fresh();
+                let body_label = lowerer.labels.fresh();
+                let inc_label = inc.as_ref().map(|_| lowerer.labels.fresh());
+                let end_label = lowerer.labels.fresh();
                 let continue_label = inc_label.unwrap_or(cond_label);
 
-                self.instrs.push(TacInstr::Label(cond_label));
+                lowerer.instrs.push(TacInstr::Label(cond_label));
                 if let Some(cond) = cond {
-                    let cond = self.lower_expr(cond)?;
-                    self.instrs.push(TacInstr::CondJump {
+                    let cond = lowerer.lower_expr(cond)?;
+                    lowerer.instrs.push(TacInstr::CondJump {
                         cond,
                         then_label: body_label,
                         else_label: end_label,
                     });
                 }
 
-                self.instrs.push(TacInstr::Label(body_label));
-                self.lower_stmt_with_control(
+                lowerer.instrs.push(TacInstr::Label(body_label));
+                lowerer.lower_stmt_with_control(
                     body,
                     ControlLabels {
                         break_label: Some(end_label),
@@ -523,16 +568,16 @@ impl Lowerer {
                 )?;
 
                 if let Some(inc_label) = inc_label {
-                    self.instrs.push(TacInstr::Label(inc_label));
+                    lowerer.instrs.push(TacInstr::Label(inc_label));
                     if let Some(inc) = inc {
-                        self.lower_expr(inc)?;
+                        lowerer.lower_expr(inc)?;
                     }
                 }
-                self.emit_jump_unless_terminated(cond_label);
+                lowerer.emit_jump_unless_terminated(cond_label);
 
-                self.instrs.push(TacInstr::Label(end_label));
+                lowerer.instrs.push(TacInstr::Label(end_label));
                 Ok(())
-            }
+            }),
             Stmt::DoWhile(cond, body, _) => {
                 let body_label = self.labels.fresh();
                 let cond_label = self.labels.fresh();
@@ -698,7 +743,7 @@ impl Lowerer {
                 // ja funciona corretamente de gracas; para maiores,
                 // copiaria so os 8 primeiros bytes silenciosamente —
                 // recusa explicitamente em vez disso.
-                if let Some(ty) = self.var_types.get(name) {
+                if let Some(ty) = self.type_of_var(name) {
                     if let Type::Struct(struct_name) = resolve_alias(ty, &self.typedefs) {
                         let size = self
                             .struct_layouts
@@ -713,7 +758,7 @@ impl Lowerer {
                         }
                     }
                 }
-                Ok(Operand::Var(name.clone()))
+                Ok(self.operand_for_var(name))
             }
             // `*p` como destino (`*p = x;`, `*p += 1;`, `(*p)++` etc.): o
             // ponteiro em si e um rvalue comum, mas o destino da escrita e o
@@ -743,7 +788,7 @@ impl Lowerer {
 
     fn emit_copy(&mut self, dst: Operand, src: Operand) -> LowerResult<()> {
         match dst {
-            Operand::Temp(_) | Operand::Var(_) | Operand::Deref(_) => {
+            Operand::Temp(_) | Operand::Var(_) | Operand::Global(_) | Operand::Deref(_) => {
                 self.instrs.push(TacInstr::Copy { dst, src });
                 Ok(())
             }
@@ -771,17 +816,22 @@ impl Default for Lowerer {
 }
 
 pub fn lower_function(decl: &Decl) -> LowerResult<TacFunction> {
-    lower_function_with_context(decl, &HashMap::new(), &HashMap::new())
+    lower_function_with_context(decl, &HashMap::new(), &HashMap::new(), &HashMap::new())
 }
 
 fn lower_function_with_context(
     decl: &Decl,
     struct_layouts: &HashMap<String, StructLayout>,
     typedefs: &HashMap<String, Type>,
+    global_types: &HashMap<String, Type>,
 ) -> LowerResult<TacFunction> {
     match decl {
         Decl::Function(_, name, params, body, _) => {
-            let mut lowerer = Lowerer::with_context(struct_layouts.clone(), typedefs.clone());
+            let mut lowerer = Lowerer::with_context(
+                struct_layouts.clone(),
+                typedefs.clone(),
+                global_types.clone(),
+            );
             for (qty, param_name) in params {
                 lowerer.declare_var_type(param_name, &qty.ty);
             }
@@ -807,6 +857,8 @@ fn lower_function_with_context(
 pub fn lower_program(prog: &Program) -> LowerResult<TacProgram> {
     let typedefs = build_typedefs(prog);
     let struct_layouts = build_struct_layouts(prog, &typedefs);
+    let global_types = build_global_types(prog);
+    let globals = lower_globals(prog, &typedefs, &struct_layouts)?;
 
     let mut functions = Vec::new();
     for decl in &prog.decls {
@@ -815,11 +867,149 @@ pub fn lower_program(prog: &Program) -> LowerResult<TacProgram> {
                 decl,
                 &struct_layouts,
                 &typedefs,
+                &global_types,
             )?);
         }
     }
 
-    Ok(TacProgram { functions })
+    Ok(TacProgram { globals, functions })
+}
+
+fn build_global_types(prog: &Program) -> HashMap<String, Type> {
+    prog.decls
+        .iter()
+        .filter_map(|decl| match decl {
+            Decl::GlobalVar(qty, name, _, _) => Some((name.clone(), qty.ty.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn lower_globals(
+    prog: &Program,
+    typedefs: &HashMap<String, Type>,
+    struct_layouts: &HashMap<String, StructLayout>,
+) -> LowerResult<Vec<TacGlobal>> {
+    let mut globals = Vec::new();
+    for decl in &prog.decls {
+        let Decl::GlobalVar(qty, name, init, _) = decl else {
+            continue;
+        };
+        let ty = resolve_alias(&qty.ty, typedefs);
+        let size = global_storage_size(&ty, struct_layouts)?;
+        let init = init.as_ref().map(lower_static_initializer).transpose()?;
+        globals.push(TacGlobal {
+            name: name.clone(),
+            size,
+            init,
+        });
+    }
+    Ok(globals)
+}
+
+fn global_storage_size(
+    ty: &Type,
+    struct_layouts: &HashMap<String, StructLayout>,
+) -> LowerResult<i64> {
+    let raw = match ty {
+        Type::Struct(name) => {
+            let layout = struct_layouts.get(name).ok_or_else(|| {
+                codegen_error(
+                    "layout de struct global desconhecido no lowering",
+                    Some("global"),
+                )
+            })?;
+            // A selecao de instrucoes atual acessa campos com movq. Reserva
+            // tambem os bytes alcancados pelo ultimo campo para evitar que
+            // esse acesso invada o simbolo global seguinte.
+            layout
+                .fields
+                .iter()
+                .fold(layout.size, |size, (_, offset, _)| size.max(offset + 8))
+        }
+        Type::Char
+        | Type::Short
+        | Type::Int
+        | Type::Long
+        | Type::Float
+        | Type::Double
+        | Type::Pointer(_)
+        | Type::Enum(_) => 8,
+        Type::Array(_, _) | Type::Void | Type::Alias(_) | Type::Function(_, _) => {
+            return Err(codegen_error(
+                "tipo de variavel global sem tamanho suportado no lowering",
+                Some("global"),
+            ));
+        }
+    };
+    Ok(align_up(raw.max(8), 8))
+}
+
+fn lower_static_initializer(expr: &Expr) -> LowerResult<ConstValue> {
+    match expr {
+        Expr::Literal(value, _) => Ok(lower_literal(value)),
+        Expr::Cast(_, inner, _) => lower_static_initializer(inner),
+        _ => eval_const_int(expr).map(ConstValue::Int),
+    }
+}
+
+fn eval_const_int(expr: &Expr) -> LowerResult<i64> {
+    match expr {
+        Expr::Literal(Literal::Int(value), _) => Ok(*value),
+        Expr::Literal(Literal::Char(value), _) => Ok(*value as i64),
+        Expr::Cast(_, inner, _) => eval_const_int(inner),
+        Expr::Unary(op, inner, _) => {
+            let value = eval_const_int(inner)?;
+            match op {
+                UnOp::Neg => Ok(value.wrapping_neg()),
+                UnOp::Not => Ok((value == 0) as i64),
+                UnOp::BitNot => Ok(!value),
+                UnOp::Deref | UnOp::AddrOf => Err(codegen_error(
+                    "inicializador global nao e uma constante inteira",
+                    Some("global-init"),
+                )),
+            }
+        }
+        Expr::Binary(lhs, op, rhs, _) => {
+            let lhs = eval_const_int(lhs)?;
+            let rhs = eval_const_int(rhs)?;
+            match op {
+                BinOp::Add => Ok(lhs.wrapping_add(rhs)),
+                BinOp::Sub => Ok(lhs.wrapping_sub(rhs)),
+                BinOp::Mul => Ok(lhs.wrapping_mul(rhs)),
+                BinOp::Div if rhs != 0 => Ok(lhs.wrapping_div(rhs)),
+                BinOp::Mod if rhs != 0 => Ok(lhs.wrapping_rem(rhs)),
+                BinOp::Eq => Ok((lhs == rhs) as i64),
+                BinOp::Neq => Ok((lhs != rhs) as i64),
+                BinOp::Less => Ok((lhs < rhs) as i64),
+                BinOp::Greater => Ok((lhs > rhs) as i64),
+                BinOp::Leq => Ok((lhs <= rhs) as i64),
+                BinOp::Geq => Ok((lhs >= rhs) as i64),
+                BinOp::And => Ok((lhs != 0 && rhs != 0) as i64),
+                BinOp::Or => Ok((lhs != 0 || rhs != 0) as i64),
+                BinOp::BitAnd => Ok(lhs & rhs),
+                BinOp::BitOr => Ok(lhs | rhs),
+                BinOp::BitXor => Ok(lhs ^ rhs),
+                BinOp::Shl => Ok(lhs.wrapping_shl(rhs as u32)),
+                BinOp::Shr => Ok(lhs.wrapping_shr(rhs as u32)),
+                BinOp::Div | BinOp::Mod => Err(codegen_error(
+                    "divisao por zero em inicializador global",
+                    Some("global-init"),
+                )),
+            }
+        }
+        Expr::Ternary(cond, then_expr, else_expr, _) => {
+            if eval_const_int(cond)? != 0 {
+                eval_const_int(then_expr)
+            } else {
+                eval_const_int(else_expr)
+            }
+        }
+        _ => Err(codegen_error(
+            "inicializador global deve ser uma expressao constante",
+            Some("global-init"),
+        )),
+    }
 }
 
 /// Segue a cadeia de `Type::Alias` ate um tipo concreto, usando a tabela de

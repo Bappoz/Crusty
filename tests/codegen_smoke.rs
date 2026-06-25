@@ -71,6 +71,7 @@ fn build_soma_program() -> TacProgram {
     };
 
     TacProgram {
+        globals: Vec::new(),
         functions: vec![soma, main],
     }
 }
@@ -143,6 +144,7 @@ fn smoke_simple_return_const_runs() {
     require_gcc!();
 
     let prog = TacProgram {
+        globals: Vec::new(),
         functions: vec![TacFunction {
             name: "main".to_string(),
             params: Vec::new(),
@@ -258,6 +260,7 @@ fn smoke_call_with_more_than_six_args_runs() {
     };
 
     let prog = TacProgram {
+        globals: Vec::new(),
         functions: vec![sum9, main],
     };
 
@@ -292,6 +295,7 @@ fn smoke_control_flow_if_else_runs() {
 
     // main: if (1) return 10; else return 20;  -> espera-se 10.
     let prog = TacProgram {
+        globals: Vec::new(),
         functions: vec![TacFunction {
             name: "main".to_string(),
             params: Vec::new(),
