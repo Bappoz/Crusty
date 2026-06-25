@@ -166,9 +166,7 @@ pub fn emit_program(prog: &TacProgram) -> EmitResult<String> {
     // existe no COFF usado pelo MinGW e tornaria o assembly invalido la.
     em.blank();
     #[cfg(not(target_os = "windows"))]
-    {
-        em.raw(".section .note.GNU-stack,\"\",@progbits");
-    }
+    em.raw(".section .note.GNU-stack,\"\",@progbits");
     Ok(em.into_string())
 }
 

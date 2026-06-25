@@ -4,20 +4,35 @@ use crate::lexer::tokens::token_kind::TokenKind;
 use crate::parser::parser::Parser;
 
 /// Consome sufixos `[expr?]` após o nome de uma variável e envolve o tipo em `Type::Array`.
-/// Suporta múltiplas dimensões: `int arr[3][4]` → `Array(Array(Int))`.
-/// O tamanho é consumido mas não armazenado (AST atual não possui campo de tamanho).
+/// Suporta múltiplas dimensões: `int arr[3][4]` → `Array(Array(Int, Some(4)), Some(3))`.
 pub fn parse_array_suffix(
     parser: &mut Parser,
     mut qty: QualifierType,
 ) -> Result<QualifierType, CompilerError> {
+    let mut dimensions = Vec::new();
+
     while parser.check(&TokenKind::LeftBracket) {
         parser.advance();
-        if !parser.check(&TokenKind::RightBracket) {
+
+        let size = if parser.check(&TokenKind::RightBracket) {
+            None
+        } else if let TokenKind::IntLiteral(value) = parser.peek_kind() {
+            let value = *value;
             parser.parse_expr(0)?;
-        }
+            usize::try_from(value).ok()
+        } else {
+            parser.parse_expr(0)?;
+            None
+        };
+
         parser.expect(&TokenKind::RightBracket, "']' ao fim do tamanho do array")?;
-        qty.ty = Type::Array(Box::new(qty.ty));
+        dimensions.push(size);
     }
+
+    for size in dimensions.into_iter().rev() {
+        qty.ty = Type::Array(Box::new(qty.ty), size);
+    }
+
     Ok(qty)
 }
 

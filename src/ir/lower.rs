@@ -119,15 +119,23 @@ impl Lowerer {
     }
 
     /// Tamanho (em bytes) de cada variavel cujo valor nao cabe num slot
-    /// escalar de 8 bytes — hoje, apenas structs locais. Chamado ao final do
+    /// escalar de 8 bytes — structs locais e arrays fixos. Chamado ao final do
     /// lowering de uma funcao, para popular `TacFunction::var_sizes`.
     fn compute_var_sizes(&self) -> HashMap<String, i64> {
         let mut sizes = HashMap::new();
         for (name, ty) in &self.var_types {
-            if let Type::Struct(struct_name) = resolve_alias(ty, &self.typedefs) {
-                if let Some(layout) = self.struct_layouts.get(&struct_name) {
-                    sizes.insert(name.clone(), layout.size);
+            match resolve_alias(ty, &self.typedefs) {
+                Type::Struct(struct_name) => {
+                    if let Some(layout) = self.struct_layouts.get(&struct_name) {
+                        sizes.insert(name.clone(), layout.size);
+                    }
                 }
+                array_ty @ Type::Array(_, _) => {
+                    if let Ok(size) = type_size(&array_ty) {
+                        sizes.insert(name.clone(), size);
+                    }
+                }
+                _ => {}
             }
         }
         sizes
@@ -146,7 +154,7 @@ impl Lowerer {
                 .map(|ty| resolve_alias(ty, &self.typedefs))
                 .ok_or_else(|| codegen_error("tipo de variavel desconhecido no lowering", Some("type"))),
             Expr::Unary(UnOp::Deref, inner, _) => match self.infer_type(inner)? {
-                Type::Pointer(t) | Type::Array(t) => Ok(resolve_alias(&t, &self.typedefs)),
+                Type::Pointer(t) | Type::Array(t, _) => Ok(resolve_alias(&t, &self.typedefs)),
                 _ => Err(codegen_error(
                     "deref de valor que nao e ponteiro/array",
                     Some("type"),
@@ -154,8 +162,9 @@ impl Lowerer {
             },
             Expr::Index(arr, _, _) => match self.infer_type(arr)? {
                 Type::Pointer(t) => Ok(resolve_alias(&t, &self.typedefs)),
-                Type::Array(_) => Err(codegen_error(
-                    "indexacao de array fixo ainda nao suportada (tamanho do array nao e rastreado pelo lowering); indexacao via ponteiro funciona normalmente",
+                Type::Array(t, Some(_)) => Ok(resolve_alias(&t, &self.typedefs)),
+                Type::Array(_, None) => Err(codegen_error(
+                    "indexacao de array com tamanho desconhecido nao suportada no lowering",
                     Some("index"),
                 )),
                 _ => Err(codegen_error(
@@ -226,13 +235,31 @@ impl Lowerer {
         })
     }
 
-    /// Calcula o endereco (em bytes) de `arr[idx]`, assumindo que `arr` e um
-    /// ponteiro: `endereco = lower_expr(arr) + idx * sizeof(elemento)`.
+    /// Calcula o endereco (em bytes) de `arr[idx]`.
+    ///
+    /// Para ponteiros, a base e o valor do ponteiro. Para arrays fixos, a
+    /// base e o endereco do bloco contiguo reservado para a variavel.
     fn lower_index_address(&mut self, arr: &Expr, idx: &Expr) -> LowerResult<Operand> {
-        let elem_ty = self.infer_type(arr)?;
+        let (elem_ty, base_ptr) = match self.infer_type(arr)? {
+            Type::Pointer(inner) => (resolve_alias(&inner, &self.typedefs), self.lower_expr(arr)?),
+            Type::Array(inner, Some(_)) => (
+                resolve_alias(&inner, &self.typedefs),
+                self.lower_address_of(arr)?,
+            ),
+            Type::Array(_, None) => {
+                return Err(codegen_error(
+                    "indexacao de array com tamanho desconhecido nao suportada no lowering",
+                    Some("index"),
+                ))
+            }
+            _ => {
+                return Err(codegen_error(
+                    "indexacao de valor que nao e ponteiro/array",
+                    Some("index"),
+                ))
+            }
+        };
         let elem_size = type_size(&elem_ty)?;
-
-        let base_ptr = self.lower_expr(arr)?;
         let idx_op = self.lower_expr(idx)?;
 
         let offset = if elem_size == 1 {
@@ -996,6 +1023,28 @@ fn resolve_alias(ty: &Type, typedefs: &HashMap<String, Type>) -> Type {
                 Some(next) => current = next.clone(),
                 None => return Type::Alias(name),
             },
+            Type::Pointer(inner) => {
+                return Type::Pointer(Box::new(resolve_alias(&inner, typedefs)))
+            }
+            Type::Array(inner, size) => {
+                return Type::Array(Box::new(resolve_alias(&inner, typedefs)), size)
+            }
+            Type::Function(ret, params) => {
+                let ret = QualifierType {
+                    ty: resolve_alias(&ret.ty, typedefs),
+                    is_const: ret.is_const,
+                    is_unsigned: ret.is_unsigned,
+                };
+                let params = params
+                    .iter()
+                    .map(|param| QualifierType {
+                        ty: resolve_alias(&param.ty, typedefs),
+                        is_const: param.is_const,
+                        is_unsigned: param.is_unsigned,
+                    })
+                    .collect();
+                return Type::Function(Box::new(ret), params);
+            }
             other => return other,
         }
     }
@@ -1113,12 +1162,18 @@ fn type_size(ty: &Type) -> LowerResult<i64> {
         Type::Short => Ok(2),
         Type::Int | Type::Float | Type::Enum(_) => Ok(4),
         Type::Long | Type::Double | Type::Pointer(_) => Ok(8),
-        Type::Array(_) | Type::Void | Type::Struct(_) | Type::Alias(_) | Type::Function(_, _) => {
-            Err(codegen_error(
-                "lowering de sizeof(type) requer layout/tamanho completo",
-                Some("sizeof"),
-            ))
+        Type::Array(inner, Some(len)) => {
+            let elem_size = type_size(inner)?;
+            Ok(elem_size * (*len as i64))
         }
+        Type::Array(_, None) => Err(codegen_error(
+            "lowering de sizeof(array) requer tamanho de array conhecido",
+            Some("sizeof"),
+        )),
+        Type::Void | Type::Struct(_) | Type::Alias(_) | Type::Function(_, _) => Err(codegen_error(
+            "lowering de sizeof(type) requer layout/tamanho completo",
+            Some("sizeof"),
+        )),
     }
 }
 
@@ -1149,6 +1204,14 @@ mod tests {
     fn int_ty() -> QualifierType {
         QualifierType {
             ty: Type::Int,
+            is_const: false,
+            is_unsigned: false,
+        }
+    }
+
+    fn array_ty(inner: Type, size: Option<usize>) -> QualifierType {
+        QualifierType {
+            ty: Type::Array(Box::new(inner), size),
             is_const: false,
             is_unsigned: false,
         }
@@ -1331,5 +1394,70 @@ mod tests {
                 val: Some(Operand::Var("argc".to_string()))
             }]
         );
+    }
+
+    #[test]
+    fn lower_fixed_array_local_populates_var_sizes() {
+        let decl = Decl::Function(
+            int_ty(),
+            "main".to_string(),
+            vec![],
+            vec![
+                Stmt::VarDecl(
+                    array_ty(Type::Int, Some(3)),
+                    "arr".to_string(),
+                    None,
+                    span(),
+                ),
+                Stmt::Return(Some(int(0)), span()),
+            ],
+            span(),
+        );
+
+        let func = lower_function(&decl).unwrap();
+
+        assert_eq!(func.var_sizes.get("arr"), Some(&12));
+    }
+
+    #[test]
+    fn lower_fixed_array_index_uses_address_of_base() {
+        let mut lowerer = Lowerer::new();
+        lowerer.declare_var_type("arr", &Type::Array(Box::new(Type::Int), Some(3)));
+        let expr = Expr::Assign(
+            Box::new(Expr::Index(
+                Box::new(ident("arr")),
+                Box::new(int(1)),
+                span(),
+            )),
+            Box::new(int(7)),
+            span(),
+        );
+
+        lowerer.lower_expr(&expr).unwrap();
+        let instrs = lowerer.finish();
+
+        assert!(instrs.iter().any(|instr| matches!(
+            instr,
+            TacInstr::UnOp {
+                op: UnOp::AddrOf,
+                src: Operand::Var(name),
+                ..
+            } if name == "arr"
+        )));
+        assert!(instrs.iter().any(|instr| matches!(
+            instr,
+            TacInstr::BinOp {
+                op: BinOp::Mul,
+                rhs: Operand::Const(ConstValue::Int(4)),
+                ..
+            }
+        )));
+        assert!(instrs.iter().any(|instr| matches!(
+            instr,
+            TacInstr::Copy {
+                dst: Operand::Deref(_),
+                ..
+            }
+        )));
     }
 }

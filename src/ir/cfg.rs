@@ -68,10 +68,8 @@ pub fn identify_leaders(instrs: &[TacInstr]) -> HashSet<usize> {
 
     for (index, instr) in instrs.iter().enumerate() {
         match instr {
-            TacInstr::Jump { .. } | TacInstr::CondJump { .. } => {
-                if index + 1 < instrs.len() {
-                    leaders.insert(index + 1);
-                }
+            TacInstr::Jump { .. } | TacInstr::CondJump { .. } if index + 1 < instrs.len() => {
+                leaders.insert(index + 1);
             }
             TacInstr::Label(_) => {
                 leaders.insert(index);
