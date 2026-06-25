@@ -17,11 +17,11 @@
 use crate::codegen::last::abi;
 use crate::codegen::last::frame::{Frame, SlotKey};
 use crate::codegen::last::peephole::PeepholePass;
+use crate::common::ast::ast::Type;
 use crate::common::ast::expr::{BinOp, UnOp};
 use crate::common::errors::types::CodegenError;
 use crate::ir::tac::{ConstValue, LabelId, Operand, TacFunction, TacInstr, TacProgram};
 use std::collections::HashMap;
-use crate::common::ast::ast::Type;
 
 type EmitResult<T> = Result<T, CodegenError>;
 
@@ -63,7 +63,7 @@ impl StringPool {
                 self.visit_operand(rhs);
             }
             TacInstr::UnOp { src, .. } => self.visit_operand(src),
-            TacInstr::Copy { dst, src } => {
+            TacInstr::Copy { dst, src, .. } => {
                 self.visit_operand(dst);
                 self.visit_operand(src);
             }
@@ -73,7 +73,7 @@ impl StringPool {
                     self.visit_operand(arg);
                 }
             }
-            TacInstr::Return { val } => {
+            TacInstr::Return { val, .. } => {
                 if let Some(val) = val {
                     self.visit_operand(val);
                 }
@@ -92,7 +92,7 @@ impl StringPool {
                 self.label_for_double(*value);
             }
             Operand::Deref(inner) => self.visit_operand(inner),
-            _=> {}
+            _ => {}
         }
     }
 
@@ -107,9 +107,9 @@ impl StringPool {
         label
     }
 
-    fn label_for_double(&mut self, value: f64) -> String{
+    fn label_for_double(&mut self, value: f64) -> String {
         let key = value.to_string();
-        if let Some(label) = self.double_labels.get(&key){
+        if let Some(label) = self.double_labels.get(&key) {
             return label.clone();
         }
 
@@ -171,7 +171,7 @@ pub fn emit_program(prog: &TacProgram) -> EmitResult<String> {
             em.raw(&format!("    .asciz {}", escape_asm_string(value)));
         }
 
-        for (label, value) in &strings.double_entries{
+        for (label, value) in &strings.double_entries {
             em.raw(&format!("{label}:"));
             em.raw(&format!("   .double {value}"));
         }
@@ -304,7 +304,7 @@ fn slot_keys_of(instr: &TacInstr) -> Vec<SlotKey> {
             keys.push(SlotKey::Temp(dst.0));
             consider(&mut keys, src);
         }
-        TacInstr::Copy { dst, src } => {
+        TacInstr::Copy { dst, src, .. } => {
             consider(&mut keys, dst);
             consider(&mut keys, src);
         }
@@ -317,7 +317,7 @@ fn slot_keys_of(instr: &TacInstr) -> Vec<SlotKey> {
                 consider(&mut keys, arg);
             }
         }
-        TacInstr::Return { val } => {
+        TacInstr::Return { val, .. } => {
             if let Some(val) = val {
                 consider(&mut keys, val);
             }
@@ -357,12 +357,22 @@ fn emit_instr(
             Ok(())
         }
         TacInstr::Copy { dst, src, ty } => {
-            let reg = if matches!(ty, Type::Double) { "xmm0" } else { "rax" };
+            let reg = if matches!(ty, Type::Double) {
+                "xmm0"
+            } else {
+                "rax"
+            };
             load_op(em, frame, src, reg, strings, ty)?;
             store_op(em, frame, dst, reg, strings, ty)?;
             Ok(())
         }
-        TacInstr::BinOp { dst, op, lhs, rhs, ty } => emit_binop(em, op, lhs, rhs, *dst, frame, strings, ty),
+        TacInstr::BinOp {
+            dst,
+            op,
+            lhs,
+            rhs,
+            ty,
+        } => emit_binop(em, op, lhs, rhs, *dst, frame, strings, ty),
         TacInstr::UnOp { dst, op, src, ty } => emit_unop(em, op, src, *dst, frame, strings, ty),
         TacInstr::Call { dst, fn_name, args } => emit_call(em, fn_name, args, *dst, frame, strings),
         TacInstr::Return { val, ty } => {
@@ -370,7 +380,11 @@ fn emit_instr(
                 // 1. Resolve o tipo (se for None, assume Int)
                 let resolved_ty = ty.as_ref().unwrap_or(&Type::Int);
                 // 2. Escolhe o registrador de retorno correto
-                let reg = if matches!(resolved_ty, Type::Double) { "xmm0" } else { "rax" };
+                let reg = if matches!(resolved_ty, Type::Double) {
+                    "xmm0"
+                } else {
+                    "rax"
+                };
                 // 3. Carrega o valor para o registrador
                 load_op(em, frame, val, reg, strings, resolved_ty)?;
             }
@@ -380,6 +394,7 @@ fn emit_instr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_binop(
     em: &mut Emitter,
     op: &BinOp,
@@ -388,7 +403,7 @@ fn emit_binop(
     dst: crate::ir::tac::TempId,
     frame: &Frame,
     strings: &StringPool,
-    ty: &Type, // <-- Faltava isto
+    ty: &Type,
 ) -> EmitResult<()> {
     if matches!(op, BinOp::And | BinOp::Or) {
         emit_logical(em, matches!(op, BinOp::Or), lhs, rhs, dst, frame, strings)?;
@@ -404,26 +419,33 @@ fn emit_binop(
             BinOp::Sub => em.insn("subsd %xmm1, %xmm0"),
             BinOp::Mul => em.insn("mulsd %xmm1, %xmm0"),
             BinOp::Div => em.insn("divsd %xmm1, %xmm0"),
-            BinOp::Less => emit_comparison_double(em, "seta"),
-            BinOp::Greater => emit_comparison_double(em, "setb"),
-            BinOp::Leq => emit_comparison_double(em, "setae"),
-            BinOp::Geq => emit_comparison_double(em, "setbe"),
+            BinOp::Less => emit_comparison_double(em, "setb"),
+            BinOp::Greater => emit_comparison_double(em, "seta"),
+            BinOp::Leq => emit_comparison_double(em, "setbe"),
+            BinOp::Geq => emit_comparison_double(em, "setae"),
             BinOp::Eq => emit_comparison_double(em, "sete"),
             BinOp::Neq => emit_comparison_double(em, "setne"),
-            _ => return Err(codegen_error("Operacao double nao suportada", Some("binop"))),
+            _ => {
+                return Err(codegen_error(
+                    "Operacao double nao suportada",
+                    Some("binop"),
+                ))
+            }
         }
-        
-        let is_relational = matches!(op, BinOp::Less | BinOp::Greater | BinOp::Leq | BinOp::Geq | BinOp::Eq | BinOp::Neq);
+
+        let is_relational = matches!(
+            op,
+            BinOp::Less | BinOp::Greater | BinOp::Leq | BinOp::Geq | BinOp::Eq | BinOp::Neq
+        );
         if is_relational {
             store_op(em, frame, &Operand::Temp(dst), "rax", strings, &Type::Int)?;
         } else {
             store_op(em, frame, &Operand::Temp(dst), "xmm0", strings, ty)?;
         }
-        
+
         return Ok(());
     }
 
-   
     load_op(em, frame, lhs, "rax", strings, ty)?;
     load_op(em, frame, rhs, "rcx", strings, ty)?;
 
@@ -479,7 +501,6 @@ fn emit_logical(
     frame: &Frame,
     strings: &StringPool,
 ) -> EmitResult<()> {
-
     let ty = &Type::Int;
     // Normaliza lhs para 0/1 em %rdx.
     load_op(em, frame, lhs, "rax", strings, ty)?;
@@ -500,7 +521,7 @@ fn emit_logical(
         em.insn("andq %rdx, %rax");
     }
 
-    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings, ty)?;
     Ok(())
 }
 
@@ -527,7 +548,7 @@ fn emit_unop(
             .offset_of(&key)
             .expect("operando de & deve ter slot alocado no frame");
         em.insn(&format!("leaq {offset}(%rbp), %rax"));
-        store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
+        store_op(em, frame, &Operand::Temp(dst), "rax", strings, &Type::Int)?;
         return Ok(());
     }
     if matches!(ty, Type::Double) {
@@ -551,7 +572,7 @@ fn emit_unop(
         }
         UnOp::AddrOf => unreachable!("tratado antes do load_op acima"),
     }
-    store_op(em, frame, &Operand::Temp(dst), "rax", strings)?;
+    store_op(em, frame, &Operand::Temp(dst), "rax", strings, ty)?;
     Ok(())
 }
 
@@ -575,7 +596,7 @@ fn emit_call(
     }
     let stack_args = &args[args.len().min(abi::MAX_REG_ARGS)..];
     for arg in stack_args.iter().rev() {
-        load_op(em, frame, arg, "rax", strings)?;
+        load_op(em, frame, arg, "rax", strings, &Type::Int)?;
         em.insn("pushq %rax");
     }
 
@@ -607,7 +628,11 @@ fn load_op(
     strings: &StringPool,
     ty: &Type,
 ) -> EmitResult<()> {
-    let mov_insn = if matches!(ty, Type::Double) {"movsd"} else {"movq"};
+    let mov_insn = if matches!(ty, Type::Double) {
+        "movsd"
+    } else {
+        "movq"
+    };
     match op {
         Operand::Const(ConstValue::String(value)) => {
             let label = strings
@@ -617,14 +642,18 @@ fn load_op(
             em.insn(&format!("leaq {label}(%rip), %{reg}"));
             Ok(())
         }
-        Operand::Const(ConstValue::Double(value)) =>{
+        Operand::Const(ConstValue::Double(_)) if !matches!(ty, Type::Double) => Err(codegen_error(
+            "literal double usado em contexto nao-double (apenas double e' suportado neste backend; float ainda nao)",
+            Some("load"),
+        )),
+        Operand::Const(ConstValue::Double(value)) => {
             let label = strings
                 .double_labels
                 .get(&value.to_string())
                 .expect("double literal deve ter sido coletado");
 
-                em.insn(&format!("movsd {label}(%rip), %{reg}"));
-                Ok(())
+            em.insn(&format!("movsd {label}(%rip), %{reg}"));
+            Ok(())
         }
         Operand::Const(value) => {
             em.insn(&format!("movq ${}, %{reg}", const_immediate(value)?));
@@ -634,22 +663,24 @@ fn load_op(
             let offset = frame
                 .offset_of(&SlotKey::Temp(temp.0))
                 .expect("temp sem slot alocado");
-            em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+            em.insn(&format!("{mov_insn} {offset}(%rbp), %{reg}"));
             Ok(())
         }
         Operand::Var(name) => {
             let offset = frame
                 .offset_of(&SlotKey::Var(name.clone()))
                 .expect("var sem slot alocado");
-            em.insn(&format!("movq {offset}(%rbp), %{reg}"));
+            em.insn(&format!("{mov_insn} {offset}(%rbp), %{reg}"));
             Ok(())
         }
         Operand::Deref(inner) => {
             // `%r11` e scratch/caller-saved e nao e usado como `reg` por
             // nenhum chamador de `load_op`/`store_op` neste backend, entao e
             // seguro usa-lo aqui para materializar o ponteiro antes do deref.
-            load_op(em, frame, inner, DEREF_SCRATCH_REG, strings)?;
-            em.insn(&format!("movq (%{DEREF_SCRATCH_REG}), %{reg}"));
+            // O proprio ponteiro e sempre um endereco de 8 bytes, independente
+            // do tipo do valor apontado.
+            load_op(em, frame, inner, DEREF_SCRATCH_REG, strings, &Type::Int)?;
+            em.insn(&format!("{mov_insn} (%{DEREF_SCRATCH_REG}), %{reg}"));
             Ok(())
         }
     }
@@ -664,10 +695,14 @@ fn store_op(
     strings: &StringPool,
     ty: &Type,
 ) -> EmitResult<()> {
-    let mov_insn = if matches!(ty, Type::Double) {"movsd"} else {"movq"};
+    let mov_insn = if matches!(ty, Type::Double) {
+        "movsd"
+    } else {
+        "movq"
+    };
     if let Operand::Deref(inner) = op {
         load_op(em, frame, inner, DEREF_SCRATCH_REG, strings, &Type::Int)?;
-        em.insn(&format!("movq %{reg}, (%{DEREF_SCRATCH_REG})"));
+        em.insn(&format!("{mov_insn} %{reg}, (%{DEREF_SCRATCH_REG})"));
         return Ok(());
     }
 
@@ -686,7 +721,7 @@ fn store_op(
         }
         Operand::Deref(_) => unreachable!("tratado antes do match acima"),
     };
-    em.insn(&format!("movq %{reg}, {offset}(%rbp)"));
+    em.insn(&format!("{mov_insn} %{reg}, {offset}(%rbp)"));
     Ok(())
 }
 
@@ -751,6 +786,7 @@ mod tests {
             Vec::new(),
             vec![TacInstr::Return {
                 val: Some(Operand::Const(ConstValue::Int(42))),
+                ty: None,
             }],
         )
     }
@@ -790,9 +826,11 @@ mod tests {
                     op: BinOp::Add,
                     lhs: Operand::Var("a".to_string()),
                     rhs: Operand::Var("b".to_string()),
+                    ty: Type::Int,
                 },
                 TacInstr::Return {
                     val: Some(Operand::Temp(TempId(0))),
+                    ty: None,
                 },
             ],
         );
@@ -815,9 +853,11 @@ mod tests {
                     op: BinOp::Div,
                     lhs: Operand::Const(ConstValue::Int(10)),
                     rhs: Operand::Const(ConstValue::Int(3)),
+                    ty: Type::Int,
                 },
                 TacInstr::Return {
                     val: Some(Operand::Temp(TempId(0))),
+                    ty: None,
                 },
             ],
         );
@@ -838,6 +878,7 @@ mod tests {
                 op: BinOp::Mod,
                 lhs: Operand::Const(ConstValue::Int(10)),
                 rhs: Operand::Const(ConstValue::Int(3)),
+                ty: Type::Int,
             }],
         );
 
@@ -856,6 +897,7 @@ mod tests {
                 op: BinOp::Less,
                 lhs: Operand::Const(ConstValue::Int(1)),
                 rhs: Operand::Const(ConstValue::Int(2)),
+                ty: Type::Int,
             }],
         );
 
@@ -882,6 +924,7 @@ mod tests {
                 },
                 TacInstr::Return {
                     val: Some(Operand::Temp(TempId(0))),
+                    ty: None,
                 },
             ],
         );
@@ -909,6 +952,7 @@ mod tests {
                 },
                 TacInstr::Return {
                     val: Some(Operand::Temp(TempId(0))),
+                    ty: None,
                 },
             ],
         );
@@ -979,10 +1023,12 @@ mod tests {
                 TacInstr::Label(LabelId(0)),
                 TacInstr::Return {
                     val: Some(Operand::Const(ConstValue::Int(1))),
+                    ty: None,
                 },
                 TacInstr::Label(LabelId(1)),
                 TacInstr::Return {
                     val: Some(Operand::Const(ConstValue::Int(0))),
+                    ty: None,
                 },
             ],
         );
@@ -1025,6 +1071,7 @@ mod tests {
                 op: BinOp::And,
                 lhs: Operand::Const(ConstValue::Int(1)),
                 rhs: Operand::Const(ConstValue::Int(0)),
+                ty: Type::Int,
             }],
         );
 
@@ -1044,6 +1091,7 @@ mod tests {
                 op: BinOp::Or,
                 lhs: Operand::Const(ConstValue::Int(1)),
                 rhs: Operand::Const(ConstValue::Int(0)),
+                ty: Type::Int,
             }],
         );
 

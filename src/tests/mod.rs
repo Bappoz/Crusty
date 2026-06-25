@@ -10,4 +10,5 @@ mod peephole_test;
 mod semantic_test;
 mod source_test;
 mod symbol_test;
+mod tac_test;
 mod token_test;

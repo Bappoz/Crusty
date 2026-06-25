@@ -1,8 +1,7 @@
 use std::fmt;
 
+use crate::common::ast::ast::Type;
 use crate::common::ast::expr::{BinOp, UnOp};
-use crate::common::ast::Type;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TempId(pub u32);
@@ -88,7 +87,7 @@ pub enum TacInstr {
         dst: TempId,
         op: UnOp,
         src: Operand,
-        ty:Type,
+        ty: Type,
     },
     Copy {
         dst: Operand,
@@ -110,7 +109,7 @@ pub enum TacInstr {
     },
     Return {
         val: Option<Operand>,
-        ty: Option<Type>
+        ty: Option<Type>,
     },
     Label(LabelId),
 }
@@ -169,10 +168,21 @@ impl fmt::Display for Operand {
 impl fmt::Display for TacInstr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TacInstr::BinOp { dst, op, lhs, rhs, ty: _ } => {
+            TacInstr::BinOp {
+                dst,
+                op,
+                lhs,
+                rhs,
+                ty: _,
+            } => {
                 write!(f, "{dst} = {lhs} {} {rhs}", bin_op_symbol(op))
             }
-            TacInstr::UnOp { dst, op, src, ty: _ } => {
+            TacInstr::UnOp {
+                dst,
+                op,
+                src,
+                ty: _,
+            } => {
                 write!(f, "{dst} = {}{src}", un_op_symbol(op))
             }
             TacInstr::Copy { dst, src, ty: _ } => write!(f, "{dst} = {src}"),
@@ -240,5 +250,3 @@ fn un_op_symbol(op: &UnOp) -> &'static str {
         UnOp::AddrOf => "&",
     }
 }
-
-

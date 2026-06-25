@@ -168,6 +168,7 @@ pub fn build_cfg(func: &TacFunction) -> Cfg {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ast::ast::Type;
     use crate::ir::tac::{ConstValue, Operand, TempId};
 
     fn func(instrs: Vec<TacInstr>) -> TacFunction {
@@ -185,13 +186,16 @@ mod tests {
             TacInstr::Copy {
                 dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
+                ty: Type::Int,
             },
             TacInstr::Copy {
                 dst: Operand::Temp(TempId(1)),
                 src: Operand::Const(ConstValue::Int(2)),
+                ty: Type::Int,
             },
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(1))),
+                ty: None,
             },
         ]);
 
@@ -217,16 +221,19 @@ mod tests {
             TacInstr::Copy {
                 dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
+                ty: Type::Int,
             },
             TacInstr::Jump { label: merge_label },
             TacInstr::Label(else_label),
             TacInstr::Copy {
                 dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(2)),
+                ty: Type::Int,
             },
             TacInstr::Label(merge_label),
             TacInstr::Return {
                 val: Some(Operand::Temp(TempId(0))),
+                ty: None,
             },
         ]);
 
@@ -253,10 +260,14 @@ mod tests {
             TacInstr::Copy {
                 dst: Operand::Temp(TempId(0)),
                 src: Operand::Const(ConstValue::Int(1)),
+                ty: Type::Int,
             },
             TacInstr::Jump { label: cond_label },
             TacInstr::Label(exit_label),
-            TacInstr::Return { val: None },
+            TacInstr::Return {
+                val: None,
+                ty: None,
+            },
         ]);
 
         let cfg = build_cfg(&f);
@@ -279,7 +290,10 @@ mod tests {
 
     #[test]
     fn cfg_entry_has_no_predecessors() {
-        let f = func(vec![TacInstr::Return { val: None }]);
+        let f = func(vec![TacInstr::Return {
+            val: None,
+            ty: None,
+        }]);
 
         let cfg = build_cfg(&f);
 
