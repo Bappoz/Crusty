@@ -935,7 +935,7 @@ fn global_storage_size(
         | Type::Double
         | Type::Pointer(_)
         | Type::Enum(_) => 8,
-        Type::Array(_) | Type::Void | Type::Alias(_) | Type::Function(_, _) => {
+        Type::Array(_, _) | Type::Void | Type::Alias(_) | Type::Function(_, _) => {
             return Err(codegen_error(
                 "tipo de variavel global sem tamanho suportado no lowering",
                 Some("global"),
