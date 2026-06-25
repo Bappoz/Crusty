@@ -147,6 +147,7 @@ mod test {
 
     #[test]
     fn test_return_type_mismatch_error() {
+        // int f() { return "texto"; }  → incompatível (char* não é conversível para int)
         let mut analyser = SemanticAnalyser::new();
         let span = dummy_span();
 
@@ -156,7 +157,7 @@ mod test {
             is_unsigned: false,
         };
 
-        let expr_errada = Expr::Literal(Literal::Double(2.5), span.clone());
+        let expr_errada = Expr::Literal(Literal::String("texto".to_string()), span.clone());
         let stmt_return = Stmt::Return(Some(expr_errada), span.clone());
 
         let funcao_ast = Decl::Function(
@@ -174,7 +175,7 @@ mod test {
         assert_eq!(
             analyser.diagnostics.len(),
             1,
-            "Deveria ter detectado incopatibilidade: Int x Double."
+            "Deveria ter detectado incompatibilidade: int x char* (return de string em função int)."
         );
     }
 

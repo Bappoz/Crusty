@@ -13,7 +13,9 @@ Código-fonte (.c)
     ↓
 [Analisador]    → diagnósticos semânticos
     ↓
-[Codegen]       → (não implementado)
+[IR / TAC]      → Three-Address Code  +  otimizações (-O0..-O3)
+    ↓
+[Codegen]       → assembly x86-64  →  .o / executável ELF via gcc
 ```
 
 ## Módulos
@@ -22,8 +24,9 @@ Código-fonte (.c)
 |--------|--------|--------------|
 | Lexer | Completo | [lexer.md](lexer.md) |
 | Parser | Completo | [parser.md](parser.md) |
-| Analisador Semântico | Em desenvolvimento | [semantic.md](semantic.md) |
-| Geração de código | Não iniciado | — |
+| Analisador Semântico | Completo | [semantic.md](semantic.md) |
+| IR (TAC) e otimizações | Completo | — |
+| Geração de código x86-64 | Completo para tipos inteiros, ponteiros, structs, arrays, globais e `double`; `float` ainda sem codegen ([issue #172](https://github.com/Bappoz/Crusty/issues/172)) | — |
 
 ## Referências
 
@@ -31,4 +34,4 @@ Código-fonte (.c)
 
 ## Repositório
 
-[github.com/Bappoz/crusty](https://github.com/Bappoz/crusty)
+[github.com/Bappoz/Crusty](https://github.com/Bappoz/Crusty)

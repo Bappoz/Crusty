@@ -357,7 +357,10 @@ fn fmt_type(ty: &Type) -> String {
         Type::Double => "double".into(),
         Type::Void => "void".into(),
         Type::Pointer(inner) => format!("{}*", fmt_type(inner)),
-        Type::Array(inner) => format!("{}[]", fmt_type(inner)),
+        Type::Array(inner, size) => match size {
+            Some(size) => format!("{}[{size}]", fmt_type(inner)),
+            None => format!("{}[]", fmt_type(inner)),
+        },
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),

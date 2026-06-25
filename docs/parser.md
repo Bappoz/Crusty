@@ -305,7 +305,7 @@ Parseadas por `parse_prefix_expr()` antes do loop Pratt:
 
 ### Postfix Expressions
 
-`try_parse_postfix(lhs)` retorna `true` se consumiu algo:
+`try_parse_postfix(lhs)` retorna `(expr, true)` se consumiu algo (tomando `lhs` por valor e devolvendo o novo nó) ou `(lhs, false)` caso contrário:
 
 | Token | Nó produzido |
 |---|---|

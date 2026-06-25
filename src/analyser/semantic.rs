@@ -3,6 +3,7 @@ use crate::common::ast::ast::{Program, QualifierType, Type};
 use crate::common::ast::decl::Decl;
 use crate::common::ast::expr::{Expr, Literal, MemberAccess};
 use crate::common::ast::stmt::Stmt;
+use crate::common::builtins::BuiltinsLibs;
 use crate::common::errors::error_data::Span;
 use crate::common::errors::types::{
     CompilerError, CompilerWarning, Diagnostic, SemanticError, SemanticErrorKind, SemanticWarning,
@@ -16,6 +17,13 @@ pub struct SemanticAnalyser {
     pub current_fn_ret: Option<QualifierType>,
     pub diagnostics: Vec<CompilerError>,
     pub warnings: Vec<CompilerWarning>,
+    /// Profundidade de loops aninhados (for/while/do-while).
+    /// Usada para validar `continue` e `break`.
+    pub loop_depth: usize,
+    /// Profundidade de `switch` aninhados.
+    /// Usada para validar `break` (switch aceita break, mas não continue).
+    pub switch_depth: usize,
+    pub stdio_enabled: bool,
 }
 
 impl SemanticAnalyser {
@@ -25,6 +33,16 @@ impl SemanticAnalyser {
             current_fn_ret: None,
             diagnostics: Vec::new(),
             warnings: Vec::new(),
+            loop_depth: 0,
+            switch_depth: 0,
+            stdio_enabled: false,
+        }
+    }
+
+    pub fn with_builtins(builtins: crate::common::builtins::BuiltinsLibs) -> Self {
+        Self {
+            stdio_enabled: builtins.stdio,
+            ..Self::new()
         }
     }
 
@@ -168,7 +186,7 @@ impl SemanticAnalyser {
                 }
 
                 self.sym.enter_scope();
-                let prev_ret = self.current_fn_ret.replace(resolved_ret);
+                let prev_ret = self.current_fn_ret.replace(resolved_ret.clone());
 
                 for (qty, name) in params {
                     let resolved_qty = self.resolve_type(qty);
@@ -191,6 +209,15 @@ impl SemanticAnalyser {
 
                 for stmt in body {
                     self.analyse_stmt(stmt);
+                }
+
+                // Aviso conservador: função não-void cujo corpo não termina com return.
+                if resolved_ret.ty != Type::Void && !body_always_returns(body) {
+                    self.warnings
+                        .push(CompilerWarning::Semantic(SemanticWarning {
+                            span: span.clone(),
+                            kind: SemanticWarningKind::MissingReturn(name.clone()),
+                        }));
                 }
 
                 self.current_fn_ret = prev_ret;
@@ -244,10 +271,23 @@ impl SemanticAnalyser {
     pub fn analyse_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl(qty, name, init, span) => {
-                if let Some(expr) = init {
-                    self.analyse_expr(expr);
-                }
                 let resolved_qty = self.resolve_type(qty);
+                let initialized = if let Some(expr) = init {
+                    let init_ty = self.analyse_expr(expr);
+                    if !types_compatible_for_assign(&resolved_qty.ty, &init_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: expr.span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: type_name(&resolved_qty.ty),
+                                    found: type_name(&init_ty.ty),
+                                },
+                            }));
+                    }
+                    true
+                } else {
+                    false
+                };
                 let symbol = Symbol {
                     name: name.clone(),
                     ty: resolved_qty.clone(),
@@ -257,7 +297,7 @@ impl SemanticAnalyser {
                     prototype_only: false,
                     // Locais começam "não usadas"; a leitura marca `used = true`.
                     used: false,
-                    initialized: init.is_some(),
+                    initialized,
                 };
                 if let Err(e) = self.sym.declare(symbol) {
                     self.diagnostics.push(e);
@@ -287,7 +327,7 @@ impl SemanticAnalyser {
                     }
                     (Some(expected), Some(e)) => {
                         let found_expr_qty = self.analyse_expr(e);
-                        if expected.ty != found_expr_qty.ty {
+                        if !types_compatible_for_assign(&expected.ty, &found_expr_qty.ty) {
                             self.diagnostics
                                 .push(CompilerError::Semantic(SemanticError {
                                     span: span.clone(),
@@ -320,10 +360,14 @@ impl SemanticAnalyser {
             }
             Stmt::While(cond, body, _) => {
                 self.analyse_expr(cond);
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
             }
             Stmt::DoWhile(cond, body, _) => {
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
                 self.analyse_expr(cond);
             }
             Stmt::For(init, cond, inc, body, _) => {
@@ -337,18 +381,56 @@ impl SemanticAnalyser {
                 if let Some(e) = inc {
                     self.analyse_expr(e);
                 }
+                self.loop_depth += 1;
                 self.analyse_stmt(body);
+                self.loop_depth -= 1;
                 self.exit_scope_checking_unused();
             }
-            Stmt::Switch(expr, cases, _) => {
-                self.analyse_expr(expr);
+            Stmt::Switch(expr, cases, span) => {
+                let disc_ty = self.analyse_expr(expr);
+                // Em C, o discriminante do switch deve ser de tipo inteiro ou enum.
+                let is_switch_ok = matches!(
+                    disc_ty.ty,
+                    Type::Int | Type::Long | Type::Short | Type::Char | Type::Enum(_)
+                );
+                if !is_switch_ok {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::InvalidSwitchType {
+                                found: type_name(&disc_ty.ty),
+                            },
+                        }));
+                }
+                self.switch_depth += 1;
                 for case in cases {
+                    if let crate::common::ast::stmt::SwitchLabel::Case(case_expr) = &case.label {
+                        self.analyse_expr(case_expr);
+                    }
                     for s in &case.stmts {
                         self.analyse_stmt(s);
                     }
                 }
+                self.switch_depth -= 1;
             }
-            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Break(span) => {
+                if self.loop_depth == 0 && self.switch_depth == 0 {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::BreakOutsideLoop,
+                        }));
+                }
+            }
+            Stmt::Continue(span) => {
+                if self.loop_depth == 0 {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: span.clone(),
+                            kind: SemanticErrorKind::ContinueOutsideLoop,
+                        }));
+                }
+            }
         }
     }
 
@@ -422,9 +504,26 @@ impl SemanticAnalyser {
                     }
                 }
             }
-            Expr::Unary(_, e, _) | Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => {
-                self.analyse_expr(e)
+            Expr::Unary(op, e, _) => {
+                let inner_ty = self.analyse_expr(e);
+                match op {
+                    crate::common::ast::expr::UnOp::AddrOf => QualifierType {
+                        ty: Type::Pointer(Box::new(inner_ty.ty)),
+                        is_const: false,
+                        is_unsigned: false,
+                    },
+                    crate::common::ast::expr::UnOp::Deref => match inner_ty.ty {
+                        Type::Pointer(base) | Type::Array(base, _) => QualifierType {
+                            ty: *base,
+                            is_const: inner_ty.is_const,
+                            is_unsigned: inner_ty.is_unsigned,
+                        },
+                        _ => inner_ty,
+                    },
+                    _ => inner_ty,
+                }
             }
+            Expr::Prefix(_, e, _) | Expr::Postfix(_, e, _) => self.analyse_expr(e),
             Expr::CompoundAssign(_, lhs, rhs, _) => {
                 let lhs_ty = self.analyse_expr(lhs);
                 self.analyse_expr(rhs);
@@ -441,6 +540,25 @@ impl SemanticAnalyser {
             Expr::SizeofType(_, _) => uint_type(),
             Expr::Call(callee, args, span) => {
                 if let Expr::Ident(name, id_span) = callee.as_ref() {
+                    if name == "printf" {
+                        if !self.stdio_enabled {
+                            self.diagnostics
+                                .push(CompilerError::Semantic(SemanticError {
+                                    span: id_span.clone(),
+                                    kind: SemanticErrorKind::MissingLibraryHeader {
+                                        header: "stdio.h".to_string(),
+                                        symbol: "printf".to_string(),
+                                    },
+                                }));
+                            for a in args {
+                                self.analyse_expr(a);
+                            }
+                            return unknown_type();
+                        }
+
+                        return self.analyse_printf_call(args, span, id_span);
+                    }
+
                     match self.sym.lookup(name) {
                         None => {
                             self.diagnostics
@@ -537,7 +655,7 @@ impl SemanticAnalyser {
                 }
 
                 match arr_ty.ty {
-                    Type::Array(inner) | Type::Pointer(inner) => QualifierType {
+                    Type::Array(inner, _) | Type::Pointer(inner) => QualifierType {
                         ty: *inner,
                         is_const: arr_ty.is_const,
                         is_unsigned: arr_ty.is_unsigned,
@@ -675,7 +793,9 @@ impl SemanticAnalyser {
 
     fn resolve_type_inner(&self, ty: &Type) -> Type {
         match ty {
-            Type::Array(inner) => Type::Array(Box::new(self.resolve_type_inner(inner))),
+            Type::Array(inner, size) => {
+                Type::Array(Box::new(self.resolve_type_inner(inner)), *size)
+            }
             Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_type_inner(inner))),
             Type::Alias(name) => self
                 .sym
@@ -732,12 +852,101 @@ impl SemanticAnalyser {
             }
         }
     }
+
+    fn analyse_printf_call(&mut self, args: &[Expr], span: &Span, id_span: &Span) -> QualifierType {
+        if args.is_empty() {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: span.clone(),
+                    kind: SemanticErrorKind::ArityMismatch {
+                        expected: 1,
+                        found: 0,
+                    },
+                }));
+            return unknown_type();
+        }
+
+        let fmt_ty = self.analyse_expr(&args[0]);
+        if !is_string_like(&fmt_ty.ty) {
+            self.diagnostics
+                .push(CompilerError::Semantic(SemanticError {
+                    span: args[0].span(),
+                    kind: SemanticErrorKind::TypeMismatch {
+                        expected: "char*".to_string(),
+                        found: type_name(&fmt_ty.ty),
+                    },
+                }));
+        }
+
+        match args.len() {
+            1 => {}
+            2 => {
+                let arg_ty = self.analyse_expr(&args[1]);
+                if let Expr::Literal(Literal::String(fmt), _) = &args[0] {
+                    let needs_pointer = fmt.contains("%s");
+                    let needs_scalar = fmt.contains("%d")
+                        || fmt.contains("%i")
+                        || fmt.contains("%u")
+                        || fmt.contains("%c");
+
+                    if needs_pointer && !is_string_like(&arg_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: args[1].span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: "char*".to_string(),
+                                    found: type_name(&arg_ty.ty),
+                                },
+                            }));
+                    } else if needs_scalar && !is_scalar(&arg_ty.ty) {
+                        self.diagnostics
+                            .push(CompilerError::Semantic(SemanticError {
+                                span: args[1].span(),
+                                kind: SemanticErrorKind::TypeMismatch {
+                                    expected: "scalar".to_string(),
+                                    found: type_name(&arg_ty.ty),
+                                },
+                            }));
+                    }
+                } else if !is_scalar(&arg_ty.ty) && !is_string_like(&arg_ty.ty) {
+                    self.diagnostics
+                        .push(CompilerError::Semantic(SemanticError {
+                            span: args[1].span(),
+                            kind: SemanticErrorKind::TypeMismatch {
+                                expected: "scalar".to_string(),
+                                found: type_name(&arg_ty.ty),
+                            },
+                        }));
+                }
+            }
+            n => {
+                self.diagnostics
+                    .push(CompilerError::Semantic(SemanticError {
+                        span: id_span.clone(),
+                        kind: SemanticErrorKind::ArityMismatch {
+                            expected: 2,
+                            found: n,
+                        },
+                    }));
+            }
+        }
+
+        QualifierType {
+            ty: Type::Int,
+            is_const: false,
+            is_unsigned: false,
+        }
+    }
 }
 
 /// API pública: analisa o programa e retorna todos os diagnósticos semânticos
 /// (erros e avisos) como `Vec<Diagnostic>`.
 pub fn analyse(prog: &Program) -> Vec<Diagnostic> {
-    let mut analyser = SemanticAnalyser::new();
+    analyse_with_builtins(prog, BuiltinsLibs::default())
+}
+
+pub fn analyse_with_builtins(prog: &Program, builtins: BuiltinsLibs) -> Vec<Diagnostic> {
+    let mut analyser = SemanticAnalyser::with_builtins(builtins);
     analyser.analyse_program(prog);
     analyser
         .diagnostics
@@ -745,6 +954,35 @@ pub fn analyse(prog: &Program) -> Vec<Diagnostic> {
         .map(Diagnostic::Error)
         .chain(analyser.warnings.into_iter().map(Diagnostic::Warning))
         .collect()
+}
+
+/// Heurística conservadora: retorna `true` se o último statement do corpo é
+/// `Stmt::Return(Some(_))` ou se algum statement de nível de topo claramente
+/// sempre retorna (ex.: `if` com then E else ambos retornando).
+///
+/// Não tenta análise de fluxo completa; apenas evita falsos positivos nas
+/// situações mais comuns de funções de disciplina.
+fn body_always_returns(stmts: &[Stmt]) -> bool {
+    match stmts.last() {
+        Some(Stmt::Return(Some(_), _)) => true,
+        Some(Stmt::If(_, then, Some(else_), _)) => {
+            stmt_always_returns(then) && stmt_always_returns(else_)
+        }
+        Some(Stmt::Block(inner, _)) => body_always_returns(inner),
+        _ => false,
+    }
+}
+
+/// Verifica se um único statement sempre retorna (auxiliar de `body_always_returns`).
+fn stmt_always_returns(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(Some(_), _) => true,
+        Stmt::Block(stmts, _) => body_always_returns(stmts),
+        Stmt::If(_, then, Some(else_), _) => {
+            stmt_always_returns(then) && stmt_always_returns(else_)
+        }
+        _ => false,
+    }
 }
 
 fn infer_literal_type(lit: &Literal) -> QualifierType {
@@ -777,6 +1015,10 @@ fn uint_type() -> QualifierType {
     }
 }
 
+fn is_string_like(ty: &Type) -> bool {
+    matches!(ty, Type::Pointer(inner) if matches!(&**inner, Type::Char))
+}
+
 // ── Type helpers ────────────────────────────────────────────────────────────
 
 /// Retorna `true` se o tipo é numérico (inteiro ou ponto flutuante).
@@ -789,7 +1031,7 @@ fn is_numeric(ty: &Type) -> bool {
 
 /// Retorna `true` se o tipo é ponteiro ou array (array decai para ponteiro em C).
 fn is_pointer(ty: &Type) -> bool {
-    matches!(ty, Type::Pointer(_) | Type::Array(_))
+    matches!(ty, Type::Pointer(_) | Type::Array(_, _))
 }
 
 /// Retorna `true` se o tipo é escalar (numérico, ponteiro ou enum).
@@ -809,7 +1051,10 @@ fn type_name(ty: &Type) -> String {
         Type::Double => "double".into(),
         Type::Void => "void".into(),
         Type::Pointer(inner) => format!("{}*", type_name(inner)),
-        Type::Array(inner) => format!("{}[]", type_name(inner)),
+        Type::Array(inner, size) => match size {
+            Some(size) => format!("{}[{size}]", type_name(inner)),
+            None => format!("{}[]", type_name(inner)),
+        },
         Type::Struct(n) => format!("struct {}", n),
         Type::Enum(n) => format!("enum {}", n),
         Type::Alias(n) => n.clone(),
