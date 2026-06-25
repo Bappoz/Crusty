@@ -1,6 +1,6 @@
 # Representação Intermediária
 
-**Status:** Implementada, com limitações conhecidas e integração de otimização parcial
+**Status:** Concluída
 
 A representação intermediária do Crusty é baseada em TAC (*Three-Address Code*) e fica em
 `src/ir/`. Ela faz a ponte entre a AST validada pela análise semântica e o backend x86-64 em
@@ -254,9 +254,9 @@ Após lexing, parsing e análise semântica, a CLI baixa a AST com `lower_progra
 
 ---
 
-## Limitações Atuais
+## Trabalhos Futuros
 
-!!! warning "Limitações implementadas como erro explícito"
+!!! warning "Recursos fora do escopo da implementação atual"
     - chamada por expressão arbitrária, como `(*fp)(...)`, ainda não é suportada no lowering;
     - `sizeof(expr)` só suporta identificadores simples;
     - `sizeof(type)` não cobre `void`, `struct`, `alias`, `function` nem array sem tamanho conhecido;
