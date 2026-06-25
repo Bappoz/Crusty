@@ -41,7 +41,7 @@ Ela trabalha da seguinte forma:
 - **`constant_propagation` (Propagação de Constantes):**  
   Rastreia atribuições de literais (`Copy { dst: Temp, src: Const }`). Todos os usos sequenciais daquele temporário são diretamente substituídos pela respectiva constante. Se houver uma redefinição de valor para o `Temp` mapeado, ele é invalidado do cache de propagação.
 - **`dead_code_eliminate` (Eliminação de Código Morto):**  
-  Desarta cálculos dispensáveis ou não consumidos. Utiliza a informação advinda do `compute_liveness` para verificar se uma instrução de atribuição (`BinOp`, `UnOp` ou `Copy` para um `Temp`) será lida no futuro. Se o destino nunca for acessado, a instrução é excluída. São preservadas ramificações de código (`Jump`, `CondJump`, `Label`), efeitos no programa (`Call`, `Return`) e manipulação de variáveis fontes (`Var`).
+  Desarta cálculos dispensáveis ou não consumidos. Utiliza a informação advinda do `compute_liveness` para verificar se uma instrução de atribuição (`BinOp`, `UnOp` ou `Copy` para um `Temp`) será lida no futuro. Se o destino nunca for acessado, a instrução é excluída. São preservadas ramificações de código (`Jump`, `CondJump`, `Label`), efeitos no programa (`Call`, `Return`) e manipulação de variáveis/memória (locais com `Var`, globais com `Global` e referências/ponteiros com `Deref`).
 
 ---
 
@@ -66,9 +66,9 @@ Além dos passes de propagação e dobramento usuais (adaptados a este CFG paral
 
 ---
 
-## Limitações Atuais
+## Limitações Conhecidas (Trabalhos Futuros)
 
-!!! warning "Recursos ainda não implementados"
+!!! warning "Recursos fora do escopo da implementação atual"
     - Integração de `OptLevel` CLI para rodar explicitamente dentro do *Lowering/TAC Main Pipeline* — o PassManager legado encontra-se estagnado perante os stubs não funcionais.
     - Otimizações pesadas atreladas a `O3`: `loop-invariant-code-motion` (Movimentação de Invariantes em Loop) e `inlining` (Inclusão Inline de Funções) respondem `false` (passivos inativos).
     - Análise global para a **CSE**: A eliminação de subexpressão comum no PassManager não propaga árvores entre os dominadores de blocos básicos (Available Expressions / Inter-bloco). A atual verificação é estritamente local (intra-bloco).
