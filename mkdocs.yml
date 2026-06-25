@@ -13,6 +13,8 @@ nav:
     - Representação Intermediária: intermediate-representation.md
     - Otimização: optimization.md
     - Geração de Código: code-generation.md
+  - Referências:
+    - Precedência de Operadores C: c_operator_precedence.md
 
 markdown_extensions:
   - tables

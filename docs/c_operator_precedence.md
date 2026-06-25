@@ -1,7 +1,7 @@
 # C Operator Precedence Reference
 
 Source: ISO/IEC 9899:2011 (C11), §6.5 and Annex A.  
-Used as reference for the Pratt parser binding-power table in [`src/parser/precedence.rs`](../src/parser/precedence.rs).
+Used as reference for the Pratt parser binding-power table in [`src/parser/precedence.rs`](https://github.com/Bappoz/Crusty/blob/main/src/parser/precedence.rs).
 
 ---
 
